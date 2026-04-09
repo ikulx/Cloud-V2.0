@@ -720,7 +720,7 @@ router.patch('/:id', authenticate, requirePermission('devices:update'), async (r
 
   const { anlageIds, userIds, groupIds, ...data } = parsed.data
   const device = await prisma.device.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: {
       ...data,
       ...(anlageIds !== undefined && {
@@ -747,12 +747,12 @@ router.patch('/:id', authenticate, requirePermission('devices:update'), async (r
 // DELETE /api/devices/:id
 router.delete('/:id', authenticate, requirePermission('devices:delete'), async (req, res) => {
   const device = await prisma.device.findUnique({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     select: { serialNumber: true },
   })
   if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
 
-  await prisma.device.delete({ where: { id: req.params.id } })
+  await prisma.device.delete({ where: { id: req.params.id as string } })
 
   // MQTT aufräumen: Client trennen + Retained Messages löschen
   void kickMqttClient(device.serialNumber)
@@ -767,7 +767,7 @@ router.patch('/:id/approve', authenticate, requirePermission('devices:update'), 
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
 
   const device = await prisma.device.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: {
       isApproved: parsed.data.isApproved,
       // Freigabe entzogen: Secret löschen damit altes Secret nicht mehr gilt
@@ -790,7 +790,7 @@ router.post('/:id/command', authenticate, requirePermission('devices:update'), a
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
 
   const device = await prisma.device.findUnique({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     select: { id: true, serialNumber: true, status: true },
   })
   if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
@@ -810,12 +810,12 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
   const [todo] = await prisma.$transaction([
     prisma.deviceTodo.create({
-      data: { deviceId: req.params.id, ...parsed.data, createdById: req.user!.userId },
+      data: { deviceId: req.params.id as string, ...parsed.data, createdById: req.user!.userId },
       include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
     }),
     prisma.deviceLogEntry.create({
       data: {
-        deviceId: req.params.id,
+        deviceId: req.params.id as string,
         message: `Todo erstellt: "${parsed.data.title}"`,
         createdById: req.user!.userId,
       },
@@ -828,18 +828,18 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
 router.patch('/:id/todos/:todoId', authenticate, requirePermission('todos:update'), async (req, res) => {
   const parsed = todoUpdateSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
-  const existing = await prisma.deviceTodo.findUnique({ where: { id: req.params.todoId }, select: { title: true } })
+  const existing = await prisma.deviceTodo.findUnique({ where: { id: req.params.todoId as string }, select: { title: true } })
   const logMessage = parsed.data.status === 'DONE'
     ? `Todo abgehakt: "${existing?.title}"`
     : `Todo wieder geöffnet: "${existing?.title}"`
   const [todo] = await prisma.$transaction([
     prisma.deviceTodo.update({
-      where: { id: req.params.todoId, deviceId: req.params.id },
+      where: { id: req.params.todoId as string, deviceId: req.params.id as string },
       data: parsed.data,
       include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
     }),
     prisma.deviceLogEntry.create({
-      data: { deviceId: req.params.id, message: logMessage, createdById: req.user!.userId },
+      data: { deviceId: req.params.id as string, message: logMessage, createdById: req.user!.userId },
     }),
   ])
   res.json(todo)
@@ -850,7 +850,7 @@ router.post('/:id/logs', authenticate, requirePermission('logbook:create'), asyn
   const parsed = logSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
   const log = await prisma.deviceLogEntry.create({
-    data: { deviceId: req.params.id, ...parsed.data, createdById: req.user!.userId },
+    data: { deviceId: req.params.id as string, ...parsed.data, createdById: req.user!.userId },
     include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
   })
   res.status(201).json(log)
