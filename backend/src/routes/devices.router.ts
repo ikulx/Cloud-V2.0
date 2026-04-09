@@ -157,12 +157,25 @@ def api_post(url, payload):
         with urlreq.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read()), resp.status
     except urlerr.HTTPError as e:
+        raw = b""
         try:
-            return json.loads(e.read()), e.code
+            raw = e.read()
+            return json.loads(raw), e.code
         except Exception:
-            return {}, e.code
+            preview = raw[:200].decode("utf-8", errors="replace")
+            return {"error": "HTTP " + str(e.code) + " – keine JSON-Antwort", "preview": preview}, e.code
     except Exception as e:
         return {"error": str(e)}, 0
+
+def api_get(url):
+    req = urlreq.Request(url, method="GET")
+    try:
+        with urlreq.urlopen(req, timeout=10) as resp:
+            return resp.status
+    except urlerr.HTTPError as e:
+        return e.code
+    except Exception:
+        return 0
 
 # ─── AGENT-MODUS ──────────────────────────────────────────────────────────────
 def run_agent():
@@ -362,11 +375,23 @@ def run_setup():
     print("[YControl] YControl-SN: " + serial)
     print("[YControl] Pi-Hardware: " + pi_serial)
 
+    # Verbindungstest
+    print("[YControl] Pruefe Verbindung zu: " + SERVER_URL)
+    health_code = api_get(SERVER_URL + "/health")
+    if health_code == 200:
+        print("[YControl] Server erreichbar (HTTP 200)")
+    elif health_code == 0:
+        print("[YControl] FEHLER: Server nicht erreichbar – Netzwerk pruefen!", file=sys.stderr)
+        print("[YControl] URL: " + SERVER_URL + "/health", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print("[YControl] WARNUNG: Server antwortet mit HTTP " + str(health_code), file=sys.stderr)
+
     # Schritt 1: Registrieren
     print("[YControl] Registriere Geraet...")
     result, code = api_post(SERVER_URL + "/api/devices/register", {"serialNumber": serial, "piSerial": pi_serial})
     if code not in (200, 201):
-        print("[YControl] Registrierung fehlgeschlagen: " + str(result), file=sys.stderr)
+        print("[YControl] Registrierung fehlgeschlagen (HTTP " + str(code) + "): " + str(result), file=sys.stderr)
         sys.exit(1)
 
     reg_status = result.get("status", "?")
