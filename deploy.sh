@@ -38,8 +38,9 @@ fi
 # ─── Code aktualisieren ──────────────────────────────────────────────────────
 if [ "$SKIP_PULL" = false ]; then
   if [ -d ".git" ]; then
-    info "Aktualisiere Code via git pull..."
-    git pull origin main
+    info "Aktualisiere Code via git (lokale Änderungen werden verworfen)..."
+    git fetch origin main
+    git reset --hard origin/main
     success "Code aktualisiert"
   else
     warn "Kein Git-Repository gefunden – überspringe git pull"
@@ -88,17 +89,31 @@ info "Cloudflare Tunnel: kein Neustart nötig (Konfiguration liegt bei Cloudflar
 
 # ─── EMQX Backend-User sicherstellen (idempotent) ────────────────────────────
 info "Prüfe EMQX Backend-User..."
-EMQX_PASS=$(grep "^EMQX_DASHBOARD_PASSWORD=" .env | cut -d= -f2 | tr -d '"')
-MQTT_USER=$(grep "^MQTT_BACKEND_USER=" .env | cut -d= -f2 | tr -d '"')
-MQTT_PASS=$(grep "^MQTT_BACKEND_PASSWORD=" .env | cut -d= -f2 | tr -d '"')
+EMQX_PASS=$(grep "^EMQX_DASHBOARD_PASSWORD=" .env | cut -d= -f2 | tr -d '"' || true)
+MQTT_USER=$(grep "^MQTT_BACKEND_USER="       .env | cut -d= -f2 | tr -d '"' || true)
+MQTT_PASS=$(grep "^MQTT_BACKEND_PASSWORD="   .env | cut -d= -f2 | tr -d '"' || true)
 
-if curl -sf -u "admin:${EMQX_PASS}" "http://localhost:18083/api/v5/status" &>/dev/null; then
+# Auf EMQX warten (max. 30s)
+EMQX_READY=0
+for i in $(seq 1 6); do
+  EMQX_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+    -u "admin:${EMQX_PASS}" "http://localhost:18083/api/v5/status" 2>/dev/null || echo "0")
+  if [ "$EMQX_STATUS" = "200" ]; then
+    EMQX_READY=1; break
+  fi
+  info "EMQX noch nicht bereit (HTTP ${EMQX_STATUS}) – warte 5s..."
+  sleep 5
+done
+
+if [ "$EMQX_READY" = "1" ]; then
+  success "EMQX API erreichbar"
+
   # HTTP-Webhook-Auth entfernen falls vorhanden
-  HTTP_AUTH=$(curl -sf -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication" | grep -c "authn-http" || true)
-  if [ "${HTTP_AUTH}" -gt 0 ]; then
-    curl -sf -X DELETE -u "admin:${EMQX_PASS}" \
-      "http://localhost:18083/api/v5/authentication/authn-http%3Apost" >/dev/null || true
+  AUTH_LIST=$(curl -s -u "admin:${EMQX_PASS}" \
+    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "")
+  if echo "$AUTH_LIST" | grep -q "authn-http"; then
+    curl -s -X DELETE -u "admin:${EMQX_PASS}" \
+      "http://localhost:18083/api/v5/authentication/authn-http%3Apost" >/dev/null 2>&1 || true
     info "HTTP-Webhook-Authentifikator entfernt"
   fi
 
@@ -107,18 +122,24 @@ if curl -sf -u "admin:${EMQX_PASS}" "http://localhost:18083/api/v5/status" &>/de
     -X POST -u "admin:${EMQX_PASS}" \
     "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users" \
     -H "Content-Type: application/json" \
-    -d "{\"user_id\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}")
+    -d "{\"user_id\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" \
+    2>/dev/null || echo "0")
   if [ "$HTTP_CODE" = "201" ]; then
-    success "MQTT Backend-User angelegt"
+    success "MQTT Backend-User '${MQTT_USER}' angelegt"
   elif [ "$HTTP_CODE" = "409" ]; then
-    curl -sf -X PUT -u "admin:${EMQX_PASS}" \
+    curl -s -X PUT -u "admin:${EMQX_PASS}" \
       "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users/${MQTT_USER}" \
       -H "Content-Type: application/json" \
-      -d "{\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" >/dev/null
-    success "MQTT Backend-User Passwort aktualisiert"
+      -d "{\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" >/dev/null 2>&1 || true
+    success "MQTT Backend-User '${MQTT_USER}' Passwort aktualisiert"
+  else
+    warn "MQTT Backend-User konnte nicht angelegt werden (HTTP ${HTTP_CODE})"
+    warn "  EMQX_PASS leer? Prüfe EMQX_DASHBOARD_PASSWORD in .env"
+    warn "  Manuell: curl -u admin:<pw> http://localhost:18083/api/v5/authentication"
   fi
 else
-  warn "EMQX nicht erreichbar – MQTT-Auth übersprungen"
+  warn "EMQX API nicht erreichbar nach 30s – MQTT-Auth übersprungen"
+  warn "  Prüfe: docker compose -f docker-compose.prod.yml logs emqx"
 fi
 
 # ─── Alte Images aufräumen ───────────────────────────────────────────────────
