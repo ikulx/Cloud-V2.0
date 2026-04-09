@@ -228,7 +228,10 @@ def run_agent():
         print("[YControl] Tele: " + str(tele))
 
     def make_client():
-        c = mqtt.Client(client_id=serial, protocol=mqtt.MQTTv311)
+        try:
+            c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=serial, protocol=mqtt.MQTTv311)
+        except AttributeError:
+            c = mqtt.Client(client_id=serial, protocol=mqtt.MQTTv311)
         c.username_pw_set(serial, cfg["deviceSecret"])
         c.will_set(topic_stat, "offline", retain=True, qos=1)
         c.on_connect    = on_connect
