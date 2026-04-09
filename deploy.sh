@@ -106,61 +106,74 @@ for i in $(seq 1 6); do
 done
 
 if [ "$EMQX_READY" = "1" ]; then
-  # Admin-Passwort via emqx ctl direkt im Container setzen
-  # (emqx_data-Volume behält altes Passwort, Env-Var setzt es nur beim ersten Start)
-  info "Setze EMQX Admin-Passwort via CLI..."
-  docker compose -f docker-compose.prod.yml exec -T emqx \
-    emqx ctl admins passwd admin "${EMQX_PASS}" >/dev/null 2>&1 \
-    && success "EMQX Admin-Passwort gesetzt" \
-    || warn "emqx ctl admins passwd fehlgeschlagen – versuche trotzdem weiter"
 
-  # EMQX braucht 2s um das neue Passwort intern zu laden
-  sleep 3
-
-  # Aktuelle Authenticatoren anzeigen (zur Diagnose)
-  AUTH_LIST=$(curl -s -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "[]")
-  AUTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "0")
-  if [ "$AUTH_CHECK" = "401" ]; then
-    warn "EMQX API: Passwort stimmt noch nicht (HTTP 401) – versuche mit 'public'"
-    # Fallback: EMQX default Passwort versuchen und gleich ändern
-    docker compose -f docker-compose.prod.yml exec -T emqx \
-      emqx ctl admins passwd admin "${EMQX_PASS}" 2>&1 | head -1 | while read l; do info "emqx ctl: $l"; done || true
-    sleep 2
-    AUTH_LIST=$(curl -s -u "admin:${EMQX_PASS}" \
+  # Hilfsfunktion: MQTT-User anlegen/aktualisieren
+  emqx_setup_mqtt_user() {
+    local pass="$1"
+    # HTTP-Webhook-Auth entfernen falls vorhanden
+    AUTH_LIST=$(curl -s -u "admin:${pass}" \
       "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "[]")
-  fi
-
-  # HTTP-Webhook-Auth entfernen falls vorhanden
-  if echo "$AUTH_LIST" | grep -q "authn-http"; then
-    info "Entferne HTTP-Webhook-Authentifikator..."
-    curl -s -X DELETE -u "admin:${EMQX_PASS}" \
-      "http://localhost:18083/api/v5/authentication/authn-http%3Apost" >/dev/null 2>&1 || true
-    success "HTTP-Webhook-Authentifikator entfernt"
-  fi
-
-  # MQTT-Backend-User anlegen oder Passwort aktualisieren
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users" \
-    -H "Content-Type: application/json" \
-    -d "{\"user_id\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" \
-    2>/dev/null || echo "0")
-  if [ "$HTTP_CODE" = "201" ]; then
-    success "MQTT Backend-User '${MQTT_USER}' angelegt"
-  elif [ "$HTTP_CODE" = "409" ]; then
-    curl -s -X PUT -u "admin:${EMQX_PASS}" \
-      "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users/${MQTT_USER}" \
+    if echo "$AUTH_LIST" | grep -q "authn-http"; then
+      info "Entferne HTTP-Webhook-Authentifikator..."
+      curl -s -X DELETE -u "admin:${pass}" \
+        "http://localhost:18083/api/v5/authentication/authn-http%3Apost" >/dev/null 2>&1 || true
+      success "HTTP-Webhook-Authentifikator entfernt"
+    fi
+    # MQTT-Backend-User anlegen oder aktualisieren
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      -X POST -u "admin:${pass}" \
+      "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users" \
       -H "Content-Type: application/json" \
-      -d "{\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" >/dev/null 2>&1 || true
-    success "MQTT Backend-User '${MQTT_USER}' Passwort aktualisiert"
+      -d "{\"user_id\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" \
+      2>/dev/null || echo "0")
+    if [ "$HTTP_CODE" = "201" ]; then
+      success "MQTT Backend-User '${MQTT_USER}' angelegt"; return 0
+    elif [ "$HTTP_CODE" = "409" ]; then
+      curl -s -X PUT -u "admin:${pass}" \
+        "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users/${MQTT_USER}" \
+        -H "Content-Type: application/json" \
+        -d "{\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" >/dev/null 2>&1 || true
+      success "MQTT Backend-User '${MQTT_USER}' Passwort aktualisiert"; return 0
+    fi
+    return 1
+  }
+
+  # Versuch 1: mit konfiguriertem Passwort
+  API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:${EMQX_PASS}" \
+    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "0")
+
+  if [ "$API_CHECK" != "401" ]; then
+    emqx_setup_mqtt_user "${EMQX_PASS}"
   else
-    warn "MQTT Backend-User konnte nicht angelegt werden (HTTP ${HTTP_CODE})"
-    # Zeige Authenticator-Liste zur Diagnose
-    info "Konfigurierte Authenticatoren: $(echo "$AUTH_LIST" | grep -o '"id":"[^"]*"' | tr '\n' ' ')"
-    warn "  Prüfe: docker compose -f docker-compose.prod.yml logs emqx"
+    # Versuch 2: emqx ctl admins passwd + neu probieren
+    info "API noch 401 – setze Passwort via emqx ctl..."
+    docker compose -f docker-compose.prod.yml exec -T emqx \
+      emqx ctl admins passwd admin "${EMQX_PASS}" >/dev/null 2>&1 || true
+    sleep 5
+    API_CHECK2=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:${EMQX_PASS}" \
+      "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "0")
+
+    if [ "$API_CHECK2" != "401" ]; then
+      success "EMQX Passwort über emqx ctl gesetzt"
+      emqx_setup_mqtt_user "${EMQX_PASS}"
+    else
+      # Versuch 3: emqx_data Volume zurücksetzen (EMQX komplett neu initialisieren)
+      warn "EMQX API weiterhin 401 – setze emqx_data Volume zurück (einmalige Aktion)..."
+      docker compose -f docker-compose.prod.yml stop emqx
+      EMQX_VOL=$(docker volume ls --format '{{.Name}}' | grep '_emqx_data$' | head -1)
+      if [ -n "$EMQX_VOL" ]; then
+        docker volume rm "$EMQX_VOL" >/dev/null 2>&1 && info "Volume '${EMQX_VOL}' gelöscht" || true
+      fi
+      docker compose -f docker-compose.prod.yml up -d emqx
+      info "Warte auf EMQX-Neustart (25s)..."
+      sleep 25
+      # Jetzt frische Installation: Passwort kommt aus EMQX_DASHBOARD__DEFAULT_PASSWORD
+      success "EMQX neu initialisiert"
+      emqx_setup_mqtt_user "${EMQX_PASS}" \
+        || warn "MQTT Backend-User konnte nicht angelegt werden – prüfe EMQX logs"
+    fi
   fi
+
 else
   warn "EMQX nicht erreichbar nach 30s – MQTT-Auth übersprungen"
   warn "  Prüfe: docker compose -f docker-compose.prod.yml logs emqx"

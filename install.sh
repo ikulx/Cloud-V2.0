@@ -166,16 +166,29 @@ done
 if [ "$EMQX_READY" = "1" ]; then
   success "EMQX erreichbar"
 
-  # Admin-Passwort via emqx ctl setzen (Volume behält sonst altes Default-Passwort)
-  info "Setze EMQX Admin-Passwort..."
-  docker compose -f docker-compose.prod.yml exec -T emqx \
-    emqx ctl admins passwd admin "${EMQX_PASS}" >/dev/null 2>&1 \
-    && success "EMQX Admin-Passwort gesetzt" \
-    || warn "emqx ctl admins passwd fehlgeschlagen – versuche trotzdem weiter"
+  # Für Erstinstallation: API sollte direkt mit dem konfigurierten Passwort funktionieren
+  # (EMQX_DASHBOARD__DEFAULT_PASSWORD gilt beim ersten Start mit leerem Volume)
+  # Bei Reinstallation mit altem Volume: Volume löschen für sauberen Zustand
 
-  # HTTP-Webhook-Auth entfernen falls vorhanden (blockiert sonst alle Verbindungen)
+  API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:${EMQX_PASS}" \
+    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "0")
+
+  if [ "$API_CHECK" = "401" ]; then
+    warn "EMQX API: falsches Passwort (HTTP 401) – setze emqx_data Volume zurück..."
+    docker compose -f docker-compose.prod.yml stop emqx
+    EMQX_VOL=$(docker volume ls --format '{{.Name}}' | grep '_emqx_data$' | head -1)
+    if [ -n "$EMQX_VOL" ]; then
+      docker volume rm "$EMQX_VOL" >/dev/null 2>&1 && info "Volume '${EMQX_VOL}' gelöscht" || true
+    fi
+    docker compose -f docker-compose.prod.yml up -d emqx
+    info "Warte auf EMQX-Neustart (25s)..."
+    sleep 25
+    success "EMQX neu initialisiert mit konfiguriertem Passwort"
+  fi
+
+  # HTTP-Webhook-Auth entfernen falls vorhanden
   AUTH_LIST=$(curl -s -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "")
+    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "[]")
   if echo "$AUTH_LIST" | grep -q "authn-http"; then
     info "Entferne HTTP-Webhook-Authentifikator..."
     curl -s -X DELETE -u "admin:${EMQX_PASS}" \
@@ -183,7 +196,7 @@ if [ "$EMQX_READY" = "1" ]; then
     success "HTTP-Webhook-Authentifikator entfernt"
   fi
 
-  # Backend-Client-User in interner Datenbank anlegen (idempotent via PUT)
+  # Backend-Client-User anlegen (idempotent)
   info "Lege MQTT Backend-User an: ${MQTT_USER}..."
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST -u "admin:${EMQX_PASS}" \
@@ -191,7 +204,6 @@ if [ "$EMQX_READY" = "1" ]; then
     -H "Content-Type: application/json" \
     -d "{\"user_id\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" \
     2>/dev/null || echo "0")
-
   if [ "$HTTP_CODE" = "201" ]; then
     success "MQTT Backend-User angelegt"
   elif [ "$HTTP_CODE" = "409" ]; then
