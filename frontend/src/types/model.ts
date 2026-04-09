@@ -1,0 +1,134 @@
+export type DeviceStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN'
+export type TodoStatus = 'OPEN' | 'DONE'
+
+export interface Permission {
+  id: string
+  key: string
+  description: string | null
+}
+
+export interface Role {
+  id: string
+  name: string
+  description: string | null
+  permissions: { permission: Permission }[]
+  _count?: { users: number }
+}
+
+export interface UserSummary {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  address: string | null
+  isActive: boolean
+  roleId: string | null
+  role: { id: string; name: string } | null
+  groupMemberships: { group: { id: string; name: string } }[]
+  directAnlagen: { anlage: { id: string; name: string } }[]
+  directDevices: { device: { id: string; name: string } }[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface UserGroup {
+  id: string
+  name: string
+  description: string | null
+  members: { user: { id: string; firstName: string; lastName: string; email: string } }[]
+  groupAnlagen: { anlage: { id: string; name: string } }[]
+  groupDevices: { device: { id: string; name: string } }[]
+  _count?: { members: number }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Device {
+  id: string
+  name: string
+  serialNumber: string
+  status: DeviceStatus
+  isApproved: boolean
+  lastSeen: string | null
+  firmwareVersion: string | null
+  agentVersion: string | null
+  ipAddress: string | null
+  projectNumber: string | null
+  schemaNumber: string | null
+  visuVersion: string | null
+  notes: string | null
+  anlageDevices: { anlage: { id: string; name: string } }[]
+  directUsers: { user: { id: string; firstName: string; lastName: string } }[]
+  directGroups: { group: { id: string; name: string } }[]
+  mqttConnected?: boolean
+  todos?: DeviceTodo[]
+  logEntries?: DeviceLogEntry[]
+  _count?: { todos: number }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Anlage {
+  id: string
+  name: string
+  description: string | null
+  location: string | null
+  anlageDevices: { device: { id: string; name: string; status: DeviceStatus; isApproved: boolean } }[]
+  directUsers: { user: { id: string; firstName: string; lastName: string } }[]
+  groupAnlagen: { group: { id: string; name: string } }[]
+  _count?: { anlageDevices: number; todos: number }
+  todos?: AnlageTodo[]
+  logEntries?: AnlageLogEntry[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DeviceTodo {
+  id: string
+  title: string
+  details: string | null
+  status: TodoStatus
+  createdBy: { id: string; firstName: string; lastName: string }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AnlageTodo {
+  id: string
+  title: string
+  details: string | null
+  status: TodoStatus
+  createdBy: { id: string; firstName: string; lastName: string }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DeviceLogEntry {
+  id: string
+  message: string
+  createdBy: { id: string; firstName: string; lastName: string }
+  createdAt: string
+}
+
+export interface AnlageLogEntry {
+  id: string
+  message: string
+  createdBy: { id: string; firstName: string; lastName: string }
+  createdAt: string
+}
+
+export interface MeResponse {
+  userId: string
+  email: string
+  firstName: string
+  lastName: string
+  roleId: string | null
+  roleName: string | null
+  permissions: string[]
+}
+
+export interface LoginResponse {
+  accessToken: string
+  refreshToken: string
+  me: MeResponse
+}

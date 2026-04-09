@@ -1,0 +1,353 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum DeviceStatus {
+  UNKNOWN
+  ONLINE
+  OFFLINE
+}
+
+enum TodoStatus {
+  OPEN
+  DONE
+}
+
+// ─── Auth / Users ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  address      String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  roleId String? @map("role_id") @db.Uuid
+  role   Role?   @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  groupMemberships UserGroupMember[]
+  directAnlagen    UserDirectAnlage[]
+  directDevices    UserDirectDevice[]
+  refreshTokens    RefreshToken[]
+  vpnPeers         VpnPeer[]
+
+  createdAnlageTodos  AnlageTodo[]     @relation("AnlageTodoAuthor")
+  createdAnlageLogs   AnlageLogEntry[] @relation("AnlageLogAuthor")
+  createdDeviceTodos  DeviceTodo[]     @relation("DeviceTodoAuthor")
+  createdDeviceLogs   DeviceLogEntry[] @relation("DeviceLogAuthor")
+
+  @@index([roleId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ─── RBAC ─────────────────────────────────────────────────────────────────────
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  key         String           @unique
+  description String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ─── Groups ───────────────────────────────────────────────────────────────────
+
+model UserGroup {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members      UserGroupMember[]
+  groupAnlagen GroupAnlage[]
+  groupDevices GroupDevice[]
+
+  @@map("user_groups")
+}
+
+model UserGroupMember {
+  userId     String    @map("user_id") @db.Uuid
+  groupId    String    @map("group_id") @db.Uuid
+  assignedAt DateTime  @default(now()) @map("assigned_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group      UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId])
+  @@map("user_group_members")
+}
+
+// ─── Anlagen ──────────────────────────────────────────────────────────────────
+
+model Anlage {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  location    String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  anlageDevices AnlageDevice[]
+  directUsers   UserDirectAnlage[]
+  groupAnlagen  GroupAnlage[]
+  todos         AnlageTodo[]
+  logEntries    AnlageLogEntry[]
+  vpnAnlage     VpnAnlage?
+
+  @@map("anlagen")
+}
+
+model AnlageDevice {
+  anlageId   String   @map("anlage_id") @db.Uuid
+  deviceId   String   @map("device_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  anlage     Anlage   @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([anlageId, deviceId])
+  @@index([deviceId])
+  @@map("anlage_devices")
+}
+
+// ─── Devices ──────────────────────────────────────────────────────────────────
+
+model Device {
+  id              String       @id @default(uuid()) @db.Uuid
+  name            String
+  serialNumber    String       @unique @map("serial_number")
+  status          DeviceStatus @default(UNKNOWN)
+  isApproved      Boolean      @default(false) @map("is_approved")
+  lastSeen        DateTime?    @map("last_seen")
+  piSerial        String?      @map("pi_serial")
+  deviceSecret    String?      @map("device_secret")
+  firmwareVersion String?      @map("firmware_version")
+  agentVersion    String?      @map("agent_version")
+  ipAddress       String?      @map("ip_address")
+  projectNumber   String?      @map("project_number")
+  schemaNumber    String?      @map("schema_number")
+  visuVersion     String?      @map("visu_version")
+  notes           String?
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  anlageDevices AnlageDevice[]
+  directUsers   UserDirectDevice[]
+  directGroups  GroupDevice[]
+  todos         DeviceTodo[]
+  logEntries    DeviceLogEntry[]
+
+  @@map("devices")
+}
+
+// ─── Access Control Join Tables ───────────────────────────────────────────────
+
+model UserDirectAnlage {
+  userId     String   @map("user_id") @db.Uuid
+  anlageId   String   @map("anlage_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  anlage     Anlage   @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+
+  @@id([userId, anlageId])
+  @@index([anlageId])
+  @@map("user_direct_anlagen")
+}
+
+model UserDirectDevice {
+  userId     String   @map("user_id") @db.Uuid
+  deviceId   String   @map("device_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, deviceId])
+  @@index([deviceId])
+  @@map("user_direct_devices")
+}
+
+model GroupAnlage {
+  groupId    String    @map("group_id") @db.Uuid
+  anlageId   String    @map("anlage_id") @db.Uuid
+  assignedAt DateTime  @default(now()) @map("assigned_at")
+  group      UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  anlage     Anlage    @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, anlageId])
+  @@index([anlageId])
+  @@map("group_anlagen")
+}
+
+model GroupDevice {
+  groupId    String    @map("group_id") @db.Uuid
+  deviceId   String    @map("device_id") @db.Uuid
+  assignedAt DateTime  @default(now()) @map("assigned_at")
+  group      UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  device     Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, deviceId])
+  @@index([deviceId])
+  @@map("group_devices")
+}
+
+// ─── Todos & Logs ─────────────────────────────────────────────────────────────
+
+model AnlageTodo {
+  id          String     @id @default(uuid()) @db.Uuid
+  anlageId    String     @map("anlage_id") @db.Uuid
+  title       String
+  details     String?
+  status      TodoStatus @default(OPEN)
+  createdById String     @map("created_by_id") @db.Uuid
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  anlage      Anlage     @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+  createdBy   User       @relation("AnlageTodoAuthor", fields: [createdById], references: [id])
+
+  @@index([anlageId])
+  @@map("anlage_todos")
+}
+
+model AnlageLogEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  anlageId    String   @map("anlage_id") @db.Uuid
+  message     String
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  anlage      Anlage   @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("AnlageLogAuthor", fields: [createdById], references: [id])
+
+  @@index([anlageId])
+  @@map("anlage_log_entries")
+}
+
+model DeviceTodo {
+  id          String     @id @default(uuid()) @db.Uuid
+  deviceId    String     @map("device_id") @db.Uuid
+  title       String
+  details     String?
+  status      TodoStatus @default(OPEN)
+  createdById String     @map("created_by_id") @db.Uuid
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  device      Device     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  createdBy   User       @relation("DeviceTodoAuthor", fields: [createdById], references: [id])
+
+  @@index([deviceId])
+  @@map("device_todos")
+}
+
+model DeviceLogEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  deviceId    String   @map("device_id") @db.Uuid
+  message     String
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("DeviceLogAuthor", fields: [createdById], references: [id])
+
+  @@index([deviceId])
+  @@map("device_log_entries")
+}
+
+// ─── System Settings ──────────────────────────────────────────────────────────
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+// ─── VPN ──────────────────────────────────────────────────────────────────────
+
+/// VPN-Subnetz für eine Anlage (Zone B: 10.11.x.0/24 … 10.255.x.0/24)
+/// subnetIndex 1 → 10.11.1.0/24, 500 → 10.12.244.0/24, max 62 720 Anlagen
+model VpnAnlage {
+  id           String   @id @default(uuid()) @db.Uuid
+  anlageId     String   @unique @map("anlage_id") @db.Uuid
+  anlage       Anlage   @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+
+  /// Fortlaufender Index – bestimmt das /24-Subnetz eindeutig
+  subnetIndex  Int      @unique @map("subnet_index")
+
+  /// Reales LAN-Präfix des Pi (Standardwert "192.168.10", ohne führenden Punkt)
+  localPrefix  String   @default("192.168.10") @map("local_prefix")
+
+  /// WireGuard-Schlüsselpaar des Pi (vom Cloud generiert, im Download enthalten)
+  piPublicKey  String?  @map("pi_public_key")
+  piPrivateKey String?  @map("pi_private_key")
+
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("vpn_anlagen")
+}
+
+/// WireGuard-Client-Peer (Techniker, Admin, mobiler Zugriff)
+/// Peer-IP: Zone A (10.0.x.y, peerIndex bestimmt x.y)
+model VpnPeer {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String
+  publicKey  String   @unique @map("public_key")
+
+  /// Fortlaufender Index – bestimmt die Zone-A-IP
+  peerIndex  Int      @unique @map("peer_index")
+
+  /// Optional: verknüpfter Cloud-Benutzer
+  userId     String?  @map("user_id") @db.Uuid
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("vpn_peers")
+}

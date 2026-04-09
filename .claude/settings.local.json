@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(docker compose:*)",
+      "Bash(npx prisma:*)",
+      "Bash(netstat -ano)",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5432 -ErrorAction SilentlyContinue | Select-Object LocalPort, State, OwningProcess | Format-Table\")",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5432 2>$null\")",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 5432\")",
+      "Bash(docker start:*)",
+      "Bash(npx ts-node:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm run:*)",
+      "Bash(cmd /c \"npx prisma migrate dev --name add_device_is_approved\")",
+      "Bash(npx tsc:*)",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(docker ps:*)",
+      "Bash(ipconfig)",
+      "Bash(findstr /i \"IPv4\")",
+      "Bash(curl -s -u admin:admin123 http://localhost:18083/api/v5/clients)",
+      "Bash(curl -s -X POST http://localhost:18083/api/v5/login -H \"Content-Type: application/json\" -d '{\"\"username\"\":\"\"admin\"\",\"\"password\"\":\"\"admin123\"\"}')",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzU1NzM5MDY1ODAsImlzcyI6IkVNUVgifQ.11ygLZT038ncZvTWqseQA4NABrrJkhhIFQtFDsYxD0w\" curl -s -H \"Authorization: Bearer $TOKEN\" http://localhost:18083/api/v5/clients)",
+      "Bash(node -e \"require\\('mqtt'\\)\")",
+      "Bash(curl -s http://localhost:3000/api/me)",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"admin@example.com\\\\\",\\\\\"password\\\\\":\\\\\"admin123\\\\\"}\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"admin@ycontrol.local\\\\\",\\\\\"password\\\\\":\\\\\"Admin1234!\\\\\"}\")",
+      "Bash(sqlite3 \"C:\\\\Users\\\\lstadelmann\\\\Downloads\\\\ycontroldata_settings.sqlite\" \".tables\")",
+      "Bash(sqlite3 \"C:\\\\Users\\\\lstadelmann\\\\Downloads\\\\ycontroldata_settings.sqlite\" \"PRAGMA table_info\\(QHMI_VARIABLES\\);\")",
+      "Bash(sqlite3 \"C:\\\\Users\\\\lstadelmann\\\\Downloads\\\\ycontroldata_settings.sqlite\" \"SELECT NAME, VAR_VALUE, beschreibung_de FROM QHMI_VARIABLES WHERE NAME LIKE 'SYS01%' LIMIT 20;\")",
+      "Bash(sqlite3 \"C:\\\\Users\\\\lstadelmann\\\\Downloads\\\\ycontroldata_settings.sqlite\" \"SELECT COUNT\\(*\\) FROM QHMI_VARIABLES;\")",
+      "Bash(sqlite3 \"C:\\\\Users\\\\lstadelmann\\\\Downloads\\\\ycontroldata_settings.sqlite\" \"SELECT NAME, VAR_VALUE FROM QHMI_VARIABLES WHERE NAME IN \\('SYS01_DB_Anlagenamen','SYS01_DB_Projektnummer','SYS01_DB_Schemanummer','SYS01_W_SoftwareversionPLC'\\);\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('scripts',{}\\)\\); print\\([k for k in d.get\\('dependencies',{}\\).keys\\(\\)][:10]\\)\")",
+      "WebFetch(domain:192.168.10.220)",
+      "Bash(powershell -Command ':*)",
+      "Bash(set PRISMA_FORCE_COLOR=0)",
+      "Bash(node -e ':*)",
+      "Bash(grep -v \"^\\\\\\\\.\")"
+    ]
+  }
+}

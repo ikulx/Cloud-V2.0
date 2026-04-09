@@ -1,0 +1,4 @@
+# ⚠️  Diese Datei wird NICHT mehr verwendet.
+# Der Zugang zur App erfolgt über Cloudflare Tunnel (cloudflared).
+# HTTPS und Routing werden von Cloudflare übernommen – kein lokaler Reverse Proxy nötig.
+# Siehe DEPLOYMENT.md für die aktuelle Infrastruktur.

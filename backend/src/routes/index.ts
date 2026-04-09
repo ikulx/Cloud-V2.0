@@ -1,0 +1,26 @@
+import { Router } from 'express'
+import authRouter from './auth.router'
+import meRouter from './me.router'
+import usersRouter from './users.router'
+import rolesRouter from './roles.router'
+import permissionsRouter from './permissions.router'
+import groupsRouter from './groups.router'
+import anlagenRouter from './anlagen.router'
+import devicesRouter from './devices.router'
+import settingsRouter from './settings.router'
+import vpnRouter from './vpn.router'
+
+const router = Router()
+
+router.use('/auth', authRouter)
+router.use('/me', meRouter)
+router.use('/users', usersRouter)
+router.use('/roles', rolesRouter)
+router.use('/permissions', permissionsRouter)
+router.use('/groups', groupsRouter)
+router.use('/anlagen', anlagenRouter)
+router.use('/devices', devicesRouter)
+router.use('/settings', settingsRouter)
+router.use('/vpn', vpnRouter)
+
+export default router

@@ -1,0 +1,37 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ycontrol_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ycontrol_cloud
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  emqx:
+    image: emqx:5
+    container_name: ycontrol_emqx
+    ports:
+      - "1883:1883"    # MQTT (TCP)
+      - "8083:8083"    # MQTT over WebSocket
+      - "18083:18083"  # EMQX Dashboard
+    environment:
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=admin123
+      - EMQX_NODE__NAME=emqx@127.0.0.1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+      - emqx_data:/opt/emqx/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  emqx_data:

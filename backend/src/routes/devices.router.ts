@@ -1,0 +1,834 @@
+﻿import { Router } from 'express'
+import { z } from 'zod'
+import { prisma } from '../db/prisma'
+import { authenticate } from '../middleware/authenticate'
+import { requirePermission } from '../middleware/require-permission'
+import { buildVisibleDevicesWhere } from '../lib/access-filter'
+import { generateDeviceSecret, hashDeviceSecret } from '../lib/token'
+import { publishCommand, kickMqttClient, clearRetainedMessages } from '../services/mqtt.service'
+import { env } from '../config/env'
+import { getSetting } from './settings.router'
+
+const router = Router()
+
+const deviceSchema = z.object({
+  name: z.string().min(1).max(200),
+  serialNumber: z.string().min(1).max(100),
+  ipAddress: z.string().optional(),
+  firmwareVersion: z.string().optional(),
+  projectNumber: z.string().optional(),
+  schemaNumber: z.string().optional(),
+  notes: z.string().optional(),
+  anlageIds: z.array(z.string().uuid()).optional(),
+  userIds: z.array(z.string().uuid()).optional(),
+  groupIds: z.array(z.string().uuid()).optional(),
+})
+
+const todoSchema = z.object({ title: z.string().min(1), details: z.string().optional() })
+const todoUpdateSchema = z.object({ status: z.enum(['OPEN', 'DONE']) })
+const logSchema = z.object({ message: z.string().min(1) })
+
+const deviceInclude = {
+  anlageDevices: { include: { anlage: { select: { id: true, name: true } } } },
+  directUsers: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
+  directGroups: { include: { group: { select: { id: true, name: true } } } },
+  _count: { select: { todos: { where: { status: 'OPEN' as const } } } },
+}
+
+// ─── Setup Script (Python Agent) ─────────────────────────────────────────────
+
+const SETUP_SCRIPT_TEMPLATE = `#!/usr/bin/env python3
+"""
+YControl Cloud - Raspberry Pi Agent v2
+Generiert: <<GENERATED_AT>>
+
+Setup (einmalig, als root):
+  sudo python3 ycontrol-setup.py
+
+Der Agent laeuft danach als systemd-Dienst und:
+  - verbindet sich per MQTT mit dem Cloud-Broker
+  - meldet sich automatisch als ONLINE/OFFLINE (LWT)
+  - sendet Versionsinformationen und lokale IP
+  - empfaengt und beantwortet Remote-Befehle
+"""
+import json, os, sys, socket, signal, subprocess, shutil, stat, time, threading
+import urllib.request as urlreq
+import urllib.error   as urlerr
+import http.client    as httplib
+
+# ─── Konstanten ──────────────────────────────────────────────────────────────
+AGENT_VERSION = "1.0.0-RC07"
+SERVER_URL    = "<<SERVER_URL>>"
+MQTT_HOST     = "<<MQTT_HOST>>"
+MQTT_PORT     = <<MQTT_PORT>>
+CONFIG_PATH   = "/etc/ycontrol/config.json"
+AGENT_PATH    = "/usr/local/bin/ycontrol-agent.py"
+SERVICE_PATH  = "/etc/systemd/system/ycontrol-agent.service"
+SQLITE_DB     = "/home/pi/ycontrol-data/external/ycontroldata_settings.sqlite"
+
+# ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
+def get_ycontrol_sn():
+    try:
+        with open("/boot/firmware/ycontrolSN.txt") as f:
+            sn = f.read().strip()
+            if sn:
+                return sn
+    except Exception:
+        pass
+    return None
+
+def get_pi_serial():
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("Serial"):
+                    return line.split(":")[1].strip().upper()
+    except Exception:
+        pass
+    return socket.gethostname()
+
+def get_serial():
+    return get_ycontrol_sn() or get_pi_serial()
+
+def _sqlite_read(var_name):
+    """Liest einen Wert aus QHMI_VARIABLES."""
+    try:
+        import sqlite3
+        with sqlite3.connect(SQLITE_DB) as conn:
+            row = conn.execute(
+                "SELECT VAR_VALUE FROM QHMI_VARIABLES WHERE NAME = ? LIMIT 1", (var_name,)
+            ).fetchone()
+            val = row[0].strip() if row and row[0] else None
+            return val if val else None
+    except Exception as e:
+        print("[YControl] SQLite-Lesefehler (" + var_name + "): " + str(e), file=sys.stderr)
+        return None
+
+def _sqlite_write(var_name, value):
+    """Schreibt einen Wert in QHMI_VARIABLES."""
+    try:
+        import sqlite3
+        with sqlite3.connect(SQLITE_DB) as conn:
+            conn.execute(
+                "UPDATE QHMI_VARIABLES SET VAR_VALUE = ? WHERE NAME = ?", (value, var_name)
+            )
+            conn.commit()
+        return True
+    except Exception as e:
+        print("[YControl] SQLite-Schreibfehler: " + str(e), file=sys.stderr)
+        return False
+
+def get_anlage_name():    return _sqlite_read("SYS01_DB_Anlagenamen")
+def set_anlage_name(v):   return _sqlite_write("SYS01_DB_Anlagenamen", v)
+def get_project_number(): return _sqlite_read("SYS01_DB_Projektnummer")
+def get_schema_number():  return _sqlite_read("SYS01_DB_Schemanummer")
+
+def get_visu_version():
+    """Liest die Docker-Image-Version des ycontrol-rt Containers."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "ycontrol-rt", "--format", "{{.Config.Image}}"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            image = result.stdout.strip()
+            # "ikulx/y-vis3:v0.0.1-rc263" → "y-vis3:v0.0.1-rc263"
+            if "/" in image:
+                image = image.split("/", 1)[1]
+            return image if image else None
+    except Exception:
+        pass
+    return None
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "unknown"
+
+def api_post(url, payload):
+    data = json.dumps(payload).encode("utf-8")
+    req = urlreq.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urlreq.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read()), resp.status
+    except urlerr.HTTPError as e:
+        try:
+            return json.loads(e.read()), e.code
+        except Exception:
+            return {}, e.code
+    except Exception as e:
+        return {"error": str(e)}, 0
+
+# ─── AGENT-MODUS ──────────────────────────────────────────────────────────────
+def run_agent():
+    if not os.path.exists(CONFIG_PATH):
+        print("[YControl] Keine Konfiguration gefunden: " + CONFIG_PATH, file=sys.stderr)
+        sys.exit(1)
+
+    with open(CONFIG_PATH) as f:
+        cfg = json.load(f)
+
+    serial        = cfg["serialNumber"]
+    server_url    = cfg.get("serverUrl", SERVER_URL)
+    mqtt_host     = cfg.get("mqttHost", MQTT_HOST)
+    mqtt_port     = cfg.get("mqttPort", MQTT_PORT)
+    device_secret = cfg["deviceSecret"]
+
+    topic_stat = "yc/" + serial + "/stat"
+    topic_tele = "yc/" + serial + "/tele"
+    topic_cmnd = "yc/" + serial + "/cmnd"
+    topic_resp = "yc/" + serial + "/resp"
+
+    try:
+        import paho.mqtt.client as mqtt
+    except ImportError:
+        print("[YControl] paho-mqtt nicht installiert!", file=sys.stderr)
+        sys.exit(1)
+
+    TELE_INTERVAL = 600  # 10 Minuten
+    auth_failed   = [False]
+
+    def build_tele():
+        tele = {"agentVersion": AGENT_VERSION, "ipAddress": get_local_ip()}
+        for key, fn in [("anlageName",    get_anlage_name),
+                        ("projectNumber", get_project_number),
+                        ("schemaNumber",  get_schema_number),
+                        ("visuVersion",   get_visu_version)]:
+            val = fn()
+            if val:
+                tele[key] = val
+        return tele
+
+    def publish_tele(c):
+        tele = build_tele()
+        c.publish(topic_tele, json.dumps(tele), retain=True, qos=1)
+        print("[YControl] Tele: " + str(tele))
+
+    def make_client():
+        c = mqtt.Client(client_id=serial, protocol=mqtt.MQTTv311)
+        c.username_pw_set(serial, cfg["deviceSecret"])
+        c.will_set(topic_stat, "offline", retain=True, qos=1)
+        c.on_connect    = on_connect
+        c.on_disconnect = on_disconnect
+        c.on_message    = on_message
+        return c
+
+    def on_connect(c, userdata, flags, rc):
+        codes = {0:"OK",1:"Protokoll",2:"Client-ID",3:"Server",4:"Zugangsdaten",5:"Nicht autorisiert"}
+        if rc == 0:
+            auth_failed[0] = False
+            print("[YControl] MQTT verbunden: " + mqtt_host + ":" + str(mqtt_port))
+            c.publish(topic_stat, "online", retain=True, qos=1)
+            publish_tele(c)
+            c.subscribe(topic_cmnd, qos=1)
+            print("[YControl] Agent bereit v" + AGENT_VERSION)
+        else:
+            print("[YControl] MQTT Fehler: " + codes.get(rc, str(rc)), file=sys.stderr)
+            if rc in (4, 5):
+                auth_failed[0] = True
+                c.loop_stop()
+
+    def on_disconnect(c, userdata, rc):
+        if rc != 0:
+            print("[YControl] MQTT getrennt (rc=" + str(rc) + "), verbinde neu...")
+
+    def on_message(c, userdata, msg):
+        try:
+            cmd = json.loads(msg.payload.decode("utf-8"))
+        except Exception:
+            return
+        print("[YControl] Befehl empfangen: " + str(cmd))
+        action = cmd.get("action", "")
+        if action == "refresh":
+            publish_tele(c)
+            c.publish(topic_resp, json.dumps({"action": "refresh", "status": "ok"}), qos=1)
+        elif action == "restart":
+            c.publish(topic_resp, json.dumps({"action": "restart", "status": "rebooting"}), qos=1)
+            time.sleep(1)
+            subprocess.Popen(["reboot"])
+        elif action == "setName":
+            new_name = cmd.get("value", "").strip()
+            if new_name and set_anlage_name(new_name):
+                c.publish(topic_tele, json.dumps({"agentVersion": AGENT_VERSION, "ipAddress": get_local_ip(), "anlageName": new_name}), retain=True, qos=1)
+                c.publish(topic_resp, json.dumps({"action": "setName", "status": "ok"}), qos=1)
+                print("[YControl] Anlagenname gesetzt: " + new_name)
+            else:
+                c.publish(topic_resp, json.dumps({"action": "setName", "status": "error"}), qos=1)
+        elif action == "update":
+            print("[YControl] Update-Befehl empfangen – lade neues Script...")
+            try:
+                update_req = urlreq.Request(server_url + "/api/devices/agent-update", headers={
+                    "X-Device-Serial": serial,
+                    "X-Device-Secret": device_secret,
+                })
+                with urlreq.urlopen(update_req, timeout=30) as resp_http:
+                    new_script = resp_http.read()
+                tmp_path = AGENT_PATH + ".tmp"
+                with open(tmp_path, "wb") as f:
+                    f.write(new_script)
+                os.chmod(tmp_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                os.replace(tmp_path, AGENT_PATH)
+                print("[YControl] Script aktualisiert – starte Service neu...")
+                c.publish(topic_resp, json.dumps({"action": "update", "status": "ok"}), qos=1)
+                time.sleep(1)
+                subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
+            except Exception as ex:
+                print("[YControl] Update fehlgeschlagen: " + str(ex), file=sys.stderr)
+                c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": str(ex)}), qos=1)
+
+    running = [True]
+
+    def shutdown(sig, frame):
+        print("[YControl] Beende Agent...")
+        running[0] = False
+        try:
+            client[0].publish(topic_stat, "offline", retain=True, qos=1)
+            time.sleep(1)
+            client[0].loop_stop()
+            client[0].disconnect()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT,  shutdown)
+
+    client = [make_client()]
+
+    while running[0]:
+        auth_failed[0] = False
+        client[0].connect_async(mqtt_host, mqtt_port, keepalive=60)
+        client[0].loop_start()
+
+        # Tele-Timer: alle 10 Minuten neu senden
+        tele_tick = [0]
+        while running[0] and not auth_failed[0]:
+            time.sleep(1)
+            tele_tick[0] += 1
+            if tele_tick[0] >= TELE_INTERVAL and client[0].is_connected():
+                tele_tick[0] = 0
+                publish_tele(client[0])
+
+        client[0].loop_stop()
+
+        if not running[0]:
+            break
+
+        if auth_failed[0]:
+            print("[YControl] Auth fehlgeschlagen – versuche Neuregistrierung...")
+            attempt = 0
+            while running[0]:
+                attempt += 1
+                result, code = api_post(server_url + "/api/devices/register",
+                                        {"serialNumber": serial, "piSerial": get_pi_serial()})
+                if code in (200, 201):
+                    new_secret = result.get("deviceSecret")
+                    if new_secret:
+                        cfg["deviceSecret"] = new_secret
+                        with open(CONFIG_PATH, "w") as f:
+                            json.dump(cfg, f, indent=2)
+                        print("[YControl] Neues Secret erhalten – verbinde MQTT neu...")
+                        client[0] = make_client()
+                        break
+                    else:
+                        print("[YControl] Versuch " + str(attempt) + ": Warte auf Freigabe durch Administrator...")
+                        time.sleep(30)
+                        # Auch /token versuchen (falls zwischenzeitlich freigegeben)
+                        resp2, code2 = api_post(server_url + "/api/devices/token", {"serialNumber": serial})
+                        if code2 == 200 and "deviceSecret" in resp2:
+                            cfg["deviceSecret"] = resp2["deviceSecret"]
+                            with open(CONFIG_PATH, "w") as f:
+                                json.dump(cfg, f, indent=2)
+                            print("[YControl] Freigabe erhalten – verbinde MQTT neu...")
+                            client[0] = make_client()
+                            break
+                else:
+                    print("[YControl] Server nicht erreichbar (code=" + str(code) + ") – Versuch " + str(attempt) + " in 30s...")
+                    time.sleep(30)
+
+# ─── SETUP-MODUS ──────────────────────────────────────────────────────────────
+def run_setup():
+    if os.geteuid() != 0:
+        print("[FEHLER] Bitte als root ausfuehren: sudo python3 ycontrol-setup.py")
+        sys.exit(1)
+
+    serial    = get_serial()
+    pi_serial = get_pi_serial()
+    print("[YControl] YControl-SN: " + serial)
+    print("[YControl] Pi-Hardware: " + pi_serial)
+
+    # Schritt 1: Registrieren
+    print("[YControl] Registriere Geraet...")
+    result, code = api_post(SERVER_URL + "/api/devices/register", {"serialNumber": serial, "piSerial": pi_serial})
+    if code not in (200, 201):
+        print("[YControl] Registrierung fehlgeschlagen: " + str(result), file=sys.stderr)
+        sys.exit(1)
+
+    reg_status = result.get("status", "?")
+    print("[YControl] Status: " + reg_status)
+    if reg_status == "existing_approved":
+        print("[YControl] Gleiche Hardware – Token wird direkt ausgegeben.")
+    elif reg_status == "hardware_changed":
+        print("[YControl] HINWEIS: Neue Hardware erkannt! Bitte Geraet in der Cloud-UI freigeben.")
+    elif reg_status == "existing":
+        print("[YControl] Geraet bekannt – warte auf Freigabe.")
+    else:
+        print("[YControl] Neues Geraet erstellt.")
+
+    # Schritt 2: Secret holen (sofort oder warten)
+    device_secret = result.get("deviceSecret")
+    device_id     = result.get("deviceId")
+    if not device_secret:
+        print()
+        print("[YControl] Warte auf Freigabe durch Administrator...")
+        attempt = 0
+        while not device_secret:
+            attempt += 1
+            resp, code = api_post(SERVER_URL + "/api/devices/token", {"serialNumber": serial})
+            if code == 200 and "deviceSecret" in resp:
+                device_secret = resp["deviceSecret"]
+                device_id     = resp.get("deviceId", device_id)
+                break
+            print("[YControl] Versuch " + str(attempt) + ": Noch nicht freigegeben – naechster Versuch in 30s...")
+            time.sleep(30)
+    print("[YControl] Freigegeben!")
+
+    # Schritt 3: Konfiguration speichern
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    config = {
+        "serialNumber": serial,
+        "deviceId":     device_id,
+        "serverUrl":    SERVER_URL,
+        "mqttHost":     MQTT_HOST,
+        "mqttPort":     MQTT_PORT,
+        "deviceSecret": device_secret,
+    }
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+    os.chmod(CONFIG_PATH, 0o600)
+    print("[YControl] Konfiguration gespeichert: " + CONFIG_PATH)
+
+    # Schritt 4: paho-mqtt + websocket-client installieren
+    for pkg, apt_pkg in [("paho-mqtt", "python3-paho-mqtt"), ("websocket-client", "python3-websocket")]:
+        print("[YControl] Installiere " + pkg + "...")
+        installed = False
+        for cmd in [
+            ["apt-get", "install", "-y", "-q", apt_pkg],
+            [sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages", pkg],
+            [sys.executable, "-m", "pip", "install", "--quiet", pkg],
+        ]:
+            if subprocess.run(cmd, capture_output=True).returncode == 0:
+                print("[YControl] " + pkg + " installiert via: " + cmd[0])
+                installed = True
+                break
+        if not installed:
+            print("[WARNUNG] " + pkg + " konnte nicht installiert werden!")
+
+    # Schritt 5: Agent-Script installieren
+    shutil.copy2(os.path.abspath(__file__), AGENT_PATH)
+    os.chmod(AGENT_PATH, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    print("[YControl] Agent installiert: " + AGENT_PATH)
+
+    # Schritt 6: systemd-Service
+    service = """[Unit]
+Description=YControl Cloud Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+ExecStart=""" + sys.executable + """ -u """ + AGENT_PATH + """ --agent
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+"""
+    with open(SERVICE_PATH, "w") as f:
+        f.write(service)
+
+    subprocess.run(["systemctl", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "enable", "ycontrol-agent"], check=True)
+    subprocess.run(["systemctl", "restart", "ycontrol-agent"], check=True)
+    print("[YControl] Service gestartet!")
+
+    print()
+    print("  ✓ Einrichtung abgeschlossen!")
+    print("  MQTT:      " + MQTT_HOST + ":" + str(MQTT_PORT))
+    print("  Geraet-ID: " + str(device_id))
+    print()
+    print("  Logs:   journalctl -u ycontrol-agent -f")
+    print("  Status: systemctl status ycontrol-agent")
+    print()
+
+# ─── Einstiegspunkt ───────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    if "--agent" in sys.argv:
+        run_agent()
+    else:
+        run_setup()
+`
+
+// ─── Pi Registration Endpoints ────────────────────────────────────────────────
+
+// POST /api/devices/register  (Raspberry Pi → erstmalige oder erneute Registrierung)
+router.post('/register', async (req, res) => {
+  const parsed = z.object({
+    serialNumber: z.string().min(1).max(100),
+    piSerial: z.string().optional(),
+  }).safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Seriennummer erforderlich' }); return }
+
+  const { serialNumber, piSerial } = parsed.data
+  const existing = await prisma.device.findUnique({ where: { serialNumber } })
+
+  if (existing) {
+    const sameHardware = !existing.piSerial || !piSerial || existing.piSerial === piSerial
+
+    if (!sameHardware) {
+      // Neue Hardware mit gleicher YControl-SN → Freigabe zurücksetzen
+      console.log(`[Register] Hardware-Wechsel: SN="${serialNumber}" (alt: ${existing.piSerial}, neu: ${piSerial})`)
+      const { secret, hash } = generateDeviceSecret()
+      await prisma.device.update({
+        where: { id: existing.id },
+        data: { isApproved: false, piSerial, deviceSecret: hash },
+      })
+      // Kein Secret zurückgeben – muss erst neu freigegeben werden
+      res.json({ deviceId: existing.id, isApproved: false, status: 'hardware_changed' })
+      return
+    }
+
+    if (existing.isApproved) {
+      // Gleiche Hardware, bereits freigegeben → neues Secret generieren und zurückgeben
+      if (piSerial && existing.piSerial !== piSerial) {
+        await prisma.device.update({ where: { id: existing.id }, data: { piSerial } })
+      }
+      const { secret, hash } = generateDeviceSecret()
+      await prisma.device.update({ where: { id: existing.id }, data: { deviceSecret: hash } })
+      res.json({ deviceId: existing.id, isApproved: true, status: 'existing_approved', deviceSecret: secret })
+    } else {
+      res.json({ deviceId: existing.id, isApproved: false, status: 'existing' })
+    }
+    return
+  }
+
+  // Neues Gerät anlegen
+  const device = await prisma.device.create({
+    data: { name: serialNumber, serialNumber, piSerial: piSerial ?? null },
+  })
+  res.status(201).json({ deviceId: device.id, isApproved: false, status: 'created' })
+})
+
+// POST /api/devices/token  (Pi wartet auf Freigabe → holt deviceSecret)
+router.post('/token', async (req, res) => {
+  const parsed = z.object({ serialNumber: z.string().min(1) }).safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Seriennummer erforderlich' }); return }
+
+  const device = await prisma.device.findUnique({ where: { serialNumber: parsed.data.serialNumber } })
+  if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
+  if (!device.isApproved) { res.status(403).json({ message: 'Gerät nicht freigegeben' }); return }
+
+  // Generiere neues Secret bei jeder Abholung
+  const { secret, hash } = generateDeviceSecret()
+  await prisma.device.update({ where: { id: device.id }, data: { deviceSecret: hash } })
+  res.json({ deviceSecret: secret, deviceId: device.id })
+})
+
+// POST /api/devices/mqtt-auth  (EMQX webhook → Authentifizierung prüfen)
+router.post('/mqtt-auth', async (req, res) => {
+  const { username, password } = req.body as { username?: string; password?: string }
+
+  if (req.headers['x-internal-secret'] !== env.mqttAuthSecret) {
+    console.warn('[MQTT-Auth] DENY – falsches x-internal-secret')
+    res.json({ result: 'deny' }); return
+  }
+
+  if (!username || !password) {
+    res.json({ result: 'deny' }); return
+  }
+
+  // Backend-Client (interner Subscriber)
+  if (username === env.mqttBackendUser && password === env.mqttBackendPassword) {
+    console.log('[MQTT-Auth] ALLOW – backend-client')
+    res.json({ result: 'allow' }); return
+  }
+
+  // Admin-Zugang für Monitoring-Tools
+  if (username === 'admin' && password === env.mqttAdminPassword) {
+    console.log('[MQTT-Auth] ALLOW – Admin-Client')
+    res.json({ result: 'allow' }); return
+  }
+
+  // Pi-Gerät: username = serialNumber, password = deviceSecret (Plaintext)
+  const device = await prisma.device.findUnique({
+    where: { serialNumber: username },
+    select: { id: true, isApproved: true, deviceSecret: true, serialNumber: true },
+  })
+
+  if (!device) {
+    console.warn(`[MQTT-Auth] DENY – Gerät nicht gefunden: "${username}"`)
+    res.json({ result: 'deny' }); return
+  }
+  if (!device.isApproved) {
+    console.warn(`[MQTT-Auth] DENY – Nicht freigegeben: "${username}"`)
+    res.json({ result: 'deny' }); return
+  }
+  if (!device.deviceSecret) {
+    console.warn(`[MQTT-Auth] DENY – Kein Secret in DB: "${username}"`)
+    res.json({ result: 'deny' }); return
+  }
+
+  const inputHash = hashDeviceSecret(password)
+  if (inputHash !== device.deviceSecret) {
+    console.warn(`[MQTT-Auth] DENY – Falsches Secret: "${username}"`)
+    res.json({ result: 'deny' }); return
+  }
+
+  console.log(`[MQTT-Auth] ALLOW – "${username}"`)
+  res.json({ result: 'allow' })
+})
+
+// GET /api/devices/setup-script
+router.get('/setup-script', authenticate, requirePermission('devices:read'), async (req, res) => {
+  const [serverUrl, mqttHost, mqttPort] = await Promise.all([
+    getSetting('pi.serverUrl'),
+    getSetting('pi.mqttHost'),
+    getSetting('pi.mqttPort'),
+  ])
+  const script = SETUP_SCRIPT_TEMPLATE
+    .replace('<<SERVER_URL>>', serverUrl)
+    .replace('<<MQTT_HOST>>', mqttHost)
+    .replace('<<MQTT_PORT>>', mqttPort)
+    .replace('<<GENERATED_AT>>', new Date().toISOString())
+
+  res.setHeader('Content-Type', 'text/x-python')
+  res.setHeader('Content-Disposition', 'attachment; filename="ycontrol-setup.py"')
+  res.send(script)
+})
+
+// GET /api/devices/agent-update  (Pi → lädt neues Agent-Script herunter, Device-Auth via Header)
+router.get('/agent-update', async (req, res) => {
+  const serial = req.headers['x-device-serial'] as string | undefined
+  const secret = req.headers['x-device-secret'] as string | undefined
+
+  if (!serial || !secret) { res.status(401).json({ message: 'Authentifizierung erforderlich' }); return }
+
+  const device = await prisma.device.findUnique({
+    where: { serialNumber: serial },
+    select: { id: true, isApproved: true, deviceSecret: true },
+  })
+  if (!device?.isApproved || !device.deviceSecret) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
+  if (hashDeviceSecret(secret) !== device.deviceSecret) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
+
+  const [serverUrl, mqttHost, mqttPort] = await Promise.all([
+    getSetting('pi.serverUrl'),
+    getSetting('pi.mqttHost'),
+    getSetting('pi.mqttPort'),
+  ])
+  const script = SETUP_SCRIPT_TEMPLATE
+    .replace('<<SERVER_URL>>', serverUrl)
+    .replace('<<MQTT_HOST>>', mqttHost)
+    .replace('<<MQTT_PORT>>', mqttPort)
+    .replace('<<GENERATED_AT>>', new Date().toISOString())
+
+  res.setHeader('Content-Type', 'text/x-python')
+  res.send(script)
+})
+
+// ─── Device CRUD ──────────────────────────────────────────────────────────────
+
+// GET /api/devices
+router.get('/', authenticate, requirePermission('devices:read'), async (req, res) => {
+  const where = buildVisibleDevicesWhere(req.user!)
+  const devices = await prisma.device.findMany({ where, include: deviceInclude, orderBy: { name: 'asc' } })
+  res.json(devices.map((d) => ({
+    ...d,
+    mqttConnected: d.status === 'ONLINE',
+  })))
+})
+
+// GET /api/devices/:id
+router.get('/:id', authenticate, requirePermission('devices:read'), async (req, res) => {
+  const where = buildVisibleDevicesWhere(req.user!)
+  const device = await prisma.device.findFirst({
+    where: { id: req.params.id, ...where },
+    include: {
+      ...deviceInclude,
+      todos: { include: { createdBy: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { createdAt: 'desc' } },
+      logEntries: { include: { createdBy: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { createdAt: 'desc' } },
+    },
+  })
+  if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
+  res.json({ ...device, mqttConnected: device.status === 'ONLINE' })
+})
+
+// POST /api/devices
+router.post('/', authenticate, requirePermission('devices:create'), async (req, res) => {
+  const parsed = deviceSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
+
+  const { anlageIds, userIds, groupIds, ...data } = parsed.data
+  const device = await prisma.device.create({
+    data: {
+      ...data,
+      anlageDevices: anlageIds ? { create: anlageIds.map((anlageId) => ({ anlageId })) } : undefined,
+      directUsers: userIds ? { create: userIds.map((userId) => ({ userId })) } : undefined,
+      directGroups: groupIds ? { create: groupIds.map((groupId) => ({ groupId })) } : undefined,
+    },
+    include: deviceInclude,
+  })
+  res.status(201).json(device)
+})
+
+// PATCH /api/devices/:id
+router.patch('/:id', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const parsed = deviceSchema.partial().safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
+
+  const { anlageIds, userIds, groupIds, ...data } = parsed.data
+  const device = await prisma.device.update({
+    where: { id: req.params.id },
+    data: {
+      ...data,
+      ...(anlageIds !== undefined && {
+        anlageDevices: { deleteMany: {}, create: anlageIds.map((anlageId) => ({ anlageId })) },
+      }),
+      ...(userIds !== undefined && {
+        directUsers: { deleteMany: {}, create: userIds.map((userId) => ({ userId })) },
+      }),
+      ...(groupIds !== undefined && {
+        directGroups: { deleteMany: {}, create: groupIds.map((groupId) => ({ groupId })) },
+      }),
+    },
+    include: deviceInclude,
+  })
+
+  // Name geändert → an Pi zurückschreiben (Pi schreibt in SQLite DB)
+  if (parsed.data.name && device.status === 'ONLINE') {
+    publishCommand(device.serialNumber, { action: 'setName', value: parsed.data.name })
+  }
+
+  res.json(device)
+})
+
+// DELETE /api/devices/:id
+router.delete('/:id', authenticate, requirePermission('devices:delete'), async (req, res) => {
+  const device = await prisma.device.findUnique({
+    where: { id: req.params.id },
+    select: { serialNumber: true },
+  })
+  if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
+
+  await prisma.device.delete({ where: { id: req.params.id } })
+
+  // MQTT aufräumen: Client trennen + Retained Messages löschen
+  void kickMqttClient(device.serialNumber)
+  void clearRetainedMessages(device.serialNumber)
+
+  res.status(204).send()
+})
+
+// PATCH /api/devices/:id/approve
+router.patch('/:id/approve', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const parsed = z.object({ isApproved: z.boolean() }).safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+
+  const device = await prisma.device.update({
+    where: { id: req.params.id },
+    data: {
+      isApproved: parsed.data.isApproved,
+      // Freigabe entzogen: Secret löschen damit altes Secret nicht mehr gilt
+      ...(parsed.data.isApproved === false && { deviceSecret: null }),
+    },
+    include: deviceInclude,
+  })
+
+  // Freigabe entzogen → MQTT-Client sofort trennen
+  if (!parsed.data.isApproved) {
+    void kickMqttClient(device.serialNumber)
+  }
+
+  res.json(device)
+})
+
+// POST /api/devices/:id/command  (Frontend → sendet Befehl an Pi via MQTT)
+router.post('/:id/command', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const parsed = z.object({ action: z.string().min(1) }).safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+
+  const device = await prisma.device.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, serialNumber: true, status: true },
+  })
+  if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
+  if (device.status !== 'ONLINE') { res.status(409).json({ message: 'Gerät ist offline' }); return }
+
+  const sent = publishCommand(device.serialNumber, req.body)
+  if (!sent) { res.status(503).json({ message: 'MQTT nicht verfügbar' }); return }
+
+  res.json({ ok: true, serial: device.serialNumber, command: req.body })
+})
+
+// ─── Todos & Logs ─────────────────────────────────────────────────────────────
+
+// POST /api/devices/:id/todos
+router.post('/:id/todos', authenticate, requirePermission('todos:create'), async (req, res) => {
+  const parsed = todoSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+  const [todo] = await prisma.$transaction([
+    prisma.deviceTodo.create({
+      data: { deviceId: req.params.id, ...parsed.data, createdById: req.user!.userId },
+      include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+    }),
+    prisma.deviceLogEntry.create({
+      data: {
+        deviceId: req.params.id,
+        message: `Todo erstellt: "${parsed.data.title}"`,
+        createdById: req.user!.userId,
+      },
+    }),
+  ])
+  res.status(201).json(todo)
+})
+
+// PATCH /api/devices/:id/todos/:todoId
+router.patch('/:id/todos/:todoId', authenticate, requirePermission('todos:update'), async (req, res) => {
+  const parsed = todoUpdateSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+  const existing = await prisma.deviceTodo.findUnique({ where: { id: req.params.todoId }, select: { title: true } })
+  const logMessage = parsed.data.status === 'DONE'
+    ? `Todo abgehakt: "${existing?.title}"`
+    : `Todo wieder geöffnet: "${existing?.title}"`
+  const [todo] = await prisma.$transaction([
+    prisma.deviceTodo.update({
+      where: { id: req.params.todoId, deviceId: req.params.id },
+      data: parsed.data,
+      include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+    }),
+    prisma.deviceLogEntry.create({
+      data: { deviceId: req.params.id, message: logMessage, createdById: req.user!.userId },
+    }),
+  ])
+  res.json(todo)
+})
+
+// POST /api/devices/:id/logs
+router.post('/:id/logs', authenticate, requirePermission('logbook:create'), async (req, res) => {
+  const parsed = logSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+  const log = await prisma.deviceLogEntry.create({
+    data: { deviceId: req.params.id, ...parsed.data, createdById: req.user!.userId },
+    include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+  })
+  res.status(201).json(log)
+})
+
+export default router

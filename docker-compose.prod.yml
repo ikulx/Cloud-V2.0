@@ -1,0 +1,113 @@
+version: '3.9'
+
+# ─── Produktion ────────────────────────────────────────────────────────────────
+# Verwendung:
+#   Erstinstallation: ./install.sh
+#   Update:           ./deploy.sh
+#
+# Zugang von außen: Cloudflare Tunnel (cloudflared)
+# → kein offener Port 80/443 nötig, HTTPS wird von Cloudflare übernommen
+# → einziger offener Port nach draußen: 1883 (MQTT für Raspberry Pi)
+
+services:
+
+  # ─── Datenbank ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ycontrol_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB:       ${DB_NAME:-ycontrol_cloud}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── MQTT Broker (EMQX) ──────────────────────────────────────────────────────
+  emqx:
+    image: emqx:5
+    container_name: ycontrol_emqx
+    restart: unless-stopped
+    ports:
+      - "1883:1883"               # MQTT (Raspberry Pi Geräte – direkter TCP-Zugang)
+      - "127.0.0.1:18083:18083"  # EMQX Dashboard (nur via SSH-Tunnel erreichbar)
+    environment:
+      - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_DASHBOARD_PASSWORD:-admin123}
+      - EMQX_NODE__NAME=emqx@127.0.0.1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
+      - emqx_data:/opt/emqx/data
+    healthcheck:
+      test: ["CMD", "emqx", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ─── Backend (Node.js/Express) ────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ycontrol_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+    environment:
+      NODE_ENV:               production
+      PORT:                   3000
+      DATABASE_URL:           postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-ycontrol_cloud}
+      JWT_ACCESS_SECRET:      ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET:     ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN:  ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      CORS_ORIGIN:            ${APP_URL}
+      MQTT_URL:               mqtt://emqx:1883
+      MQTT_AUTH_SECRET:       ${MQTT_AUTH_SECRET}
+      MQTT_BACKEND_USER:      ${MQTT_BACKEND_USER:-backend-client}
+      MQTT_BACKEND_PASSWORD:  ${MQTT_BACKEND_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── Frontend (React + Nginx) ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ycontrol_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  # ─── Cloudflare Tunnel ────────────────────────────────────────────────────────
+  # Baut einen sicheren ausgehenden Tunnel zu Cloudflare.
+  # Kein offener Port 80/443 nötig – HTTPS und Zertifikate übernimmt Cloudflare.
+  # Das Routing (Domain → Service) wird im Cloudflare Zero Trust Dashboard konfiguriert.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ycontrol_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres_data:
+  emqx_data:
