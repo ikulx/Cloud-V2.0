@@ -150,9 +150,14 @@ def get_local_ip():
     except Exception:
         return "unknown"
 
+_HEADERS = {
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0 (compatible; YControl-Agent/2.0)",
+}
+
 def api_post(url, payload):
     data = json.dumps(payload).encode("utf-8")
-    req = urlreq.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    req = urlreq.Request(url, data=data, headers=_HEADERS, method="POST")
     try:
         with urlreq.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read()), resp.status
@@ -168,7 +173,7 @@ def api_post(url, payload):
         return {"error": str(e)}, 0
 
 def api_get(url):
-    req = urlreq.Request(url, method="GET")
+    req = urlreq.Request(url, headers={"User-Agent": _HEADERS["User-Agent"]}, method="GET")
     try:
         with urlreq.urlopen(req, timeout=10) as resp:
             return resp.status
