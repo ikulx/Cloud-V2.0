@@ -86,6 +86,41 @@ success "Frontend neu gestartet"
 # cloudflared verbindet sich automatisch neu wenn nötig.
 info "Cloudflare Tunnel: kein Neustart nötig (Konfiguration liegt bei Cloudflare)"
 
+# ─── EMQX Backend-User sicherstellen (idempotent) ────────────────────────────
+info "Prüfe EMQX Backend-User..."
+EMQX_PASS=$(grep "^EMQX_DASHBOARD_PASSWORD=" .env | cut -d= -f2 | tr -d '"')
+MQTT_USER=$(grep "^MQTT_BACKEND_USER=" .env | cut -d= -f2 | tr -d '"')
+MQTT_PASS=$(grep "^MQTT_BACKEND_PASSWORD=" .env | cut -d= -f2 | tr -d '"')
+
+if curl -sf -u "admin:${EMQX_PASS}" "http://localhost:18083/api/v5/status" &>/dev/null; then
+  # HTTP-Webhook-Auth entfernen falls vorhanden
+  HTTP_AUTH=$(curl -sf -u "admin:${EMQX_PASS}" \
+    "http://localhost:18083/api/v5/authentication" | grep -c "authn-http" || true)
+  if [ "${HTTP_AUTH}" -gt 0 ]; then
+    curl -sf -X DELETE -u "admin:${EMQX_PASS}" \
+      "http://localhost:18083/api/v5/authentication/authn-http%3Apost" >/dev/null || true
+    info "HTTP-Webhook-Authentifikator entfernt"
+  fi
+
+  # User anlegen oder Passwort aktualisieren
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST -u "admin:${EMQX_PASS}" \
+    "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users" \
+    -H "Content-Type: application/json" \
+    -d "{\"user_id\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}")
+  if [ "$HTTP_CODE" = "201" ]; then
+    success "MQTT Backend-User angelegt"
+  elif [ "$HTTP_CODE" = "409" ]; then
+    curl -sf -X PUT -u "admin:${EMQX_PASS}" \
+      "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users/${MQTT_USER}" \
+      -H "Content-Type: application/json" \
+      -d "{\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" >/dev/null
+    success "MQTT Backend-User Passwort aktualisiert"
+  fi
+else
+  warn "EMQX nicht erreichbar – MQTT-Auth übersprungen"
+fi
+
 # ─── Alte Images aufräumen ───────────────────────────────────────────────────
 info "Räume alte Images auf..."
 docker image prune -f --filter "dangling=true" >/dev/null 2>&1 || true
