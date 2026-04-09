@@ -88,16 +88,16 @@ success "Frontend neu gestartet"
 info "Cloudflare Tunnel: kein Neustart nötig (Konfiguration liegt bei Cloudflare)"
 
 # ─── EMQX Backend-User sicherstellen (idempotent) ────────────────────────────
-info "Prüfe EMQX Backend-User..."
+info "Konfiguriere EMQX..."
 EMQX_PASS=$(grep "^EMQX_DASHBOARD_PASSWORD=" .env | cut -d= -f2 | tr -d '"' || true)
 MQTT_USER=$(grep "^MQTT_BACKEND_USER="       .env | cut -d= -f2 | tr -d '"' || true)
 MQTT_PASS=$(grep "^MQTT_BACKEND_PASSWORD="   .env | cut -d= -f2 | tr -d '"' || true)
 
-# Auf EMQX warten (max. 30s)
+# Auf EMQX warten – /api/v5/status braucht KEINE Auth, daher nur auf HTTP 200 prüfen
 EMQX_READY=0
 for i in $(seq 1 6); do
   EMQX_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -u "admin:${EMQX_PASS}" "http://localhost:18083/api/v5/status" 2>/dev/null || echo "0")
+    "http://localhost:18083/api/v5/status" 2>/dev/null || echo "0")
   if [ "$EMQX_STATUS" = "200" ]; then
     EMQX_READY=1; break
   fi
@@ -106,7 +106,13 @@ for i in $(seq 1 6); do
 done
 
 if [ "$EMQX_READY" = "1" ]; then
-  success "EMQX API erreichbar"
+  # Admin-Passwort via emqx ctl direkt im Container setzen
+  # (emqx_data-Volume behält altes Passwort, Env-Var setzt es nur beim ersten Start)
+  info "Setze EMQX Admin-Passwort via CLI..."
+  docker compose -f docker-compose.prod.yml exec -T emqx \
+    emqx ctl admins passwd admin "${EMQX_PASS}" >/dev/null 2>&1 \
+    && success "EMQX Admin-Passwort gesetzt" \
+    || warn "emqx ctl admins passwd fehlgeschlagen – versuche trotzdem weiter"
 
   # HTTP-Webhook-Auth entfernen falls vorhanden
   AUTH_LIST=$(curl -s -u "admin:${EMQX_PASS}" \
@@ -117,7 +123,7 @@ if [ "$EMQX_READY" = "1" ]; then
     info "HTTP-Webhook-Authentifikator entfernt"
   fi
 
-  # User anlegen oder Passwort aktualisieren
+  # MQTT-Backend-User anlegen oder Passwort aktualisieren
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST -u "admin:${EMQX_PASS}" \
     "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users" \
@@ -134,11 +140,10 @@ if [ "$EMQX_READY" = "1" ]; then
     success "MQTT Backend-User '${MQTT_USER}' Passwort aktualisiert"
   else
     warn "MQTT Backend-User konnte nicht angelegt werden (HTTP ${HTTP_CODE})"
-    warn "  EMQX_PASS leer? Prüfe EMQX_DASHBOARD_PASSWORD in .env"
-    warn "  Manuell: curl -u admin:<pw> http://localhost:18083/api/v5/authentication"
+    warn "  Prüfe: docker compose -f docker-compose.prod.yml logs emqx"
   fi
 else
-  warn "EMQX API nicht erreichbar nach 30s – MQTT-Auth übersprungen"
+  warn "EMQX nicht erreichbar nach 30s – MQTT-Auth übersprungen"
   warn "  Prüfe: docker compose -f docker-compose.prod.yml logs emqx"
 fi
 
