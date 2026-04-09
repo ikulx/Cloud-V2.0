@@ -19,6 +19,9 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
+# OpenSSL installieren – Prisma Schema-Engine benötigt es auf Alpine
+RUN apk add --no-cache openssl
+
 # Nur was gebraucht wird
 COPY --from=deps  /app/node_modules          ./node_modules
 COPY --from=build /app/dist                  ./dist
