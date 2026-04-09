@@ -132,29 +132,71 @@ info "Starte alle Services..."
 docker compose -f docker-compose.prod.yml up -d
 success "Alle Services gestartet"
 
-# ─── Warten bis Backend bereit ist ───────────────────────────────────────────
-info "Warte auf Backend (Migrations + Seed)..."
+# ─── Warten bis Backend bereit ist (Seed läuft im CMD automatisch) ───────────
+info "Warte auf Backend (db push + Seed + Server-Start)..."
 MAX_WAIT=120
 WAITED=0
-until docker compose -f docker-compose.prod.yml exec -T backend node -e "process.exit(0)" &>/dev/null; do
-  sleep 3
-  WAITED=$((WAITED + 3))
+until docker compose -f docker-compose.prod.yml logs backend 2>/dev/null | grep -q "Server running on port"; do
+  sleep 5
+  WAITED=$((WAITED + 5))
   if [ $WAITED -ge $MAX_WAIT ]; then
     warn "Backend-Timeout – prüfe Logs mit: docker compose -f docker-compose.prod.yml logs backend"
     break
   fi
 done
+success "Backend bereit"
 
-sleep 5  # Extra Zeit für Migrations
+# ─── EMQX konfigurieren ───────────────────────────────────────────────────────
+info "Warte auf EMQX API..."
+EMQX_PASS=$(grep "^EMQX_DASHBOARD_PASSWORD=" .env | cut -d= -f2 | tr -d '"')
+MQTT_USER=$(grep "^MQTT_BACKEND_USER=" .env | cut -d= -f2 | tr -d '"')
+MQTT_PASS=$(grep "^MQTT_BACKEND_PASSWORD=" .env | cut -d= -f2 | tr -d '"')
 
-# ─── Seed ausführen ──────────────────────────────────────────────────────────
-info "Führe Datenbank-Seed aus..."
-if docker compose -f docker-compose.prod.yml exec -T backend \
-    node -e "require('./dist/prisma/seed.js').main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })" 2>/dev/null; then
-  success "Seed ausgeführt"
+EMQX_READY=0
+for i in $(seq 1 24); do
+  if curl -sf -u "admin:${EMQX_PASS}" "http://localhost:18083/api/v5/status" &>/dev/null; then
+    EMQX_READY=1
+    break
+  fi
+  sleep 5
+done
+
+if [ $EMQX_READY -eq 1 ]; then
+  success "EMQX API erreichbar"
+
+  # HTTP-Webhook-Auth entfernen falls vorhanden (blockiert sonst alle Verbindungen)
+  HTTP_AUTH=$(curl -sf -u "admin:${EMQX_PASS}" \
+    "http://localhost:18083/api/v5/authentication" | grep -c "authn-http" || true)
+  if [ "${HTTP_AUTH}" -gt 0 ]; then
+    info "Entferne HTTP-Webhook-Authentifikator..."
+    curl -sf -X DELETE -u "admin:${EMQX_PASS}" \
+      "http://localhost:18083/api/v5/authentication/authn-http%3Apost" >/dev/null || true
+    success "HTTP-Webhook-Authentifikator entfernt"
+  fi
+
+  # Backend-Client-User in interner Datenbank anlegen (idempotent via PUT)
+  info "Lege MQTT Backend-User an: ${MQTT_USER}..."
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST -u "admin:${EMQX_PASS}" \
+    "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users" \
+    -H "Content-Type: application/json" \
+    -d "{\"user_id\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}")
+
+  if [ "$HTTP_CODE" = "201" ]; then
+    success "MQTT Backend-User angelegt"
+  elif [ "$HTTP_CODE" = "409" ]; then
+    # Bereits vorhanden → Passwort aktualisieren
+    curl -sf -X PUT -u "admin:${EMQX_PASS}" \
+      "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users/${MQTT_USER}" \
+      -H "Content-Type: application/json" \
+      -d "{\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" >/dev/null
+    success "MQTT Backend-User bereits vorhanden – Passwort aktualisiert"
+  else
+    warn "MQTT Backend-User konnte nicht angelegt werden (HTTP $HTTP_CODE) – bitte manuell prüfen"
+  fi
 else
-  warn "Seed via dist nicht möglich – bitte manuell ausführen:"
-  warn "  docker compose -f docker-compose.prod.yml exec backend npx prisma db seed"
+  warn "EMQX API nicht erreichbar – MQTT-Auth muss manuell konfiguriert werden"
+  warn "  Führe später aus: ./install.sh --emqx-only"
 fi
 
 # ─── Cloudflare Tunnel Status prüfen ─────────────────────────────────────────
@@ -180,7 +222,7 @@ echo -e "  🔒 Tunnel:   Cloudflare Zero Trust Dashboard"
 echo -e "  📡 MQTT:     Port 1883 (direkt, für Raspberry Pi)"
 echo ""
 echo -e "  Standard-Login:"
-echo -e "    E-Mail:    ${YELLOW}admin@example.com${NC}"
+echo -e "    E-Mail:    ${YELLOW}admin@ycontrol.local${NC}"
 echo -e "    Passwort:  ${YELLOW}Admin1234!${NC}  ← bitte sofort ändern!"
 echo ""
 echo -e "  Nützliche Befehle:"
