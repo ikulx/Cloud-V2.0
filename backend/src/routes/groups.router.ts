@@ -29,7 +29,7 @@ router.get('/', authenticate, requirePermission('groups:read'), async (_req, res
 
 // GET /api/groups/:id
 router.get('/:id', authenticate, requirePermission('groups:read'), async (req, res) => {
-  const group = await prisma.userGroup.findUnique({ where: { id: req.params.id }, include: groupInclude })
+  const group = await prisma.userGroup.findUnique({ where: { id: req.params.id as string }, include: groupInclude })
   if (!group) { res.status(404).json({ message: 'Gruppe nicht gefunden' }); return }
   res.json(group)
 })
@@ -59,7 +59,7 @@ router.patch('/:id', authenticate, requirePermission('groups:update'), async (re
 
   const { userIds, anlageIds, deviceIds, ...data } = parsed.data
   const group = await prisma.userGroup.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: {
       ...data,
       ...(userIds !== undefined && {
@@ -79,7 +79,7 @@ router.patch('/:id', authenticate, requirePermission('groups:update'), async (re
 
 // DELETE /api/groups/:id
 router.delete('/:id', authenticate, requirePermission('groups:delete'), async (req, res) => {
-  await prisma.userGroup.delete({ where: { id: req.params.id } })
+  await prisma.userGroup.delete({ where: { id: req.params.id as string } })
   res.status(204).send()
 })
 

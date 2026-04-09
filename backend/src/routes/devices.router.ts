@@ -659,7 +659,7 @@ router.get('/', authenticate, requirePermission('devices:read'), async (req, res
 router.get('/:id', authenticate, requirePermission('devices:read'), async (req, res) => {
   const where = buildVisibleDevicesWhere(req.user!)
   const device = await prisma.device.findFirst({
-    where: { id: req.params.id, ...where },
+    where: { id: req.params.id as string, ...where },
     include: {
       ...deviceInclude,
       todos: { include: { createdBy: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { createdAt: 'desc' } },

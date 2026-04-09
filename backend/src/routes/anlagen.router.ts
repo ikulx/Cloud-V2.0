@@ -38,7 +38,7 @@ router.get('/', authenticate, requirePermission('anlagen:read'), async (req, res
 router.get('/:id', authenticate, requirePermission('anlagen:read'), async (req, res) => {
   const where = buildVisibleAnlagenWhere(req.user!)
   const anlage = await prisma.anlage.findFirst({
-    where: { id: req.params.id, ...where },
+    where: { id: req.params.id as string as string, ...where },
     include: {
       ...anlageInclude,
       todos: { include: { createdBy: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { createdAt: 'desc' } },
@@ -74,7 +74,7 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
 
   const { deviceIds, userIds, groupIds, ...data } = parsed.data
   const anlage = await prisma.anlage.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: {
       ...data,
       ...(deviceIds !== undefined && {
@@ -94,7 +94,7 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
 
 // DELETE /api/anlagen/:id
 router.delete('/:id', authenticate, requirePermission('anlagen:delete'), async (req, res) => {
-  await prisma.anlage.delete({ where: { id: req.params.id } })
+  await prisma.anlage.delete({ where: { id: req.params.id as string } })
   res.status(204).send()
 })
 
@@ -104,12 +104,12 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
   const [todo] = await prisma.$transaction([
     prisma.anlageTodo.create({
-      data: { anlageId: req.params.id, ...parsed.data, createdById: req.user!.userId },
+      data: { anlageId: req.params.id as string, ...parsed.data, createdById: req.user!.userId },
       include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
     }),
     prisma.anlageLogEntry.create({
       data: {
-        anlageId: req.params.id,
+        anlageId: req.params.id as string,
         message: `Todo erstellt: "${parsed.data.title}"`,
         createdById: req.user!.userId,
       },
@@ -122,18 +122,18 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
 router.patch('/:id/todos/:todoId', authenticate, requirePermission('todos:update'), async (req, res) => {
   const parsed = todoUpdateSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
-  const existing = await prisma.anlageTodo.findUnique({ where: { id: req.params.todoId }, select: { title: true } })
+  const existing = await prisma.anlageTodo.findUnique({ where: { id: req.params.todoId as string }, select: { title: true } })
   const logMessage = parsed.data.status === 'DONE'
     ? `Todo abgehakt: "${existing?.title}"`
     : `Todo wieder geöffnet: "${existing?.title}"`
   const [todo] = await prisma.$transaction([
     prisma.anlageTodo.update({
-      where: { id: req.params.todoId, anlageId: req.params.id },
+      where: { id: req.params.todoId as string, anlageId: req.params.id as string },
       data: parsed.data,
       include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
     }),
     prisma.anlageLogEntry.create({
-      data: { anlageId: req.params.id, message: logMessage, createdById: req.user!.userId },
+      data: { anlageId: req.params.id as string, message: logMessage, createdById: req.user!.userId },
     }),
   ])
   res.json(todo)
@@ -144,7 +144,7 @@ router.post('/:id/logs', authenticate, requirePermission('logbook:create'), asyn
   const parsed = logSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
   const log = await prisma.anlageLogEntry.create({
-    data: { anlageId: req.params.id, ...parsed.data, createdById: req.user!.userId },
+    data: { anlageId: req.params.id as string, ...parsed.data, createdById: req.user!.userId },
     include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
   })
   res.status(201).json(log)

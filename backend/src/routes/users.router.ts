@@ -43,7 +43,7 @@ router.get('/', authenticate, requirePermission('users:read'), async (_req, res)
 
 // GET /api/users/:id
 router.get('/:id', authenticate, requirePermission('users:read'), async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.params.id }, include: userInclude })
+  const user = await prisma.user.findUnique({ where: { id: req.params.id as string }, include: userInclude })
   if (!user) { res.status(404).json({ message: 'Benutzer nicht gefunden' }); return }
   res.json(sanitize(user))
 })
@@ -79,7 +79,7 @@ router.patch('/:id', authenticate, requirePermission('users:update'), async (req
   if (password) updateData.passwordHash = await hashPassword(password)
 
   const user = await prisma.user.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: {
       ...updateData,
       ...(groupIds !== undefined && {
@@ -99,11 +99,11 @@ router.patch('/:id', authenticate, requirePermission('users:update'), async (req
 
 // DELETE /api/users/:id
 router.delete('/:id', authenticate, requirePermission('users:delete'), async (req, res) => {
-  if (req.user?.userId === req.params.id) {
+  if (req.user?.userId === req.params.id as string) {
     res.status(400).json({ message: 'Eigener Account kann nicht gelöscht werden' })
     return
   }
-  await prisma.user.delete({ where: { id: req.params.id } })
+  await prisma.user.delete({ where: { id: req.params.id as string } })
   res.status(204).send()
 })
 

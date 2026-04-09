@@ -27,7 +27,7 @@ router.get('/', authenticate, requirePermission('roles:read'), async (_req, res)
 
 // GET /api/roles/:id
 router.get('/:id', authenticate, requirePermission('roles:read'), async (req, res) => {
-  const role = await prisma.role.findUnique({ where: { id: req.params.id }, include: roleInclude })
+  const role = await prisma.role.findUnique({ where: { id: req.params.id as string }, include: roleInclude })
   if (!role) { res.status(404).json({ message: 'Rolle nicht gefunden' }); return }
   res.json(role)
 })
@@ -59,7 +59,7 @@ router.patch('/:id', authenticate, requirePermission('roles:update'), async (req
   const { permissionIds, ...data } = parsed.data
 
   const role = await prisma.role.update({
-    where: { id: req.params.id },
+    where: { id: req.params.id as string },
     data: {
       ...data,
       ...(permissionIds !== undefined && {
@@ -76,7 +76,7 @@ router.patch('/:id', authenticate, requirePermission('roles:update'), async (req
 
 // DELETE /api/roles/:id
 router.delete('/:id', authenticate, requirePermission('roles:delete'), async (req, res) => {
-  await prisma.role.delete({ where: { id: req.params.id } })
+  await prisma.role.delete({ where: { id: req.params.id as string } })
   res.status(204).send()
 })
 
