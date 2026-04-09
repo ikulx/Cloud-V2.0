@@ -114,13 +114,30 @@ if [ "$EMQX_READY" = "1" ]; then
     && success "EMQX Admin-Passwort gesetzt" \
     || warn "emqx ctl admins passwd fehlgeschlagen – versuche trotzdem weiter"
 
-  # HTTP-Webhook-Auth entfernen falls vorhanden
+  # EMQX braucht 2s um das neue Passwort intern zu laden
+  sleep 3
+
+  # Aktuelle Authenticatoren anzeigen (zur Diagnose)
   AUTH_LIST=$(curl -s -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "")
+    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "[]")
+  AUTH_CHECK=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:${EMQX_PASS}" \
+    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "0")
+  if [ "$AUTH_CHECK" = "401" ]; then
+    warn "EMQX API: Passwort stimmt noch nicht (HTTP 401) – versuche mit 'public'"
+    # Fallback: EMQX default Passwort versuchen und gleich ändern
+    docker compose -f docker-compose.prod.yml exec -T emqx \
+      emqx ctl admins passwd admin "${EMQX_PASS}" 2>&1 | head -1 | while read l; do info "emqx ctl: $l"; done || true
+    sleep 2
+    AUTH_LIST=$(curl -s -u "admin:${EMQX_PASS}" \
+      "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "[]")
+  fi
+
+  # HTTP-Webhook-Auth entfernen falls vorhanden
   if echo "$AUTH_LIST" | grep -q "authn-http"; then
+    info "Entferne HTTP-Webhook-Authentifikator..."
     curl -s -X DELETE -u "admin:${EMQX_PASS}" \
       "http://localhost:18083/api/v5/authentication/authn-http%3Apost" >/dev/null 2>&1 || true
-    info "HTTP-Webhook-Authentifikator entfernt"
+    success "HTTP-Webhook-Authentifikator entfernt"
   fi
 
   # MQTT-Backend-User anlegen oder Passwort aktualisieren
@@ -140,6 +157,8 @@ if [ "$EMQX_READY" = "1" ]; then
     success "MQTT Backend-User '${MQTT_USER}' Passwort aktualisiert"
   else
     warn "MQTT Backend-User konnte nicht angelegt werden (HTTP ${HTTP_CODE})"
+    # Zeige Authenticator-Liste zur Diagnose
+    info "Konfigurierte Authenticatoren: $(echo "$AUTH_LIST" | grep -o '"id":"[^"]*"' | tr '\n' ' ')"
     warn "  Prüfe: docker compose -f docker-compose.prod.yml logs emqx"
   fi
 else
