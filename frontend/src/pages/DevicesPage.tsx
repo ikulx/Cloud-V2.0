@@ -45,7 +45,6 @@ export function DevicesPage() {
   const { data: allUsers } = useUsers()
   const { data: allGroups } = useGroups()
   const { t } = useTranslation()
-  const canCreate = usePermission('devices:create')
   const canUpdate = usePermission('devices:update')
   const canDelete = usePermission('devices:delete')
 

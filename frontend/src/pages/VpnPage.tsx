@@ -116,7 +116,7 @@ function SettingsTab() {
   const handleSave = () => {
     update.mutate(
       { serverPublicKey: pubKey, serverEndpoint: endpoint, serverPort: parseInt(port, 10) },
-      { onSuccess: () => { setDirty(false); setSaved(true); setTimeout(() => setSaved(false), 3000) } }
+      { onSuccess: () => { setSaved(true); setTimeout(() => setSaved(false), 3000) } }
     )
   }
 

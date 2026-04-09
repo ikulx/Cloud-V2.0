@@ -58,26 +58,27 @@ export function DashboardPage() {
         {t('dashboard.subtitle')}
       </Typography>
 
+      {/* MUI v7: kein item/xs/sm/md mehr → size={{ xs, sm, md }} */}
       <Grid container spacing={3} mb={4}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard icon={<DevicesIcon fontSize="large" />} label={t('dashboard.totalDevices')} value={devices?.length ?? 0} />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard icon={<CheckCircleIcon fontSize="large" />} label={t('dashboard.online')} value={online} color="success.main" />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard icon={<ErrorIcon fontSize="large" />} label={t('dashboard.offline')} value={offline} color="error.main" />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard icon={<HelpIcon fontSize="large" />} label={t('dashboard.unknown')} value={unknown} color="text.secondary" />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard icon={<AssignmentLateIcon fontSize="large" />} label={t('dashboard.withOpenTodos')} value={withOpenTodos} color="warning.main" />
         </Grid>
       </Grid>
 
       <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>{t('dashboard.deviceStatus')}</Typography>
@@ -92,7 +93,7 @@ export function DashboardPage() {
           </Card>
         </Grid>
 
-        <Grid item xs={12} md={6}>
+        <Grid size={{ xs: 12, md: 6 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>{t('nav.anlagen')} ({anlagen?.length ?? 0})</Typography>
