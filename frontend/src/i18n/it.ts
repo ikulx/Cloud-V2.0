@@ -170,7 +170,7 @@ const it = {
     piSetupTitle: 'Configurazione Script Setup Pi',
     piSetupInfo: 'Questi indirizzi vengono incorporati nello script di setup scaricato.',
     serverUrl: 'URL Server',
-    serverUrlHint: 'IP LAN del server, raggiungibile dal Raspberry Pi',
+    serverUrlHint: 'URL senza porta, es. https://cloud.example.com (no :3000 – Cloudflare Tunnel usa la porta 443)',
     mqttHost: 'Host Broker MQTT',
     mqttHostHint: 'IP LAN del broker MQTT, raggiungibile dal Raspberry Pi',
     mqttPort: 'Porta MQTT',

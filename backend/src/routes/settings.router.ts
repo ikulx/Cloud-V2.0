@@ -15,8 +15,8 @@ export const SETTING_KEYS = [
 export type SettingKey = typeof SETTING_KEYS[number]
 
 export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
-  'pi.serverUrl': 'http://192.168.10.143:3000',
-  'pi.mqttHost': '192.168.10.143',
+  'pi.serverUrl': 'https://DEINE-DOMAIN.example.com',
+  'pi.mqttHost': 'mqtt.DEINE-DOMAIN.example.com',
   'pi.mqttPort': '1883',
 }
 

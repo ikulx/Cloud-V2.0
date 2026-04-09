@@ -170,7 +170,7 @@ const en = {
     piSetupTitle: 'Pi Setup Script Configuration',
     piSetupInfo: 'These addresses are embedded in the downloaded setup script.',
     serverUrl: 'Server URL',
-    serverUrlHint: 'LAN IP of the server, reachable from Raspberry Pi',
+    serverUrlHint: 'URL without port, e.g. https://cloud.example.com (no :3000 – Cloudflare Tunnel uses port 443)',
     mqttHost: 'MQTT Broker Host',
     mqttHostHint: 'LAN IP of the MQTT broker, reachable from Raspberry Pi',
     mqttPort: 'MQTT Port',
