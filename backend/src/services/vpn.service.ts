@@ -134,24 +134,24 @@ export function generateDevicePiConfig(opts: {
   const localNet   = `${localPrefix}.0/24`
   const vpnLanNet  = `${deriveVpnLanPrefix(vpnIp)}.0/24`
 
-  const postUp = [
-    'iptables -A FORWARD -i %i -j ACCEPT',
-    'iptables -A FORWARD -o %i -j ACCEPT',
-    // MASQUERADE: VPN-Quell-IPs erscheinen als Pi-eth0-IP gegenüber LAN-Geräten
-    `iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o eth0 -j MASQUERADE`,
-    `iptables -t nat -A POSTROUTING -s ${localNet} -o eth0 -j MASQUERADE`,
-    // NETMAP 1:1: Techniker sendet an 10.11.X.Y → Pi leitet an 192.168.X.Y weiter
-    // conntrack kehrt den Weg automatisch um (Reply-Quelle wird 10.11.X.Y)
-    `iptables -t nat -A PREROUTING -i %i -d ${vpnLanNet} -j NETMAP --to ${localNet}`,
-  ].join('; ')
+  // Separate PostUp-Zeilen (wie in bewährter Referenz-Config)
+  const postUpLines = [
+    // NETMAP: VPN-LAN-Adresse → reale LAN-Adresse (1:1, kein Interface-Filter)
+    `iptables -t nat -I PREROUTING -d ${vpnLanNet} -j NETMAP --to ${localNet}`,
+    // MASQUERADE nach NETMAP: Ziel ist jetzt localNet → Quelle wird Pi-LAN-IP
+    // → LAN-Gerät antwortet an Pi, Pi routet zurück durch VPN
+    `iptables -t nat -I POSTROUTING -d ${localNet} -j MASQUERADE`,
+    // Forwarding erlauben
+    `iptables -I FORWARD -i %i -j ACCEPT`,
+    `iptables -I FORWARD -o %i -j ACCEPT`,
+  ]
 
-  const preDown = [
-    'iptables -D FORWARD -i %i -j ACCEPT',
-    'iptables -D FORWARD -o %i -j ACCEPT',
-    `iptables -t nat -D POSTROUTING -s 10.0.0.0/8 -o eth0 -j MASQUERADE`,
-    `iptables -t nat -D POSTROUTING -s ${localNet} -o eth0 -j MASQUERADE`,
-    `iptables -t nat -D PREROUTING -i %i -d ${vpnLanNet} -j NETMAP --to ${localNet}`,
-  ].join('; ')
+  const postDownLines = [
+    `iptables -t nat -D PREROUTING -d ${vpnLanNet} -j NETMAP --to ${localNet}`,
+    `iptables -t nat -D POSTROUTING -d ${localNet} -j MASQUERADE`,
+    `iptables -D FORWARD -i %i -j ACCEPT`,
+    `iptables -D FORWARD -o %i -j ACCEPT`,
+  ]
 
   return `# Ycontrol VPN — Pi-Konfiguration
 # Gerät VPN-IP: ${vpnIp}  |  Reales LAN: ${localNet}  |  VPN-LAN: ${vpnLanNet}
@@ -159,9 +159,10 @@ export function generateDevicePiConfig(opts: {
 
 [Interface]
 Address    = ${vpnIp}/32
+MTU        = 1420
 PrivateKey = ${piPrivateKey}
-PostUp     = ${postUp}
-PreDown    = ${preDown}
+${postUpLines.map(l => `PostUp   = ${l}`).join('\n')}
+${postDownLines.map(l => `PostDown = ${l}`).join('\n')}
 
 [Peer]
 # Ycontrol Cloud-Server
