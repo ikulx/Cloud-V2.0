@@ -325,20 +325,16 @@ Das Schlüsselpaar einmalig generieren:
 
 ```bash
 # WireGuard-Tools temporär nutzen (via Docker)
-docker run --rm alpine sh -c "apk add -q wireguard-tools && wg genkey | tee /tmp/server.key | wg pubkey"
+docker run --rm alpine sh -c "apk add -q wireguard-tools && \
+  priv=\$(wg genkey) && \
+  echo \"Private: \$priv\" && \
+  echo \"Public:  \$(echo \$priv | wg pubkey)\""
 ```
 
 Ausgabe:
 ```
-<PRIVATER_SCHLÜSSEL>   ← erste Zeile (in .env eintragen)
-<ÖFFENTLICHER_SCHLÜSSEL>  ← zweite Zeile (im Cloud-UI eintragen)
-```
-
-Oder alternativ auf einem PC mit WireGuard installiert:
-```bash
-wg genkey | tee server.key | wg pubkey > server.pub
-cat server.key   # → VPN_SERVER_PRIVATE_KEY
-cat server.pub   # → im UI eintragen
+Private: <privater Schlüssel>   ← in .env als VPN_SERVER_PRIVATE_KEY eintragen
+Public:  <öffentlicher Schlüssel>  ← im Cloud-UI unter VPN → Einstellungen eintragen
 ```
 
 ### Schritt 2: Privaten Schlüssel in .env eintragen
