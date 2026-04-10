@@ -56,8 +56,14 @@ import urllib.request as urlreq
 import urllib.error   as urlerr
 import http.client    as httplib
 
+# ─── IPv4 erzwingen (verhindert "Network is unreachable" bei IPv6-Auflösung) ──
+_orig_getaddrinfo = socket.getaddrinfo
+def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+socket.getaddrinfo = _ipv4_only
+
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC07"
+AGENT_VERSION = "1.0.0-RC08"
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -302,18 +308,17 @@ def run_agent():
                 print("[YControl] Update fehlgeschlagen: " + str(ex), file=sys.stderr)
                 c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": str(ex)}), qos=1)
         elif action == "vpn_install":
-            anlage_id = cmd.get("anlageId", "")
-            print("[YControl] VPN-Installation gestartet (Anlage: " + anlage_id + ")...")
-            def do_vpn_install(c, anlage_id):
+            print("[YControl] VPN-Installation gestartet...")
+            def do_vpn_install(c):
                 try:
                     # 1. WireGuard installieren
                     print("[YControl] Installiere WireGuard...")
                     subprocess.run(["apt-get", "update", "-qq"], check=True, capture_output=True)
                     subprocess.run(["apt-get", "install", "-y", "wireguard", "iptables"], check=True)
-                    # 2. Konfiguration vom Server laden
+                    # 2. Konfiguration vom Server laden (device-basiert, kein anlageId nötig)
                     print("[YControl] Lade VPN-Konfiguration...")
                     vpn_req = urlreq.Request(
-                        server_url + "/api/vpn/device-config?anlageId=" + anlage_id,
+                        server_url + "/api/vpn/device-config",
                         headers={
                             "User-Agent":      _HEADERS["User-Agent"],
                             "X-Device-Serial": serial,
@@ -342,7 +347,7 @@ def run_agent():
                 except Exception as ex:
                     print("[YControl] VPN-Installation fehlgeschlagen: " + str(ex), file=sys.stderr)
                     c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "error", "error": str(ex)}), qos=1)
-            threading.Thread(target=do_vpn_install, args=(c, anlage_id), daemon=True).start()
+            threading.Thread(target=do_vpn_install, args=(c,), daemon=True).start()
 
     running = [True]
 
