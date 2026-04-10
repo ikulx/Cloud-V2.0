@@ -105,14 +105,15 @@ AllowedIPs = ${ip}/32
 }
 
 /**
- * Leitet den VPN-LAN-Präfix aus dem realen LAN-Präfix ab.
- * Konvention: letztes Segment von localPrefix wird als drittes Oktett in 10.11.x verwendet.
- * Beispiel: localPrefix="192.168.10" → vpnLanPrefix="10.11.10" → vpnLanNet="10.11.10.0/24"
- * Techniker erreicht 192.168.10.5 via 10.11.10.5 (NETMAP 1:1)
+ * Leitet den VPN-LAN-Präfix aus der VPN-IP des Geräts ab.
+ * Konvention: letztes Oktett der VPN-IP wird als drittes Oktett in 10.11.x verwendet.
+ * Beispiel: vpnIp="10.11.0.2"  → vpnLanPrefix="10.11.2"  → vpnLanNet="10.11.2.0/24"
+ *           vpnIp="10.11.0.10" → vpnLanPrefix="10.11.10" → vpnLanNet="10.11.10.0/24"
+ * Techniker erreicht 192.168.10.5 via 10.11.2.5 (NETMAP 1:1)
  */
-export function deriveVpnLanPrefix(localPrefix: string): string {
-  const lastSegment = localPrefix.split('.').pop() ?? '0'
-  return `10.11.${lastSegment}`
+export function deriveVpnLanPrefix(vpnIp: string): string {
+  const lastOctet = vpnIp.split('.').pop() ?? '0'
+  return `10.11.${lastOctet}`
 }
 
 /** Erzeugt die wg0.conf-Konfiguration für einen Pi (mit NETMAP für LAN-Zugriff). */
@@ -124,7 +125,7 @@ export function generateDevicePiConfig(opts: {
 }): string {
   const { vpnIp, localPrefix, piPrivateKey, settings } = opts
   const localNet   = `${localPrefix}.0/24`
-  const vpnLanNet  = `${deriveVpnLanPrefix(localPrefix)}.0/24`
+  const vpnLanNet  = `${deriveVpnLanPrefix(vpnIp)}.0/24`
 
   const postUp = [
     'iptables -A FORWARD -i %i -j ACCEPT',
@@ -172,7 +173,7 @@ export function buildDevicePeerBlock(opts: {
   piPublicKey: string
 }): string {
   const { deviceName, vpnIp, localPrefix, piPublicKey } = opts
-  const vpnLanNet = `${deriveVpnLanPrefix(localPrefix)}.0/24`
+  const vpnLanNet = `${deriveVpnLanPrefix(vpnIp)}.0/24`
   return `
 # Gerät: ${deviceName}
 [Peer]
