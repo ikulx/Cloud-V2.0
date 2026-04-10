@@ -234,8 +234,17 @@ router.delete('/devices/:deviceId', authenticate, requirePermission('vpn:manage'
   const existing = await prisma.vpnDevice.findUnique({ where: { deviceId } })
   if (!existing) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
 
+  // Gerät laden um die Seriennummer für MQTT zu bekommen
+  const device = await prisma.device.findUnique({ where: { id: deviceId }, select: { serialNumber: true } })
+
   await prisma.vpnDevice.delete({ where: { deviceId } })
   syncAll().catch((e) => console.error('[VPN] syncAll nach device delete:', e))
+
+  // MQTT-Befehl an Pi: WireGuard stoppen + Config löschen
+  if (device?.serialNumber) {
+    publishCommand(device.serialNumber, { action: 'vpn_remove' })
+  }
+
   res.json({ ok: true })
 })
 

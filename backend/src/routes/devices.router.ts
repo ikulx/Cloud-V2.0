@@ -63,7 +63,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC11"
+AGENT_VERSION = "1.0.0-RC12"
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -362,6 +362,25 @@ def run_agent():
                         print("[YControl] VPN-Installation fehlgeschlagen: " + str(ex), file=sys.stderr)
                         c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "error", "error": str(ex)}), qos=1)
                 threading.Thread(target=do_vpn_install, args=(c, vpn_config), daemon=True).start()
+        elif action == "vpn_remove":
+            def do_vpn_remove(c):
+                try:
+                    print("[YControl] VPN-Deinstallation gestartet...")
+                    subprocess.run(["systemctl", "disable", "wg-quick@wg0"], capture_output=True)
+                    subprocess.run(["wg-quick", "down", "wg0"], capture_output=True)
+                    subprocess.run(["ip", "link", "delete", "wg0"], capture_output=True)
+                    subprocess.run(["systemctl", "reset-failed", "wg-quick@wg0"], capture_output=True)
+                    # Config löschen
+                    try:
+                        os.remove("/etc/wireguard/wg0.conf")
+                    except FileNotFoundError:
+                        pass
+                    print("[YControl] VPN entfernt!")
+                    c.publish(topic_resp, json.dumps({"action": "vpn_remove", "status": "ok"}), qos=1)
+                except Exception as ex:
+                    print("[YControl] VPN-Deinstallation fehlgeschlagen: " + str(ex), file=sys.stderr)
+                    c.publish(topic_resp, json.dumps({"action": "vpn_remove", "status": "error", "error": str(ex)}), qos=1)
+            threading.Thread(target=do_vpn_remove, args=(c,), daemon=True).start()
 
     running = [True]
 
