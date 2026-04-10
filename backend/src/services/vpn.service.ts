@@ -106,14 +106,21 @@ AllowedIPs = ${ip}/32
 
 /**
  * Leitet den VPN-LAN-Präfix aus der VPN-IP des Geräts ab.
- * Konvention: letztes Oktett der VPN-IP wird als drittes Oktett in 10.11.x verwendet.
- * Beispiel: vpnIp="10.11.0.2"  → vpnLanPrefix="10.11.2"  → vpnLanNet="10.11.2.0/24"
- *           vpnIp="10.11.0.10" → vpnLanPrefix="10.11.10" → vpnLanNet="10.11.10.0/24"
- * Techniker erreicht 192.168.10.5 via 10.11.2.5 (NETMAP 1:1)
+ *
+ * Schema: VPN-IP  10.A.0.B  →  VPN-LAN  10.A.B.0/24
+ *
+ * Beispiele:
+ *   10.11.0.1   → 10.11.1.0/24   (erster Pi)
+ *   10.11.0.2   → 10.11.2.0/24
+ *   10.255.0.255 → 10.255.255.0/24 (letzter Pi)
+ *
+ * Zweites Oktett (A) bleibt, viertes Oktett (B) wird zum dritten.
+ * Das dritte Oktett der VPN-IP ist immer 0.
  */
 export function deriveVpnLanPrefix(vpnIp: string): string {
-  const lastOctet = vpnIp.split('.').pop() ?? '0'
-  return `10.11.${lastOctet}`
+  const parts = vpnIp.split('.')
+  // 10.A.0.B → 10.A.B
+  return `${parts[0]}.${parts[1]}.${parts[3]}`
 }
 
 /** Erzeugt die wg0.conf-Konfiguration für einen Pi (mit NETMAP für LAN-Zugriff). */
