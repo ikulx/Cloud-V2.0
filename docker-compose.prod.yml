@@ -67,6 +67,8 @@ services:
       dockerfile: Dockerfile
     container_name: ycontrol_backend
     restart: unless-stopped
+    cap_add:
+      - NET_ADMIN   # Benötigt für: ip route add 10.0.0.0/8 via ycontrol_wireguard (VPN-Proxy)
     depends_on:
       postgres:
         condition: service_healthy

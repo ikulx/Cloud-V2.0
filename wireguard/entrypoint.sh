@@ -18,6 +18,14 @@ fi
 echo "[WireGuard] Starte Interface wg0..."
 wg-quick up wg0
 
+# Erlaube dem Backend-Container, VPN-Traffic über diesen Container zu routen.
+# Backend sendet Pakete an 10.x.x.x → dieser Container leitet sie via wg0 weiter.
+echo "[WireGuard] Setze Forwarding-Regeln für Backend-Container..."
+iptables -A FORWARD -i eth0 -o wg0 -j ACCEPT
+iptables -A FORWARD -i wg0 -o eth0 -j ACCEPT
+iptables -t nat -A POSTROUTING -o wg0 -j MASQUERADE
+echo "[WireGuard] Forwarding aktiv (eth0 ↔ wg0)"
+
 reload_wg() {
   echo "[WireGuard] Reload via SIGHUP..."
   if wg syncconf wg0 <(wg-quick strip wg0) 2>/dev/null; then
