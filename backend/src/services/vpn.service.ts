@@ -64,10 +64,16 @@ export function generatePeerConfig(opts: {
 }): string {
   const { peerIndex, settings, privateKey, allowedCidrs } = opts
   const ip = peerIp(peerIndex)
-  const allowed = allowedCidrs?.length ? allowedCidrs.join(', ') : '10.0.0.0/8'
+  // Default: alle privaten RFC-1918-Netze durch den Tunnel (kein Internet-Traffic)
+  // 10.0.0.0/8: VPN-Adressen (Techniker, Server, Geräte)
+  // 192.168.0.0/16 + 172.16.0.0/12: typische Pi-LANs hinter den Geräten
+  const allowed = allowedCidrs?.length
+    ? allowedCidrs.join(', ')
+    : '10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16'
 
-  return `# Ycontrol VPN — Techniker-Konfiguration
-# Peer-IP: ${ip}  |  Zugriff: ${allowed}
+  return `# Ycontrol VPN — Techniker-Konfiguration (Split Tunnel)
+# Peer-IP: ${ip}  |  Durch VPN: ${allowed}
+# Internet-Traffic bleibt auf lokalem Netzwerk
 # Generiert: ${new Date().toISOString()}
 
 [Interface]
@@ -116,12 +122,16 @@ export function generateDevicePiConfig(opts: {
   const postUp = [
     'iptables -A FORWARD -i %i -j ACCEPT',
     'iptables -A FORWARD -o %i -j ACCEPT',
+    // Masquerade VPN→LAN traffic: local devices see Pi's own eth0 IP as source
+    // so they can reply correctly without needing a custom route back to VPN
+    `iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o eth0 -j MASQUERADE`,
     `iptables -t nat -A POSTROUTING -s ${localNet} -o eth0 -j MASQUERADE`,
   ].join('; ')
 
   const preDown = [
     'iptables -D FORWARD -i %i -j ACCEPT',
     'iptables -D FORWARD -o %i -j ACCEPT',
+    `iptables -t nat -D POSTROUTING -s 10.0.0.0/8 -o eth0 -j MASQUERADE`,
     `iptables -t nat -D POSTROUTING -s ${localNet} -o eth0 -j MASQUERADE`,
   ].join('; ')
 
