@@ -27,7 +27,6 @@ import { useDevices, useCreateDevice, useUpdateDevice, useDeleteDevice, useAppro
 import { useAnlagen } from '../features/anlagen/queries'
 import { useUsers } from '../features/users/queries'
 import { useGroups } from '../features/groups/queries'
-import { StatusChip } from '../components/StatusChip'
 import Chip from '@mui/material/Chip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect'
