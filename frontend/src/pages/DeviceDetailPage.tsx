@@ -115,6 +115,8 @@ export function DeviceDetailPage() {
   const [visuOpen, setVisuOpen] = useState(false)
   const [visuTargetIp, setVisuTargetIp] = useState('')    // leer = Pi selbst; sonst LAN-IP z.B. 192.168.10.50
   const [visuTargetPort, setVisuTargetPort] = useState('')  // leer = visuPort aus Config
+  const [pingResult, setPingResult] = useState<{ reachable: boolean; statusCode?: number; latencyMs?: number; error?: string; ip?: string; port?: number } | null>(null)
+  const [pinging, setPinging] = useState(false)
   const [newVpnIp, setNewVpnIp] = useState('')
   const [newLocalPrefix, setNewLocalPrefix] = useState('192.168.10')
   const [newVisuPort, setNewVisuPort] = useState('80')
@@ -421,7 +423,7 @@ export function DeviceDetailPage() {
                   label="Ziel-IP (optional)"
                   size="small"
                   value={visuTargetIp}
-                  onChange={(e) => { setVisuTargetIp(e.target.value); setVisuOpen(false) }}
+                  onChange={(e) => { setVisuTargetIp(e.target.value); setVisuOpen(false); setPingResult(null) }}
                   placeholder={`${vpnConfig.localPrefix}.1`}
                   helperText={visuTargetIp ? `→ Pi leitet via NETMAP weiter` : 'Leer = Pi selbst'}
                   sx={{ width: 200 }}
@@ -431,12 +433,43 @@ export function DeviceDetailPage() {
                   size="small"
                   type="number"
                   value={visuTargetPort}
-                  onChange={(e) => { setVisuTargetPort(e.target.value); setVisuOpen(false) }}
+                  onChange={(e) => { setVisuTargetPort(e.target.value); setVisuOpen(false); setPingResult(null) }}
                   placeholder={String(vpnConfig.visuPort ?? 80)}
                   helperText={`Standard: ${vpnConfig.visuPort ?? 80}`}
                   inputProps={{ min: 1, max: 65535 }}
                   sx={{ width: 140 }}
                 />
+                <Box>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    disabled={pinging}
+                    onClick={async () => {
+                      setPinging(true)
+                      setPingResult(null)
+                      try {
+                        const res = await import('../lib/api').then(m => m.apiGet<typeof pingResult>(`/vpn/devices/${id}/ping`))
+                        setPingResult(res)
+                      } catch {
+                        setPingResult({ reachable: false, error: 'Anfrage fehlgeschlagen' })
+                      } finally {
+                        setPinging(false)
+                      }
+                    }}
+                  >
+                    {pinging ? 'Teste…' : 'Verbindung testen'}
+                  </Button>
+                  {pingResult && (
+                    <Typography variant="caption" display="block" mt={0.5}
+                      color={pingResult.reachable ? 'success.main' : 'error.main'}
+                    >
+                      {pingResult.reachable
+                        ? `✓ Erreichbar – HTTP ${pingResult.statusCode} in ${pingResult.latencyMs}ms (${pingResult.ip}:${pingResult.port})`
+                        : `✗ Nicht erreichbar (${pingResult.ip}:${pingResult.port}) – ${pingResult.error}`
+                      }
+                    </Typography>
+                  )}
+                </Box>
               </Box>
 
               {(() => {

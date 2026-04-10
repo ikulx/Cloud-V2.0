@@ -493,6 +493,29 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
   res.send(config)
 })
 
+// ─── VPN-Erreichbarkeitstest ──────────────────────────────────────────────────
+// GET /api/vpn/devices/:deviceId/ping
+// Prüft ob der Pi via VPN-IP auf dem konfigurierten visuPort erreichbar ist
+router.get('/devices/:deviceId/ping', authenticate, requirePermission('vpn:manage'), async (req, res) => {
+  const deviceId = req.params.deviceId as string
+  const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
+  if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
+
+  const ip   = vpnDevice.vpnIp
+  const port = vpnDevice.visuPort
+
+  const start = Date.now()
+  const testReq = http.request({ hostname: ip, port, path: '/', method: 'GET', timeout: 5000 }, (testRes) => {
+    testRes.resume()
+    res.json({ reachable: true, statusCode: testRes.statusCode, latencyMs: Date.now() - start, ip, port })
+  })
+  testReq.on('timeout', () => testReq.destroy(new Error('TIMEOUT')))
+  testReq.on('error', (err) => {
+    res.json({ reachable: false, error: err.message, ip, port })
+  })
+  testReq.end()
+})
+
 // ─── Visu-Proxy ───────────────────────────────────────────────────────────────
 // GET /api/vpn/devices/:deviceId/visu/*
 // Authentifizierung: Bearer-Token im Header ODER ?access_token= als Query-Parameter
@@ -560,7 +583,9 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
 
     const proxyReq = http.request(
       { hostname: parsed.hostname, port: portNum, path: parsed.pathname + parsed.search, method: req.method,
-        headers: { ...req.headers, host: hostHdr } },
+        headers: { ...req.headers, host: hostHdr },
+        timeout: 8000,   // 8s Gesamttimeout – feuert auch bei hängenden TCP-Verbindungen
+      },
       (proxyRes) => {
         const status = proxyRes.statusCode ?? 200
 
@@ -615,17 +640,18 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
       }
     )
 
+    proxyReq.on('timeout', () => {
+      proxyReq.destroy(new Error('PROXY_TIMEOUT'))
+    })
+
     proxyReq.on('error', (err) => {
       console.error(`[VPN-Proxy] ${url}:`, err.message)
       if (!res.headersSent) {
-        res.status(502).json({ message: `Ziel nicht erreichbar (${piVisuIp}:${piVisuPort}): ${err.message}` })
-      }
-    })
-
-    proxyReq.setTimeout(10000, () => {
-      proxyReq.destroy()
-      if (!res.headersSent) {
-        res.status(504).json({ message: `Timeout – kein Response von ${piVisuIp}:${piVisuPort}` })
+        if (err.message === 'PROXY_TIMEOUT') {
+          res.status(504).json({ message: `Timeout – Pi nicht erreichbar via VPN (${piVisuIp}:${piVisuPort}). WireGuard aktiv?` })
+        } else {
+          res.status(502).json({ message: `Pi nicht erreichbar (${piVisuIp}:${piVisuPort}): ${err.message}` })
+        }
       }
     })
 
