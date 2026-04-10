@@ -58,11 +58,14 @@ docker compose -f docker-compose.prod.yml build
 success "Images gebaut"
 
 # ─── MQTT neu starten (Mosquitto – Config aus Git-Repo) ──────────────────────
-# mosquitto.conf kommt direkt aus dem Repo (bind-mount :ro)
-# → nach git reset immer aktuell, nur bei Config-Änderungen Neustart nötig
 info "Starte Mosquitto MQTT neu (falls Config geändert)..."
 docker compose -f docker-compose.prod.yml up -d --no-deps mqtt
 success "Mosquitto aktuell"
+
+# ─── WireGuard VPN-Server ─────────────────────────────────────────────────────
+info "Starte WireGuard VPN-Server..."
+docker compose -f docker-compose.prod.yml up -d --no-deps wireguard
+success "WireGuard gestartet"
 
 # ─── Backend neu starten (führt DB-Migrations aus) ───────────────────────────
 info "Starte Backend neu (inkl. DB-Migrations)..."

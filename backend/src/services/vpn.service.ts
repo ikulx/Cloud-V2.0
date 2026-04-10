@@ -64,7 +64,7 @@ export function generatePeerConfig(opts: {
 }): string {
   const { peerIndex, settings, privateKey, allowedCidrs } = opts
   const ip = peerIp(peerIndex)
-  const allowed = allowedCidrs?.length ? allowedCidrs.join(', ') : '10.0.0.0/13'
+  const allowed = allowedCidrs?.length ? allowedCidrs.join(', ') : '10.0.0.0/8'
 
   return `# Ycontrol VPN — Techniker-Konfiguration
 # Peer-IP: ${ip}  |  Zugriff: ${allowed}
@@ -139,7 +139,7 @@ PreDown    = ${preDown}
 # Ycontrol Cloud-Server
 PublicKey           = ${settings.serverPublicKey}
 Endpoint            = ${settings.serverEndpoint}
-AllowedIPs          = 10.0.0.0/13
+AllowedIPs          = 10.0.0.0/8
 PersistentKeepalive = 25
 `
 }
