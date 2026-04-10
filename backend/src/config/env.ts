@@ -22,4 +22,9 @@ export const env = {
   mqttBackendUser: process.env.MQTT_BACKEND_USER ?? 'backend-client',
   mqttBackendPassword: process.env.MQTT_BACKEND_PASSWORD ?? 'backend-dev-secret',
   mqttUrl: process.env.MQTT_URL ?? 'mqtt://localhost:1883',
+  vpn: {
+    serverPrivateKey: process.env.VPN_SERVER_PRIVATE_KEY ?? '',
+    wgContainer:      process.env.VPN_WG_CONTAINER      ?? 'ycontrol_wireguard',
+    wgConfigPath:     process.env.VPN_WG_CONFIG_PATH    ?? '/wireguard-config/wg0.conf',
+  },
 }

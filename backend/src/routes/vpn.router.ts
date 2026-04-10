@@ -29,8 +29,12 @@ import {
   generatePeerConfig,
   buildServerPiPeerBlock,
   buildServerPeerBlock,
+  syncWireGuardConfig,
   type VpnSettings,
 } from '../services/vpn.service'
+import { env } from '../config/env'
+import { publishCommand } from '../services/mqtt.service'
+import { hashDeviceSecret } from '../lib/token'
 
 const router = Router()
 
@@ -62,6 +66,40 @@ async function nextPeerIndex(): Promise<number> {
   return (last?.peerIndex ?? 0) + 1
 }
 
+/** Liest alle aktuellen VPN-Daten und schreibt wg0.conf + löst Reload aus. */
+async function syncAll(): Promise<void> {
+  const [settings, vpnAnlagen, vpnPeers] = await Promise.all([
+    getVpnSettings(),
+    prisma.vpnAnlage.findMany({ orderBy: { subnetIndex: 'asc' } }),
+    prisma.vpnPeer.findMany({ orderBy: { peerIndex: 'asc' } }),
+  ])
+
+  const anlagenNamen = new Map<string, string>()
+  if (vpnAnlagen.length > 0) {
+    const anlagen = await prisma.anlage.findMany({
+      where: { id: { in: vpnAnlagen.map((a) => a.anlageId) } },
+      select: { id: true, name: true },
+    })
+    for (const a of anlagen) anlagenNamen.set(a.id, a.name)
+  }
+
+  await syncWireGuardConfig(
+    {
+      privateKey: env.vpn.serverPrivateKey,
+      settings,
+      anlagen: vpnAnlagen.map((a) => ({
+        anlageId:    a.anlageId,
+        anlageName:  anlagenNamen.get(a.anlageId) ?? a.anlageId,
+        subnetIndex: a.subnetIndex,
+        piPublicKey: a.piPublicKey,
+      })),
+      peers: vpnPeers.map((p) => ({ peerIndex: p.peerIndex, name: p.name, publicKey: p.publicKey })),
+    },
+    env.vpn.wgConfigPath,
+    env.vpn.wgContainer,
+  )
+}
+
 // ─── Einstellungen ────────────────────────────────────────────────────────────
 
 // GET /api/vpn/settings
@@ -87,6 +125,7 @@ router.put('/settings', authenticate, requirePermission('vpn:manage'), async (re
     setVpnSetting('vpn_server_endpoint',   serverEndpoint),
     setVpnSetting('vpn_server_port',       String(serverPort ?? 51820)),
   ])
+  syncAll().catch((e) => console.error('[VPN] syncAll nach settings update:', e))
   res.json({ ok: true })
 })
 
@@ -161,6 +200,7 @@ router.post('/anlagen/:anlageId/enable', authenticate, requirePermission('vpn:ma
     localPrefix,
     piPublicKey,
   })
+  syncAll().catch((e) => console.error('[VPN] syncAll nach enable:', e))
 })
 
 // DELETE /api/vpn/anlagen/:anlageId
@@ -170,6 +210,7 @@ router.delete('/anlagen/:anlageId', authenticate, requirePermission('vpn:manage'
   if (!existing) { res.status(404).json({ message: 'Kein VPN für diese Anlage' }); return }
 
   await prisma.vpnAnlage.delete({ where: { anlageId: _anlageId } })
+  syncAll().catch((e) => console.error('[VPN] syncAll nach delete anlage:', e))
   res.json({ ok: true })
 })
 
@@ -325,6 +366,7 @@ router.post('/peers', authenticate, requirePermission('vpn:manage'), async (req,
     user:      peer.user,
     createdAt: peer.createdAt,
   })
+  syncAll().catch((e) => console.error('[VPN] syncAll nach add peer:', e))
 })
 
 // DELETE /api/vpn/peers/:id
@@ -334,6 +376,7 @@ router.delete('/peers/:id', authenticate, requirePermission('vpn:manage'), async
   if (!peer) { res.status(404).json({ message: 'Peer nicht gefunden' }); return }
 
   await prisma.vpnPeer.delete({ where: { id: peerId } })
+  syncAll().catch((e) => console.error('[VPN] syncAll nach delete peer:', e))
   res.json({ ok: true })
 })
 
@@ -352,6 +395,83 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
   res.setHeader('Content-Type',        'text/plain; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.send(config)
+})
+
+// ─── Pi-seitiger Konfig-Download (Device-Auth) ───────────────────────────────
+
+// GET /api/vpn/device-config?anlageId=...
+// Wird vom Pi-Agent aufgerufen. Auth via x-device-serial + x-device-secret Header.
+router.get('/device-config', async (req, res) => {
+  const serial = req.headers['x-device-serial'] as string | undefined
+  const secret = req.headers['x-device-secret'] as string | undefined
+
+  if (!serial || !secret) { res.status(401).json({ message: 'Authentifizierung erforderlich' }); return }
+
+  const device = await prisma.device.findUnique({
+    where: { serialNumber: serial },
+    select: { id: true, isApproved: true, deviceSecret: true },
+  })
+  if (!device?.isApproved || !device.deviceSecret) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
+  if (hashDeviceSecret(secret) !== device.deviceSecret) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
+
+  const anlageId = req.query.anlageId as string | undefined
+  if (!anlageId) { res.status(400).json({ message: 'anlageId erforderlich' }); return }
+
+  const [vpnAnlage, anlageRecord] = await Promise.all([
+    prisma.vpnAnlage.findUnique({ where: { anlageId } }),
+    prisma.anlage.findUnique({ where: { id: anlageId }, select: { name: true } }),
+  ])
+  if (!vpnAnlage) { res.status(404).json({ message: 'Kein VPN für diese Anlage' }); return }
+  if (!vpnAnlage.piPrivateKey) { res.status(409).json({ message: 'Kein privater Schlüssel vorhanden' }); return }
+
+  const settings = await getVpnSettings()
+  if (!settings.serverPublicKey || !settings.serverEndpoint) {
+    res.status(409).json({ message: 'VPN-Server nicht konfiguriert' }); return
+  }
+
+  const config = generatePiConfig({
+    subnetIndex:  vpnAnlage.subnetIndex,
+    localPrefix:  vpnAnlage.localPrefix,
+    piPrivateKey: vpnAnlage.piPrivateKey,
+    settings,
+  })
+
+  const safeName = (anlageRecord?.name ?? anlageId).replace(/[^a-z0-9]/gi, '-').toLowerCase()
+  res.setHeader('Content-Type',        'text/plain; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="ycontrol-vpn-${safeName}.conf"`)
+  res.send(config)
+})
+
+// ─── VPN auf Pi deployen (sendet MQTT-Kommando) ──────────────────────────────
+
+// POST /api/vpn/anlagen/:anlageId/deploy
+router.post('/anlagen/:anlageId/deploy', authenticate, requirePermission('vpn:manage'), async (req, res) => {
+  const anlageId = req.params.anlageId as string
+
+  const vpnAnlage = await prisma.vpnAnlage.findUnique({ where: { anlageId } })
+  if (!vpnAnlage) { res.status(404).json({ message: 'Kein VPN für diese Anlage konfiguriert' }); return }
+
+  const settings = await getVpnSettings()
+  if (!settings.serverPublicKey || !settings.serverEndpoint) {
+    res.status(409).json({ message: 'VPN-Server-Einstellungen unvollständig' }); return
+  }
+
+  // Freigegebene Geräte der Anlage ermitteln
+  const anlageDevices = await prisma.anlageDevice.findMany({
+    where: { anlageId },
+    include: { device: { select: { serialNumber: true, isApproved: true } } },
+  })
+
+  const approved = anlageDevices.filter((ad) => ad.device.isApproved)
+  if (approved.length === 0) {
+    res.status(404).json({ message: 'Keine freigegebenen Geräte für diese Anlage gefunden' }); return
+  }
+
+  for (const ad of approved) {
+    publishCommand(ad.device.serialNumber, { action: 'vpn_install', anlageId })
+  }
+
+  res.json({ ok: true, targeted: approved.length, serials: approved.map((ad) => ad.device.serialNumber) })
 })
 
 export default router

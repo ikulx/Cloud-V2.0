@@ -15,6 +15,9 @@
  */
 
 import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
+import http from 'http'
 
 // ─── IP-Berechnungen ──────────────────────────────────────────────────────────
 
@@ -203,4 +206,96 @@ export function buildServerPeerBlock(opts: {
 PublicKey  = ${publicKey}
 AllowedIPs = ${ip}/32
 `
+}
+
+// ─── Server-Konfig-Sync ───────────────────────────────────────────────────────
+
+export interface ServerConfigOpts {
+  privateKey:  string
+  settings:    VpnSettings
+  anlagen: Array<{ anlageId: string; anlageName: string; subnetIndex: number; piPublicKey: string | null }>
+  peers:   Array<{ peerIndex: number; name: string; publicKey: string }>
+}
+
+/**
+ * Schreibt die vollständige wg0.conf in den gemeinsamen Volume-Pfad
+ * und sendet SIGHUP an den WireGuard-Container.
+ * Fehler werden nur geloggt (kein Crash) – im Dev-Modus ohne Docker läuft das leer.
+ */
+export async function syncWireGuardConfig(opts: ServerConfigOpts, configPath: string, containerName: string): Promise<void> {
+  const { privateKey, settings, anlagen, peers } = opts
+
+  if (!privateKey) {
+    console.warn('[VPN] VPN_SERVER_PRIVATE_KEY nicht gesetzt – wg0.conf wird nicht geschrieben')
+    return
+  }
+
+  const anlagenBlocks = anlagen
+    .filter((a) => a.piPublicKey)
+    .map((a) => buildServerPiPeerBlock({
+      anlageId:    a.anlageId,
+      anlageName:  a.anlageName,
+      subnetIndex: a.subnetIndex,
+      piPublicKey: a.piPublicKey!,
+    }))
+    .join('')
+
+  const peerBlocks = peers
+    .map((p) => buildServerPeerBlock({ peerIndex: p.peerIndex, peerName: p.name, publicKey: p.publicKey }))
+    .join('')
+
+  const config = `# Ycontrol VPN — Server-Konfiguration (wg0.conf)
+# Automatisch generiert: ${new Date().toISOString()}
+
+[Interface]
+Address    = 10.1.0.1/8
+ListenPort = ${settings.serverPort}
+PrivateKey = ${privateKey}
+
+# ─── Anlagen ─────────────────────────────────────────────────────────────────
+${anlagenBlocks}
+# ─── Techniker-Peers ─────────────────────────────────────────────────────────
+${peerBlocks}`
+
+  try {
+    const dir = path.dirname(configPath)
+    if (!fs.existsSync(dir)) {
+      console.warn(`[VPN] Config-Verzeichnis existiert nicht: ${dir} – überspringe Schreiben`)
+      return
+    }
+    fs.writeFileSync(configPath, config, { mode: 0o600 })
+    console.log(`[VPN] wg0.conf geschrieben: ${configPath}`)
+    await reloadWireGuard(containerName)
+  } catch (err) {
+    console.error('[VPN] Fehler beim Schreiben der wg0.conf:', err)
+  }
+}
+
+/**
+ * Sendet SIGHUP an den WireGuard-Container via Docker-Socket-API.
+ * Bewirkt wg syncconf (Hot-Reload ohne Verbindungsunterbrechung).
+ */
+function reloadWireGuard(containerName: string): Promise<void> {
+  return new Promise((resolve) => {
+    const req = http.request(
+      {
+        socketPath: '/var/run/docker.sock',
+        path:       `/containers/${containerName}/kill?signal=SIGHUP`,
+        method:     'POST',
+      },
+      (res) => {
+        if (res.statusCode === 204) {
+          console.log('[VPN] WireGuard-Reload ausgelöst (SIGHUP)')
+        } else {
+          console.warn(`[VPN] Docker-API SIGHUP: HTTP ${res.statusCode}`)
+        }
+        resolve()
+      }
+    )
+    req.on('error', (err) => {
+      console.warn('[VPN] Docker-Socket nicht erreichbar (Dev-Modus?):', err.message)
+      resolve()
+    })
+    req.end()
+  })
 }

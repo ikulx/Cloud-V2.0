@@ -101,3 +101,10 @@ export function useDeleteVpnPeer() {
     onSuccess:  () => qc.invalidateQueries({ queryKey: ['vpn', 'peers'] }),
   })
 }
+
+export function useDeployVpnToAnlage() {
+  return useMutation({
+    mutationFn: (anlageId: string) =>
+      apiPost<{ ok: boolean; targeted: number; serials: string[] }>(`/vpn/anlagen/${anlageId}/deploy`, {}),
+  })
+}

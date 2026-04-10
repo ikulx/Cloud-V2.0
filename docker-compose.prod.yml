@@ -42,6 +42,24 @@ services:
       retries: 5
       start_period: 5s
 
+  # ─── WireGuard VPN-Server ─────────────────────────────────────────────────────
+  wireguard:
+    build:
+      context: ./wireguard
+      dockerfile: Dockerfile
+    container_name: ycontrol_wireguard
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv4.ip_forward=1
+    volumes:
+      - wireguard_config:/etc/wireguard
+    ports:
+      - "51820:51820/udp"
+
   # ─── Backend (Node.js/Express) ────────────────────────────────────────────────
   backend:
     build:
@@ -55,18 +73,24 @@ services:
       mqtt:
         condition: service_started
     environment:
-      NODE_ENV:               production
-      PORT:                   3000
-      DATABASE_URL:           postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-ycontrol_cloud}
-      JWT_ACCESS_SECRET:      ${JWT_ACCESS_SECRET}
-      JWT_REFRESH_SECRET:     ${JWT_REFRESH_SECRET}
-      JWT_ACCESS_EXPIRES_IN:  ${JWT_ACCESS_EXPIRES_IN:-15m}
-      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
-      CORS_ORIGIN:            ${APP_URL}
-      MQTT_URL:               mqtt://mqtt:1883
-      MQTT_AUTH_SECRET:       ${MQTT_AUTH_SECRET}
-      MQTT_BACKEND_USER:      ${MQTT_BACKEND_USER:-backend-client}
-      MQTT_BACKEND_PASSWORD:  ${MQTT_BACKEND_PASSWORD}
+      NODE_ENV:                  production
+      PORT:                      3000
+      DATABASE_URL:              postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-ycontrol_cloud}
+      JWT_ACCESS_SECRET:         ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET:        ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN:     ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN:    ${JWT_REFRESH_EXPIRES_IN:-7d}
+      CORS_ORIGIN:               ${APP_URL}
+      MQTT_URL:                  mqtt://mqtt:1883
+      MQTT_AUTH_SECRET:          ${MQTT_AUTH_SECRET}
+      MQTT_BACKEND_USER:         ${MQTT_BACKEND_USER:-backend-client}
+      MQTT_BACKEND_PASSWORD:     ${MQTT_BACKEND_PASSWORD}
+      VPN_SERVER_PRIVATE_KEY:    ${VPN_SERVER_PRIVATE_KEY:-}
+      VPN_WG_CONTAINER:          ycontrol_wireguard
+      VPN_WG_CONFIG_PATH:        /wireguard-config/wg0.conf
+    volumes:
+      - wireguard_config:/wireguard-config
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
       interval: 15s
@@ -101,3 +125,4 @@ services:
 
 volumes:
   postgres_data:
+  wireguard_config:

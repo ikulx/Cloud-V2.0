@@ -28,11 +28,14 @@ import RouterIcon from '@mui/icons-material/Router'
 import PeopleIcon from '@mui/icons-material/People'
 import SettingsIcon from '@mui/icons-material/Settings'
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew'
+import InstallDesktopIcon from '@mui/icons-material/InstallDesktop'
+import Snackbar from '@mui/material/Snackbar'
 import { useTranslation } from 'react-i18next'
 import {
   useVpnSettings, useUpdateVpnSettings,
   useVpnAnlagen, useEnableVpnAnlage, useDisableVpnAnlage,
   useVpnPeers, useAddVpnPeer, useDeleteVpnPeer,
+  useDeployVpnToAnlage,
 } from '../features/vpn/queries'
 import { useQuery } from '@tanstack/react-query'
 import { apiGet } from '../lib/api'
@@ -240,11 +243,13 @@ function AnlagenTab() {
   const { data: allAnlagen }            = useAllAnlagen()
   const enableMut  = useEnableVpnAnlage()
   const disableMut = useDisableVpnAnlage()
+  const deployMut  = useDeployVpnToAnlage()
 
   const [enableDialog, setEnableDialog] = useState(false)
   const [selectedAnlageId, setSelectedAnlageId] = useState('')
   const [localPrefix, setLocalPrefix]   = useState('192.168.10')
   const [confirmDisable, setConfirmDisable] = useState<string | null>(null)
+  const [deployMsg, setDeployMsg] = useState<string | null>(null)
 
   const enabledIds = new Set(vpnAnlagen?.map((v) => v.anlageId))
   const available  = allAnlagen?.filter((a) => !enabledIds.has(a.id)) ?? []
@@ -299,6 +304,21 @@ function AnlagenTab() {
                       : <Chip label={t('vpn.keyMissing')} size="small" color="warning" />}
                   </TableCell>
                   <TableCell align="right">
+                    <Tooltip title={t('vpn.deployToPi')}>
+                      <span>
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          disabled={deployMut.isPending}
+                          onClick={() => deployMut.mutate(a.anlageId, {
+                            onSuccess: (res) => setDeployMsg(t('vpn.deploySuccess', { count: res.targeted })),
+                            onError:   () => setDeployMsg(t('vpn.deployError')),
+                          })}
+                        >
+                          <InstallDesktopIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
                     <Tooltip title={t('vpn.downloadPiConfig')}>
                       <IconButton size="small" onClick={() => downloadBlob(`/api/vpn/anlagen/${a.anlageId}/pi-config`, `vpn-${a.anlageName}.conf`)}>
                         <DownloadIcon fontSize="small" />
@@ -316,6 +336,14 @@ function AnlagenTab() {
           </Table>
         </Card>
       )}
+
+      {/* Deploy-Feedback */}
+      <Snackbar
+        open={!!deployMsg}
+        autoHideDuration={5000}
+        onClose={() => setDeployMsg(null)}
+        message={deployMsg}
+      />
 
       {/* Dialog: Anlage aktivieren */}
       <Dialog open={enableDialog} onClose={() => setEnableDialog(false)} maxWidth="sm" fullWidth>

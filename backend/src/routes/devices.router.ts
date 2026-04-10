@@ -301,6 +301,48 @@ def run_agent():
             except Exception as ex:
                 print("[YControl] Update fehlgeschlagen: " + str(ex), file=sys.stderr)
                 c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": str(ex)}), qos=1)
+        elif action == "vpn_install":
+            anlage_id = cmd.get("anlageId", "")
+            print("[YControl] VPN-Installation gestartet (Anlage: " + anlage_id + ")...")
+            def do_vpn_install(c, anlage_id):
+                try:
+                    # 1. WireGuard installieren
+                    print("[YControl] Installiere WireGuard...")
+                    subprocess.run(["apt-get", "update", "-qq"], check=True, capture_output=True)
+                    subprocess.run(["apt-get", "install", "-y", "wireguard", "iptables"], check=True)
+                    # 2. Konfiguration vom Server laden
+                    print("[YControl] Lade VPN-Konfiguration...")
+                    vpn_req = urlreq.Request(
+                        server_url + "/api/vpn/device-config?anlageId=" + anlage_id,
+                        headers={
+                            "User-Agent":      _HEADERS["User-Agent"],
+                            "X-Device-Serial": serial,
+                            "X-Device-Secret": device_secret,
+                        }
+                    )
+                    with urlreq.urlopen(vpn_req, timeout=30) as vpn_resp:
+                        vpn_config = vpn_resp.read().decode("utf-8")
+                    # 3. Konfiguration schreiben
+                    os.makedirs("/etc/wireguard", exist_ok=True)
+                    wg_conf = "/etc/wireguard/wg0.conf"
+                    with open(wg_conf, "w") as f:
+                        f.write(vpn_config)
+                    os.chmod(wg_conf, 0o600)
+                    print("[YControl] wg0.conf geschrieben")
+                    # 4. Laufenden Tunnel neu laden falls aktiv, sonst starten
+                    wg_active = subprocess.run(["systemctl", "is-active", "wg-quick@wg0"],
+                                               capture_output=True).returncode == 0
+                    if wg_active:
+                        subprocess.run(["systemctl", "reload-or-restart", "wg-quick@wg0"], check=True)
+                    else:
+                        subprocess.run(["systemctl", "enable", "wg-quick@wg0"], check=True)
+                        subprocess.run(["systemctl", "start",  "wg-quick@wg0"], check=True)
+                    print("[YControl] VPN aktiv!")
+                    c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "ok"}), qos=1)
+                except Exception as ex:
+                    print("[YControl] VPN-Installation fehlgeschlagen: " + str(ex), file=sys.stderr)
+                    c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "error", "error": str(ex)}), qos=1)
+            threading.Thread(target=do_vpn_install, args=(c, anlage_id), daemon=True).start()
 
     running = [True]
 
