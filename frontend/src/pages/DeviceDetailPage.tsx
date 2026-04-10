@@ -83,6 +83,7 @@ export function DeviceDetailPage() {
       </Tabs>
 
       {tab === 0 && (
+        <>
         <Box display="grid" gridTemplateColumns={{ xs: '1fr', md: '1fr 1fr' }} gap={3}>
           <Card>
             <CardContent>
@@ -233,6 +234,7 @@ export function DeviceDetailPage() {
           onClose={() => setVpnMsg(null)}
           message={vpnMsg}
         />
+        </>
       )}
 
       {canReadTodos && tab === (1) && (
