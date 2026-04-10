@@ -87,6 +87,36 @@ success "Frontend neu gestartet"
 # cloudflared verbindet sich automatisch neu wenn nötig.
 info "Cloudflare Tunnel: kein Neustart nötig (Konfiguration liegt bei Cloudflare)"
 
+# ─── EMQX Konfigurationsdatei immer überschreiben ────────────────────────────
+# Verhindert dass HTTP-Webhook-Auth aus alten Installs im emqx.conf bleibt
+mkdir -p emqx
+cat > emqx/emqx.conf << 'EMQXCONF'
+listeners.tcp.default {
+  bind = "0.0.0.0:1883"
+}
+
+listeners.ws.default {
+  bind = "0.0.0.0:8083"
+}
+
+dashboard {
+  listeners.http.bind = 18083
+}
+
+authentication = [
+  {
+    mechanism = password_based
+    backend   = built_in_database
+    enable    = true
+  }
+]
+EMQXCONF
+
+# EMQX neu starten damit die neue Config greift
+info "Starte EMQX neu mit bereinigter Konfiguration..."
+docker compose -f docker-compose.prod.yml restart emqx >/dev/null 2>&1
+sleep 10
+
 # ─── EMQX Backend-User sicherstellen (idempotent) ────────────────────────────
 info "Konfiguriere EMQX..."
 EMQX_PASS=$(grep "^EMQX_DASHBOARD_PASSWORD=" .env | cut -d= -f2 | tr -d '"' || true)

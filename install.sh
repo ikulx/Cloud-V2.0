@@ -75,14 +75,11 @@ fi
 success ".env gefunden und vollständig"
 
 # ─── EMQX Konfigurationsverzeichnis erstellen ─────────────────────────────────
-if [ ! -d "emqx" ]; then
-  info "Erstelle emqx/ Konfigurationsverzeichnis..."
-  mkdir -p emqx
-fi
-
-if [ ! -f "emqx/emqx.conf" ]; then
-  info "Erstelle Standard emqx.conf..."
-  cat > emqx/emqx.conf << 'EMQXCONF'
+# emqx/ Verzeichnis und Konfiguration immer frisch schreiben
+# (verhindert dass alte HTTP-Webhook-Auth aus vorherigen Installs erhalten bleibt)
+mkdir -p emqx
+info "Schreibe emqx.conf (immer überschreiben)..."
+cat > emqx/emqx.conf << 'EMQXCONF'
 listeners.tcp.default {
   bind = "0.0.0.0:1883"
 }
@@ -103,8 +100,7 @@ authentication = [
   }
 ]
 EMQXCONF
-  success "emqx.conf erstellt"
-fi
+success "emqx.conf geschrieben"
 
 if [ ! -f "emqx/acl.conf" ]; then
   info "Erstelle Standard acl.conf..."
