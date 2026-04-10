@@ -33,6 +33,7 @@ const deviceInclude = {
   directUsers: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
   directGroups: { include: { group: { select: { id: true, name: true } } } },
   _count: { select: { todos: { where: { status: 'OPEN' as const } } } },
+  vpnDevice: { select: { vpnIp: true } },
 }
 
 // ─── Setup Script (Python Agent) ─────────────────────────────────────────────
@@ -63,7 +64,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC13"
+AGENT_VERSION = "1.0.0-RC14"
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -156,6 +157,25 @@ def get_local_ip():
     except Exception:
         return "unknown"
 
+def get_vpn_status():
+    """Prüft ob das WireGuard-Interface wg0 aktiv ist."""
+    try:
+        r = subprocess.run(["ip", "link", "show", "wg0"], capture_output=True, text=True)
+        return r.returncode == 0 and "state UP" in r.stdout
+    except Exception:
+        return False
+
+def get_http_status():
+    """Prüft ob der ycontrol-rt Docker-Container läuft."""
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", "ycontrol-rt"],
+            capture_output=True, text=True, timeout=3
+        )
+        return r.returncode == 0 and r.stdout.strip() == "true"
+    except Exception:
+        return False
+
 _HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "Mozilla/5.0 (compatible; YControl-Agent/2.0)",
@@ -219,6 +239,8 @@ def run_agent():
 
     def build_tele():
         tele = {"agentVersion": AGENT_VERSION, "ipAddress": get_local_ip()}
+        tele["vpnActive"]  = get_vpn_status()
+        tele["httpActive"] = get_http_status()
         for key, fn in [("anlageName",    get_anlage_name),
                         ("projectNumber", get_project_number),
                         ("schemaNumber",  get_schema_number),
@@ -761,6 +783,8 @@ router.get('/', authenticate, requirePermission('devices:read'), async (req, res
   res.json(devices.map((d) => ({
     ...d,
     mqttConnected: d.status === 'ONLINE',
+    isApproved: d.isApproved,
+    lastSeen: d.lastSeen,
   })))
 })
 

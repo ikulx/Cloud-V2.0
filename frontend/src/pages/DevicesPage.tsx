@@ -28,6 +28,7 @@ import { useAnlagen } from '../features/anlagen/queries'
 import { useUsers } from '../features/users/queries'
 import { useGroups } from '../features/groups/queries'
 import { StatusChip } from '../components/StatusChip'
+import Chip from '@mui/material/Chip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect'
 import { usePermission } from '../hooks/usePermission'
@@ -147,14 +148,39 @@ export function DevicesPage() {
                 <TableCell>{device.name}</TableCell>
                 <TableCell><code>{device.serialNumber}</code></TableCell>
                 <TableCell>
-                  <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
-                    <StatusChip mqttConnected={device.mqttConnected} isApproved={device.isApproved} />
+                  <Box display="flex" flexDirection="column" gap={0.5}>
+                    <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
+                      {/* MQTT */}
+                      <Chip
+                        label="MQTT"
+                        size="small"
+                        color={device.mqttConnected ? 'success' : 'error'}
+                        variant={device.isApproved ? 'filled' : 'outlined'}
+                        sx={{ fontSize: '0.65rem', height: 20 }}
+                      />
+                      {/* VPN */}
+                      <Chip
+                        label="VPN"
+                        size="small"
+                        color={device.vpnActive ? 'success' : device.vpnDevice ? 'warning' : 'default'}
+                        variant={device.vpnDevice ? 'filled' : 'outlined'}
+                        sx={{ fontSize: '0.65rem', height: 20 }}
+                      />
+                      {/* HTTP */}
+                      <Chip
+                        label="HTTP"
+                        size="small"
+                        color={device.httpActive ? 'success' : device.mqttConnected ? 'error' : 'default'}
+                        variant={device.mqttConnected !== undefined ? 'filled' : 'outlined'}
+                        sx={{ fontSize: '0.65rem', height: 20 }}
+                      />
+                    </Box>
                     {canUpdate && !device.isApproved && (
                       <Button
                         size="small"
                         variant="outlined"
                         color="success"
-                        sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: '0.7rem' }}
+                        sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: '0.7rem', alignSelf: 'flex-start' }}
                         onClick={() => approveMutation.mutate({ id: device.id, isApproved: true })}
                         disabled={approveMutation.isPending}
                       >

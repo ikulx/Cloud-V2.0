@@ -61,6 +61,9 @@ export interface Device {
   directUsers: { user: { id: string; firstName: string; lastName: string } }[]
   directGroups: { group: { id: string; name: string } }[]
   mqttConnected?: boolean
+  vpnActive?: boolean
+  httpActive?: boolean
+  vpnDevice?: { vpnIp: string } | null
   todos?: DeviceTodo[]
   logEntries?: DeviceLogEntry[]
   _count?: { todos: number }
