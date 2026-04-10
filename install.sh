@@ -74,31 +74,12 @@ fi
 
 success ".env gefunden und vollständig"
 
-# ─── EMQX Konfigurationsverzeichnis erstellen ─────────────────────────────────
-# emqx/ Verzeichnis und Konfiguration immer frisch schreiben
-# (verhindert dass alte HTTP-Webhook-Auth aus vorherigen Installs erhalten bleibt)
-mkdir -p emqx
-info "Schreibe emqx.conf (immer überschreiben)..."
-cat > emqx/emqx.conf << 'EMQXCONF'
-authentication = [
-  {
-    mechanism = password_based
-    backend   = built_in_database
-    enable    = true
-  }
-]
-EMQXCONF
-success "emqx.conf geschrieben"
-
-if [ ! -f "emqx/acl.conf" ]; then
-  info "Erstelle Standard acl.conf..."
-  cat > emqx/acl.conf << 'ACLCONF'
-{allow, all, subscribe, ["$SYS/#"]}.
-{allow, all, pubsub, ["ycontrol/#"]}.
-{deny, all}.
-ACLCONF
-  success "acl.conf erstellt"
+# ─── Mosquitto Konfigurationsverzeichnis sicherstellen ───────────────────────
+# mosquitto.conf wird aus dem Git-Repository übernommen (bereits vorhanden)
+if [ ! -f "mosquitto/mosquitto.conf" ]; then
+  error "mosquitto/mosquitto.conf fehlt. Bitte git pull ausführen."
 fi
+success "Mosquitto-Konfiguration vorhanden"
 
 # ─── Images bauen ────────────────────────────────────────────────────────────
 info "Baue Docker Images (das dauert beim ersten Mal ca. 3-5 Minuten)..."
@@ -130,80 +111,6 @@ until docker compose -f docker-compose.prod.yml logs backend 2>/dev/null | grep 
 done
 success "Backend bereit"
 
-# ─── EMQX konfigurieren ───────────────────────────────────────────────────────
-info "Warte auf EMQX API..."
-EMQX_PASS=$(grep "^EMQX_DASHBOARD_PASSWORD=" .env | cut -d= -f2 | tr -d '"')
-MQTT_USER=$(grep "^MQTT_BACKEND_USER=" .env | cut -d= -f2 | tr -d '"')
-MQTT_PASS=$(grep "^MQTT_BACKEND_PASSWORD=" .env | cut -d= -f2 | tr -d '"')
-
-# /api/v5/status braucht keine Auth – nur auf HTTP 200 prüfen
-EMQX_READY=0
-for i in $(seq 1 24); do
-  EMQX_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    "http://localhost:18083/api/v5/status" 2>/dev/null || echo "0")
-  if [ "$EMQX_STATUS" = "200" ]; then
-    EMQX_READY=1; break
-  fi
-  sleep 5
-done
-
-if [ "$EMQX_READY" = "1" ]; then
-  success "EMQX erreichbar"
-
-  # Für Erstinstallation: API sollte direkt mit dem konfigurierten Passwort funktionieren
-  # (EMQX_DASHBOARD__DEFAULT_PASSWORD gilt beim ersten Start mit leerem Volume)
-  # Bei Reinstallation mit altem Volume: Volume löschen für sauberen Zustand
-
-  API_CHECK=$(curl -s -o /dev/null -w "%{http_code}" -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "0")
-
-  if [ "$API_CHECK" = "401" ]; then
-    warn "EMQX API: falsches Passwort (HTTP 401) – setze emqx_data Volume zurück..."
-    docker compose -f docker-compose.prod.yml stop emqx
-    EMQX_VOL=$(docker volume ls --format '{{.Name}}' | grep '_emqx_data$' | head -1)
-    if [ -n "$EMQX_VOL" ]; then
-      docker volume rm "$EMQX_VOL" >/dev/null 2>&1 && info "Volume '${EMQX_VOL}' gelöscht" || true
-    fi
-    docker compose -f docker-compose.prod.yml up -d emqx
-    info "Warte auf EMQX-Neustart (25s)..."
-    sleep 25
-    success "EMQX neu initialisiert mit konfiguriertem Passwort"
-  fi
-
-  # HTTP-Webhook-Auth entfernen falls vorhanden
-  AUTH_LIST=$(curl -s -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "[]")
-  if echo "$AUTH_LIST" | grep -q "authn-http"; then
-    info "Entferne HTTP-Webhook-Authentifikator..."
-    curl -s -X DELETE -u "admin:${EMQX_PASS}" \
-      "http://localhost:18083/api/v5/authentication/authn-http%3Apost" >/dev/null 2>&1 || true
-    success "HTTP-Webhook-Authentifikator entfernt"
-  fi
-
-  # Backend-Client-User anlegen (idempotent)
-  info "Lege MQTT Backend-User an: ${MQTT_USER}..."
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST -u "admin:${EMQX_PASS}" \
-    "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users" \
-    -H "Content-Type: application/json" \
-    -d "{\"user_id\":\"${MQTT_USER}\",\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" \
-    2>/dev/null || echo "0")
-  if [ "$HTTP_CODE" = "201" ]; then
-    success "MQTT Backend-User angelegt"
-  elif [ "$HTTP_CODE" = "409" ]; then
-    curl -s -X PUT -u "admin:${EMQX_PASS}" \
-      "http://localhost:18083/api/v5/authentication/password_based%3Abuilt_in_database/users/${MQTT_USER}" \
-      -H "Content-Type: application/json" \
-      -d "{\"password\":\"${MQTT_PASS}\",\"is_superuser\":true}" >/dev/null 2>&1 || true
-    success "MQTT Backend-User bereits vorhanden – Passwort aktualisiert"
-  else
-    warn "MQTT Backend-User konnte nicht angelegt werden (HTTP $HTTP_CODE)"
-    warn "  Prüfe: docker compose -f docker-compose.prod.yml logs emqx"
-  fi
-else
-  warn "EMQX API nicht erreichbar – MQTT-Auth muss manuell konfiguriert werden"
-fi
-
 # ─── Cloudflare Tunnel Status prüfen ─────────────────────────────────────────
 info "Prüfe Cloudflare Tunnel..."
 sleep 3
@@ -212,6 +119,16 @@ if docker compose -f docker-compose.prod.yml ps cloudflared | grep -q "running\|
 else
   warn "Cloudflare Tunnel Status unklar – prüfe Logs:"
   warn "  docker compose -f docker-compose.prod.yml logs cloudflared"
+fi
+
+# ─── MQTT Status prüfen ───────────────────────────────────────────────────────
+info "Prüfe Mosquitto MQTT Broker..."
+sleep 3
+if docker compose -f docker-compose.prod.yml ps mqtt | grep -q "running\|Up\|healthy"; then
+  success "Mosquitto MQTT Broker läuft"
+else
+  warn "Mosquitto Status unklar – prüfe Logs:"
+  warn "  docker compose -f docker-compose.prod.yml logs mqtt"
 fi
 
 # ─── Status anzeigen ─────────────────────────────────────────────────────────

@@ -26,28 +26,21 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── MQTT Broker (EMQX) ──────────────────────────────────────────────────────
-  emqx:
-    image: emqx:5
-    container_name: ycontrol_emqx
+  # ─── MQTT Broker (Mosquitto + go-auth) ───────────────────────────────────────
+  mqtt:
+    image: iegomez/mosquitto-go-auth:latest
+    container_name: ycontrol_mqtt
     restart: unless-stopped
     ports:
-      - "1883:1883"               # MQTT (Raspberry Pi Geräte – direkter TCP-Zugang)
-      - "127.0.0.1:18083:18083"  # EMQX Dashboard (nur via SSH-Tunnel erreichbar)
-    environment:
-      - EMQX_DASHBOARD__DEFAULT_PASSWORD=${EMQX_DASHBOARD_PASSWORD:-admin123}
-      - EMQX_NODE__NAME=emqx@127.0.0.1
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "1883:1883"    # MQTT (Raspberry Pi Geräte – direkter TCP-Zugang)
     volumes:
-      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
-      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
-      - emqx_data:/opt/emqx/data
+      - ./mosquitto/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
     healthcheck:
-      test: ["CMD", "emqx", "ping"]
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-u", "healthcheck", "-P", "healthcheck", "-E", "--quiet"]
       interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   # ─── Backend (Node.js/Express) ────────────────────────────────────────────────
   backend:
@@ -59,7 +52,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      emqx:
+      mqtt:
         condition: service_healthy
     environment:
       NODE_ENV:               production
@@ -70,7 +63,7 @@ services:
       JWT_ACCESS_EXPIRES_IN:  ${JWT_ACCESS_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
       CORS_ORIGIN:            ${APP_URL}
-      MQTT_URL:               mqtt://emqx:1883
+      MQTT_URL:               mqtt://mqtt:1883
       MQTT_AUTH_SECRET:       ${MQTT_AUTH_SECRET}
       MQTT_BACKEND_USER:      ${MQTT_BACKEND_USER:-backend-client}
       MQTT_BACKEND_PASSWORD:  ${MQTT_BACKEND_PASSWORD}
@@ -108,4 +101,3 @@ services:
 
 volumes:
   postgres_data:
-  emqx_data:

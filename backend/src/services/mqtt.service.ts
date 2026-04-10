@@ -121,23 +121,12 @@ function handleResp(serial: string, payload: string, io: SocketServer) {
   }
 }
 
-export async function kickMqttClient(serial: string): Promise<void> {
-  try {
-    const res = await fetch(`${env.emqx.apiUrl}/api/v5/clients/${encodeURIComponent(serial)}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: 'Basic ' + Buffer.from(`${env.emqx.apiUser}:${env.emqx.apiPassword}`).toString('base64'),
-      },
-      signal: AbortSignal.timeout(3000),
-    })
-    if (res.ok || res.status === 404) {
-      console.log(`[MQTT] Client "${serial}" getrennt (Freigabe entzogen)`)
-    } else {
-      console.warn(`[MQTT] Kick fehlgeschlagen für "${serial}": ${res.status}`)
-    }
-  } catch (err) {
-    console.warn(`[MQTT] Kick-Fehler für "${serial}":`, err)
-  }
+export function kickMqttClient(serial: string): void {
+  // Mit Mosquitto gibt es keine REST-API zum Trennen von Clients.
+  // Retained Messages werden gelöscht und das Gerät verliert beim nächsten
+  // Verbindungsversuch die Auth (deviceSecret wurde in DB gelöscht).
+  console.log(`[MQTT] Freigabe entzogen für "${serial}" – Retained Messages werden gelöscht`)
+  clearRetainedMessages(serial)
 }
 
 export function clearRetainedMessages(serial: string): void {

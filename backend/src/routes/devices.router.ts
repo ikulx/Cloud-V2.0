@@ -575,29 +575,19 @@ router.post('/token', async (req, res) => {
   res.json({ deviceSecret: secret, deviceId: device.id })
 })
 
-// POST /api/devices/mqtt-auth  (EMQX webhook → Authentifizierung prüfen)
+// POST /api/devices/mqtt-auth  (Mosquitto go-auth HTTP-Backend)
+// Mosquitto erwartet: HTTP 200 = allow, HTTP 4xx = deny
 router.post('/mqtt-auth', async (req, res) => {
   const { username, password } = req.body as { username?: string; password?: string }
 
-  if (req.headers['x-internal-secret'] !== env.mqttAuthSecret) {
-    console.warn('[MQTT-Auth] DENY – falsches x-internal-secret')
-    res.json({ result: 'deny' }); return
-  }
-
   if (!username || !password) {
-    res.json({ result: 'deny' }); return
+    res.status(403).end(); return
   }
 
   // Backend-Client (interner Subscriber)
   if (username === env.mqttBackendUser && password === env.mqttBackendPassword) {
     console.log('[MQTT-Auth] ALLOW – backend-client')
-    res.json({ result: 'allow' }); return
-  }
-
-  // Admin-Zugang für Monitoring-Tools
-  if (username === 'admin' && password === env.mqttAdminPassword) {
-    console.log('[MQTT-Auth] ALLOW – Admin-Client')
-    res.json({ result: 'allow' }); return
+    res.status(200).end(); return
   }
 
   // Pi-Gerät: username = serialNumber, password = deviceSecret (Plaintext)
@@ -608,25 +598,30 @@ router.post('/mqtt-auth', async (req, res) => {
 
   if (!device) {
     console.warn(`[MQTT-Auth] DENY – Gerät nicht gefunden: "${username}"`)
-    res.json({ result: 'deny' }); return
+    res.status(403).end(); return
   }
   if (!device.isApproved) {
     console.warn(`[MQTT-Auth] DENY – Nicht freigegeben: "${username}"`)
-    res.json({ result: 'deny' }); return
+    res.status(403).end(); return
   }
   if (!device.deviceSecret) {
     console.warn(`[MQTT-Auth] DENY – Kein Secret in DB: "${username}"`)
-    res.json({ result: 'deny' }); return
+    res.status(403).end(); return
   }
 
   const inputHash = hashDeviceSecret(password)
   if (inputHash !== device.deviceSecret) {
     console.warn(`[MQTT-Auth] DENY – Falsches Secret: "${username}"`)
-    res.json({ result: 'deny' }); return
+    res.status(403).end(); return
   }
 
   console.log(`[MQTT-Auth] ALLOW – "${username}"`)
-  res.json({ result: 'allow' })
+  res.status(200).end()
+})
+
+// POST /api/devices/mqtt-acl  (Mosquitto go-auth ACL – alle erlauben wenn authentifiziert)
+router.post('/mqtt-acl', (req, res) => {
+  res.status(200).end()
 })
 
 // GET /api/devices/setup-script

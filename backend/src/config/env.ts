@@ -19,13 +19,7 @@ export const env = {
   },
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
   mqttAuthSecret: process.env.MQTT_AUTH_SECRET ?? 'dev-mqtt-internal-secret',
-  mqttAdminPassword: process.env.MQTT_ADMIN_PASSWORD ?? 'mqtt-admin-dev',
   mqttBackendUser: process.env.MQTT_BACKEND_USER ?? 'backend-client',
   mqttBackendPassword: process.env.MQTT_BACKEND_PASSWORD ?? 'backend-dev-secret',
   mqttUrl: process.env.MQTT_URL ?? 'mqtt://localhost:1883',
-  emqx: {
-    apiUrl: process.env.EMQX_API_URL ?? 'http://localhost:18083',
-    apiUser: process.env.EMQX_API_USER ?? 'admin',
-    apiPassword: process.env.EMQX_API_PASSWORD ?? 'admin123',
-  },
 }
