@@ -35,6 +35,7 @@ import {
   buildDevicePeerBlock,
   buildServerPeerBlock,
   syncWireGuardConfig,
+  deriveVpnLanPrefix,
   type VpnSettings,
 } from '../services/vpn.service'
 import { env } from '../config/env'
@@ -496,6 +497,10 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
 // GET /api/vpn/devices/:deviceId/visu/*
 // Authentifizierung: Bearer-Token im Header ODER ?access_token= als Query-Parameter
 // (iframe kann keine Custom-Header senden → Query-Parameter nötig)
+//
+// Query-Parameter (optional):
+//   ?targetIp=192.168.10.50   → anderes Gerät im Pi-LAN (via NETMAP-Route des Pi)
+//   ?targetPort=8080          → abweichender Port (überschreibt visuPort)
 router.get('/devices/:deviceId/visu*', async (req, res) => {
   // Token aus Header oder Query-Parameter
   const headerToken = req.headers.authorization?.startsWith('Bearer ')
@@ -512,56 +517,125 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
   const deviceId = req.params.deviceId as string
 
   const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
-
   if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
 
-  // Direkte VPN-IP verwenden (10.A.0.B) – der Server erreicht den Pi direkt über den WireGuard-Tunnel
-  // kein NETMAP nötig, Docker-Container lauscht auf 0.0.0.0 (alle Interfaces inkl. wg0)
-  const piVisuIp   = vpnDevice.vpnIp
-  const piVisuPort = vpnDevice.visuPort  // Default 80, konfigurierbar
+  // Ziel-IP bestimmen:
+  // - Standard: direkte VPN-IP des Pi (10.A.0.B) – kein NETMAP nötig
+  // - Mit ?targetIp=192.168.10.50: anderes LAN-Gerät via NETMAP-Route (10.A.B.50)
+  const targetIpParam = typeof req.query.targetIp === 'string' ? req.query.targetIp : null
+  const targetPortParam = typeof req.query.targetPort === 'string' ? parseInt(req.query.targetPort) : null
+
+  let piVisuIp: string
+  if (targetIpParam) {
+    // Letztes Oktett der LAN-IP → VPN-LAN-IP über NETMAP-Prefix des Pi
+    const lanLastOctet = targetIpParam.split('.').pop()
+    const vpnLanPrefix = deriveVpnLanPrefix(vpnDevice.vpnIp)
+    piVisuIp = `${vpnLanPrefix}.${lanLastOctet}`
+  } else {
+    piVisuIp = vpnDevice.vpnIp  // direkte VPN-IP
+  }
+  const piVisuPort = (targetPortParam && targetPortParam > 0 && targetPortParam < 65536)
+    ? targetPortParam
+    : vpnDevice.visuPort  // Default 80, konfigurierbar
 
   // Pfad nach /visu weitergeben
   const rawPath = req.path.replace(`/devices/${deviceId}/visu`, '') || '/'
   const targetPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
 
-  // Query-String weiterleiten, aber access_token entfernen (nicht an den Pi schicken)
+  // Query-String weiterleiten, interne Parameter entfernen
   const queryParams = new URLSearchParams(req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '')
   queryParams.delete('access_token')
+  queryParams.delete('targetIp')
+  queryParams.delete('targetPort')
   const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : ''
   const targetUrl = `http://${piVisuIp}:${piVisuPort}${targetPath}${queryStr}`
 
-  const hostHeader = piVisuPort === 80 ? piVisuIp : `${piVisuIp}:${piVisuPort}`
-  const proxyReq = http.request(targetUrl, { method: req.method, headers: { ...req.headers, host: hostHeader } }, (proxyRes) => {
-    // Content-Type weiterleiten
-    res.status(proxyRes.statusCode ?? 200)
-    for (const [key, val] of Object.entries(proxyRes.headers)) {
-      if (key.toLowerCase() !== 'content-encoding') res.setHeader(key, val as string)
-    }
-    // HTML: <base>-Tag einfügen damit relative URLs stimmen
-    const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
-    if (ct.includes('text/html')) {
-      let body = ''
-      proxyRes.setEncoding('utf-8')
-      proxyRes.on('data', (chunk) => { body += chunk })
-      proxyRes.on('end', () => {
-        const base = `<base href="/api/vpn/devices/${deviceId}/visu/">`
-        const patched = body.includes('<head>') ? body.replace('<head>', `<head>${base}`) : `${base}${body}`
-        res.send(patched)
-      })
-    } else {
-      proxyRes.pipe(res)
-    }
-  })
+  console.log(`[VPN-Proxy] ${deviceId} → ${targetUrl}`)
 
-  proxyReq.on('error', (err) => {
-    console.error(`[VPN-Proxy] ${targetUrl}:`, err.message)
-    res.status(502).json({ message: `Pi nicht erreichbar (${piVisuIp}:${piVisuPort}): ${err.message}` })
-  })
+  // Hilfsfunktion: einen einzelnen Proxy-Request ausführen (für Redirect-Folgen)
+  function doProxy(url: string, redirectsLeft: number): void {
+    const parsed = new URL(url)
+    const portNum = parsed.port ? parseInt(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80)
+    const hostHdr = portNum === 80 ? parsed.hostname : `${parsed.hostname}:${portNum}`
 
-  if (req.body && req.method !== 'GET') {
-    proxyReq.write(typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+    const proxyReq = http.request(
+      { hostname: parsed.hostname, port: portNum, path: parsed.pathname + parsed.search, method: req.method,
+        headers: { ...req.headers, host: hostHdr } },
+      (proxyRes) => {
+        const status = proxyRes.statusCode ?? 200
+
+        // Redirects (301/302/303/307/308) bis max. 5 Hops folgen
+        if ([301, 302, 303, 307, 308].includes(status) && redirectsLeft > 0) {
+          const loc = proxyRes.headers.location
+          if (loc) {
+            const nextUrl = loc.startsWith('http') ? loc : `http://${parsed.hostname}:${portNum}${loc}`
+            proxyRes.resume()  // Body verwerfen
+            console.log(`[VPN-Proxy] Redirect → ${nextUrl}`)
+            doProxy(nextUrl, redirectsLeft - 1)
+            return
+          }
+        }
+
+        res.status(status)
+        for (const [key, val] of Object.entries(proxyRes.headers)) {
+          const k = key.toLowerCase()
+          if (k === 'content-encoding' || k === 'transfer-encoding') continue
+          if (k === 'location' && val) {
+            // Location-Header auf Proxy-Pfad umschreiben
+            const locStr = Array.isArray(val) ? val[0] : val
+            const proxyBase = `/api/vpn/devices/${deviceId}/visu`
+            const rewritten = locStr.replace(/^https?:\/\/[^/]+/, proxyBase)
+            res.setHeader('location', rewritten)
+            continue
+          }
+          res.setHeader(key, val as string)
+        }
+
+        // HTML: <base>-Tag einfügen + interne Links auf Proxy umschreiben
+        const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
+        if (ct.includes('text/html')) {
+          let body = ''
+          proxyRes.setEncoding('utf-8')
+          proxyRes.on('data', (chunk) => { body += chunk })
+          proxyRes.on('end', () => {
+            // Basis-URL für relative Pfade setzen
+            const baseHref = targetIpParam
+              ? `/api/vpn/devices/${deviceId}/visu/?targetIp=${encodeURIComponent(targetIpParam)}${targetPortParam ? `&targetPort=${targetPortParam}` : ''}&access_token=${encodeURIComponent(rawToken ?? '')}`
+              : `/api/vpn/devices/${deviceId}/visu/`
+            const base = `<base href="${baseHref}">`
+            const patched = body.includes('<head>')
+              ? body.replace('<head>', `<head>${base}`)
+              : `<head>${base}</head>${body}`
+            res.removeHeader('content-length')
+            res.send(patched)
+          })
+        } else {
+          proxyRes.pipe(res)
+        }
+      }
+    )
+
+    proxyReq.on('error', (err) => {
+      console.error(`[VPN-Proxy] ${url}:`, err.message)
+      if (!res.headersSent) {
+        res.status(502).json({ message: `Ziel nicht erreichbar (${piVisuIp}:${piVisuPort}): ${err.message}` })
+      }
+    })
+
+    proxyReq.setTimeout(10000, () => {
+      proxyReq.destroy()
+      if (!res.headersSent) {
+        res.status(504).json({ message: `Timeout – kein Response von ${piVisuIp}:${piVisuPort}` })
+      }
+    })
+
+    if (req.body && req.method !== 'GET' && req.method !== 'HEAD') {
+      proxyReq.write(typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+    }
+    proxyReq.end()
   }
-  proxyReq.end()
+
+  doProxy(targetUrl, 5)
 })
 
 export default router

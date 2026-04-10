@@ -113,6 +113,8 @@ export function DeviceDetailPage() {
   const deployVpn  = useDeployVpnToDevice()
   const [vpnMsg, setVpnMsg] = useState<string | null>(null)
   const [visuOpen, setVisuOpen] = useState(false)
+  const [visuTargetIp, setVisuTargetIp] = useState('')    // leer = Pi selbst; sonst LAN-IP z.B. 192.168.10.50
+  const [visuTargetPort, setVisuTargetPort] = useState('')  // leer = visuPort aus Config
   const [newVpnIp, setNewVpnIp] = useState('')
   const [newLocalPrefix, setNewLocalPrefix] = useState('192.168.10')
   const [newVisuPort, setNewVisuPort] = useState('80')
@@ -409,12 +411,40 @@ export function DeviceDetailPage() {
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <OpenInBrowserIcon fontSize="small" /> Visualisierung
               </Typography>
-              <Typography variant="body2" color="text.secondary" mb={2}>
-                Pi-Visu über VPN-Proxy — der Server leitet die Anfrage durch das WireGuard-Tunnel weiter.
+              <Typography variant="body2" color="text.secondary" mb={1}>
+                Pi-Visu über VPN-Proxy — der Server leitet die Anfrage durch den WireGuard-Tunnel weiter.
               </Typography>
+
+              {/* Ziel-Gerät konfigurieren */}
+              <Box display="flex" gap={2} mb={2} flexWrap="wrap" alignItems="flex-end">
+                <TextField
+                  label="Ziel-IP (optional)"
+                  size="small"
+                  value={visuTargetIp}
+                  onChange={(e) => { setVisuTargetIp(e.target.value); setVisuOpen(false) }}
+                  placeholder={`${vpnConfig.localPrefix}.1`}
+                  helperText={visuTargetIp ? `→ Pi leitet via NETMAP weiter` : 'Leer = Pi selbst'}
+                  sx={{ width: 200 }}
+                />
+                <TextField
+                  label="Port (optional)"
+                  size="small"
+                  type="number"
+                  value={visuTargetPort}
+                  onChange={(e) => { setVisuTargetPort(e.target.value); setVisuOpen(false) }}
+                  placeholder={String(vpnConfig.visuPort ?? 80)}
+                  helperText={`Standard: ${vpnConfig.visuPort ?? 80}`}
+                  inputProps={{ min: 1, max: 65535 }}
+                  sx={{ width: 140 }}
+                />
+              </Box>
+
               {(() => {
                 const token = localStorage.getItem('accessToken') ?? ''
-                const visuUrl = `/api/vpn/devices/${id}/visu/?access_token=${encodeURIComponent(token)}`
+                const params = new URLSearchParams({ access_token: token })
+                if (visuTargetIp.trim()) params.set('targetIp', visuTargetIp.trim())
+                if (visuTargetPort.trim()) params.set('targetPort', visuTargetPort.trim())
+                const visuUrl = `/api/vpn/devices/${id}/visu/?${params.toString()}`
                 return (
                   <>
                     <Box display="flex" gap={1} mb={2} flexWrap="wrap">
@@ -436,10 +466,11 @@ export function DeviceDetailPage() {
                     {visuOpen && (
                       <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden', height: 600 }}>
                         <iframe
+                          key={visuUrl}
                           src={visuUrl}
                           style={{ width: '100%', height: '100%', border: 'none' }}
                           title={`Visualisierung – ${device.name}`}
-                          sandbox="allow-scripts allow-same-origin allow-forms"
+                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                         />
                       </Box>
                     )}
