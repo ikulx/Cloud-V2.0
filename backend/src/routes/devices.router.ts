@@ -63,7 +63,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC08"
+AGENT_VERSION = "1.0.0-RC09"
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -287,67 +287,64 @@ def run_agent():
             else:
                 c.publish(topic_resp, json.dumps({"action": "setName", "status": "error"}), qos=1)
         elif action == "update":
-            print("[YControl] Update-Befehl empfangen – lade neues Script...")
-            try:
-                update_req = urlreq.Request(server_url + "/api/devices/agent-update", headers={
-                    "X-Device-Serial": serial,
-                    "X-Device-Secret": device_secret,
-                })
-                with urlreq.urlopen(update_req, timeout=30) as resp_http:
-                    new_script = resp_http.read()
-                tmp_path = AGENT_PATH + ".tmp"
-                with open(tmp_path, "wb") as f:
-                    f.write(new_script)
-                os.chmod(tmp_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-                os.replace(tmp_path, AGENT_PATH)
-                print("[YControl] Script aktualisiert – starte Service neu...")
-                c.publish(topic_resp, json.dumps({"action": "update", "status": "ok"}), qos=1)
-                time.sleep(1)
-                subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
-            except Exception as ex:
-                print("[YControl] Update fehlgeschlagen: " + str(ex), file=sys.stderr)
-                c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": str(ex)}), qos=1)
-        elif action == "vpn_install":
-            print("[YControl] VPN-Installation gestartet...")
-            def do_vpn_install(c):
+            # Script wird direkt im MQTT-Befehl als Base64 mitgeliefert (kein HTTP nötig)
+            script_b64 = cmd.get("script", "")
+            if not script_b64:
+                print("[YControl] Update fehlgeschlagen: kein Script im Befehl", file=sys.stderr)
+                c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": "kein Script"}), qos=1)
+            else:
+                print("[YControl] Update-Befehl empfangen – schreibe neues Script...")
                 try:
-                    # 1. WireGuard installieren
-                    print("[YControl] Installiere WireGuard...")
-                    subprocess.run(["apt-get", "update", "-qq"], check=True, capture_output=True)
-                    subprocess.run(["apt-get", "install", "-y", "wireguard", "iptables"], check=True)
-                    # 2. Konfiguration vom Server laden (device-basiert, kein anlageId nötig)
-                    print("[YControl] Lade VPN-Konfiguration...")
-                    vpn_req = urlreq.Request(
-                        server_url + "/api/vpn/device-config",
-                        headers={
-                            "User-Agent":      _HEADERS["User-Agent"],
-                            "X-Device-Serial": serial,
-                            "X-Device-Secret": device_secret,
-                        }
-                    )
-                    with urlreq.urlopen(vpn_req, timeout=30) as vpn_resp:
-                        vpn_config = vpn_resp.read().decode("utf-8")
-                    # 3. Konfiguration schreiben
-                    os.makedirs("/etc/wireguard", exist_ok=True)
-                    wg_conf = "/etc/wireguard/wg0.conf"
-                    with open(wg_conf, "w") as f:
-                        f.write(vpn_config)
-                    os.chmod(wg_conf, 0o600)
-                    print("[YControl] wg0.conf geschrieben")
-                    # 4. Laufenden Tunnel neu laden falls aktiv, sonst starten
-                    wg_active = subprocess.run(["systemctl", "is-active", "wg-quick@wg0"],
-                                               capture_output=True).returncode == 0
-                    if wg_active:
-                        subprocess.run(["systemctl", "reload-or-restart", "wg-quick@wg0"], check=True)
-                    else:
-                        subprocess.run(["systemctl", "enable", "wg-quick@wg0"], check=True)
-                        subprocess.run(["systemctl", "start",  "wg-quick@wg0"], check=True)
-                    print("[YControl] VPN aktiv!")
-                    c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "ok"}), qos=1)
+                    import base64
+                    new_script = base64.b64decode(script_b64)
+                    tmp_path = AGENT_PATH + ".tmp"
+                    with open(tmp_path, "wb") as f:
+                        f.write(new_script)
+                    os.chmod(tmp_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                    os.replace(tmp_path, AGENT_PATH)
+                    print("[YControl] Script aktualisiert – starte Service neu...")
+                    c.publish(topic_resp, json.dumps({"action": "update", "status": "ok"}), qos=1)
+                    time.sleep(1)
+                    subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
                 except Exception as ex:
-                    print("[YControl] VPN-Installation fehlgeschlagen: " + str(ex), file=sys.stderr)
-                    c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "error", "error": str(ex)}), qos=1)
-            threading.Thread(target=do_vpn_install, args=(c,), daemon=True).start()
+                    print("[YControl] Update fehlgeschlagen: " + str(ex), file=sys.stderr)
+                    c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": str(ex)}), qos=1)
+        elif action == "vpn_install":
+            # WireGuard-Config wird direkt im MQTT-Befehl mitgeliefert (kein HTTP nötig)
+            vpn_config = cmd.get("config", "")
+            if not vpn_config:
+                print("[YControl] VPN fehlgeschlagen: keine Config im Befehl", file=sys.stderr)
+                c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "error", "error": "keine Config"}), qos=1)
+            else:
+                print("[YControl] VPN-Installation gestartet...")
+                def do_vpn_install(c, vpn_config):
+                    try:
+                        # 1. WireGuard installieren
+                        print("[YControl] Installiere WireGuard...")
+                        subprocess.run(["apt-get", "update", "-qq"], check=True, capture_output=True)
+                        subprocess.run(["apt-get", "install", "-y", "wireguard", "iptables"], check=True)
+                        # 2. Konfiguration schreiben (aus MQTT-Payload)
+                        print("[YControl] Schreibe VPN-Konfiguration...")
+                        os.makedirs("/etc/wireguard", exist_ok=True)
+                        wg_conf = "/etc/wireguard/wg0.conf"
+                        with open(wg_conf, "w") as f:
+                            f.write(vpn_config)
+                        os.chmod(wg_conf, 0o600)
+                        print("[YControl] wg0.conf geschrieben")
+                        # 3. Laufenden Tunnel neu laden falls aktiv, sonst starten
+                        wg_active = subprocess.run(["systemctl", "is-active", "wg-quick@wg0"],
+                                                   capture_output=True).returncode == 0
+                        if wg_active:
+                            subprocess.run(["systemctl", "reload-or-restart", "wg-quick@wg0"], check=True)
+                        else:
+                            subprocess.run(["systemctl", "enable", "wg-quick@wg0"], check=True)
+                            subprocess.run(["systemctl", "start",  "wg-quick@wg0"], check=True)
+                        print("[YControl] VPN aktiv!")
+                        c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "ok"}), qos=1)
+                    except Exception as ex:
+                        print("[YControl] VPN-Installation fehlgeschlagen: " + str(ex), file=sys.stderr)
+                        c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "error", "error": str(ex)}), qos=1)
+                threading.Thread(target=do_vpn_install, args=(c, vpn_config), daemon=True).start()
 
     running = [True]
 
@@ -845,6 +842,25 @@ router.post('/:id/command', authenticate, requirePermission('devices:update'), a
   })
   if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
   if (device.status !== 'ONLINE') { res.status(409).json({ message: 'Gerät ist offline' }); return }
+
+  // Update: Script direkt via MQTT übermitteln (kein HTTP-Pull durch den Pi)
+  if (parsed.data.action === 'update') {
+    const [serverUrl, mqttHost, mqttPort] = await Promise.all([
+      getSetting('pi.serverUrl'),
+      getSetting('pi.mqttHost'),
+      getSetting('pi.mqttPort'),
+    ])
+    const script = SETUP_SCRIPT_TEMPLATE
+      .replace('<<SERVER_URL>>', serverUrl)
+      .replace('<<MQTT_HOST>>', mqttHost)
+      .replace('<<MQTT_PORT>>', mqttPort)
+      .replace('<<GENERATED_AT>>', new Date().toISOString())
+    const scriptB64 = Buffer.from(script).toString('base64')
+    const sent = publishCommand(device.serialNumber, { action: 'update', script: scriptB64 })
+    if (!sent) { res.status(503).json({ message: 'MQTT nicht verfügbar' }); return }
+    res.json({ ok: true, serial: device.serialNumber, command: { action: 'update' } })
+    return
+  }
 
   const sent = publishCommand(device.serialNumber, req.body)
   if (!sent) { res.status(503).json({ message: 'MQTT nicht verfügbar' }); return }

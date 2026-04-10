@@ -287,7 +287,18 @@ router.post('/devices/:deviceId/deploy', authenticate, requirePermission('vpn:ma
     res.status(409).json({ message: 'VPN-Server-Einstellungen unvollständig' }); return
   }
 
-  publishCommand(device.serialNumber, { action: 'vpn_install' })
+  if (!vpnDevice.piPrivateKey) {
+    res.status(409).json({ message: 'Kein privater Schlüssel für dieses Gerät' }); return
+  }
+
+  const config = generateDevicePiConfig({
+    vpnIp:        vpnDevice.vpnIp,
+    localPrefix:  vpnDevice.localPrefix,
+    piPrivateKey: vpnDevice.piPrivateKey,
+    settings,
+  })
+
+  publishCommand(device.serialNumber, { action: 'vpn_install', config })
   res.json({ ok: true, serial: device.serialNumber })
 })
 
