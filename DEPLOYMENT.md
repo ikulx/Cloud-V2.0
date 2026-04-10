@@ -2,7 +2,7 @@
 
 > **Zugang von außen:** Cloudflare Tunnel (`cloudflared`)
 > Kein offener Port 80/443 nötig. HTTPS und Zertifikate übernimmt Cloudflare automatisch.
-> Der einzige Port der nach außen offen sein muss ist **1883** (MQTT für Raspberry Pi).
+> Offene Ports: **1883** (MQTT für Raspberry Pi) und **51820/UDP** (WireGuard VPN).
 
 ---
 
@@ -16,12 +16,14 @@
 6. [Cloudflare Tunnel erstellen](#6-cloudflare-tunnel-erstellen)
 7. [Code auf den Server bringen](#7-code-auf-den-server-bringen)
 8. [Umgebungsvariablen konfigurieren](#8-umgebungsvariablen-konfigurieren)
-9. [Erstinstallation starten](#9-erstinstallation-starten)
-10. [Testen ob alles läuft](#10-testen-ob-alles-läuft)
-11. [Update einspielen](#11-update-einspielen)
-12. [Nützliche Befehle im Alltag](#12-nützliche-befehle-im-alltag)
-13. [Automatisches Backup einrichten](#13-automatisches-backup-einrichten)
-14. [Fehlerbehebung](#14-fehlerbehebung)
+9. [WireGuard VPN einrichten](#9-wireguard-vpn-einrichten)
+10. [Erstinstallation starten](#10-erstinstallation-starten)
+11. [Testen ob alles läuft](#11-testen-ob-alles-läuft)
+12. [Update einspielen](#12-update-einspielen)
+13. [Raspberry Pi registrieren](#13-raspberry-pi-registrieren)
+14. [Nützliche Befehle im Alltag](#14-nützliche-befehle-im-alltag)
+15. [Automatisches Backup einrichten](#15-automatisches-backup-einrichten)
+16. [Fehlerbehebung](#16-fehlerbehebung)
 
 ---
 
@@ -37,24 +39,29 @@ Internet
 └────────────┬────────────────┘
              │ verschlüsselter Tunnel (ausgehend vom VPS)
              ▼
-┌─────────────────────────────────────────────────────┐
-│  VPS (keine eingehenden Ports 80/443 nötig!)        │
-│                                                     │
-│  ┌─────────────┐    ┌──────────────┐               │
-│  │ cloudflared │───▶│  frontend:80 │ (nginx)        │
-│  │  (Tunnel)   │    │  /api/* ────▶│  backend:3000  │
-│  └─────────────┘    └──────────────┘               │
-│                                                     │
-│  ┌──────────────┐   ┌──────────────┐               │
-│  │  backend     │   │  postgres    │               │
-│  │  :3000       │───│  :5432       │               │
-│  └──────────────┘   └──────────────┘               │
-│                                                     │
-│  Port 1883 offen ──▶ emqx (MQTT für Raspberry Pi)  │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  VPS                                                        │
+│                                                             │
+│  ┌─────────────┐    ┌──────────────┐                       │
+│  │ cloudflared │───▶│  frontend:80 │ (nginx)               │
+│  │  (Tunnel)   │    │  /api/* ────▶│  backend:3000         │
+│  └─────────────┘    └──────────────┘                       │
+│                                                             │
+│  ┌──────────────┐   ┌──────────────┐   ┌───────────────┐  │
+│  │  backend     │   │  postgres    │   │  mosquitto    │  │
+│  │  :3000       │───│  :5432       │   │  :1883 (MQTT) │  │
+│  └──────────────┘   └──────────────┘   └───────────────┘  │
+│                                                             │
+│  ┌───────────────────────────────────────────────────────┐ │
+│  │  wireguard  :51820/UDP  (VPN für Anlagen + Techniker) │ │
+│  └───────────────────────────────────────────────────────┘ │
+│                                                             │
+│  Port 1883/TCP  offen ──▶ MQTT (Raspberry Pi Telemetrie)   │
+│  Port 51820/UDP offen ──▶ WireGuard VPN                    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Vorteile gegenüber direktem Port-Öffnen:**
+**Vorteile des Cloudflare Tunnels:**
 - Keine offenen Ports 80/443 → kein direkter Angriffspunkt
 - HTTPS-Zertifikat automatisch, ohne Let's Encrypt auf dem Server
 - DDoS-Schutz und WAF von Cloudflare kostenlos inklusive
@@ -122,7 +129,7 @@ Docker Compose version v2.x.x
 ## 4. Firewall konfigurieren
 
 Da der Web-Traffic über den Cloudflare Tunnel läuft, müssen Port 80 und 443
-**nicht** geöffnet werden. Nur MQTT braucht einen direkten Port.
+**nicht** geöffnet werden.
 
 ```bash
 # SSH immer offen lassen!
@@ -130,6 +137,9 @@ sudo ufw allow 22/tcp
 
 # MQTT für Raspberry Pi Geräte
 sudo ufw allow 1883/tcp
+
+# WireGuard VPN (für Anlagen-Fernzugriff und Techniker)
+sudo ufw allow 51820/udp
 
 # Firewall aktivieren
 sudo ufw enable
@@ -146,14 +156,8 @@ To                         Action      From
 --                         ------      ----
 22/tcp                     ALLOW       Anywhere
 1883/tcp                   ALLOW       Anywhere
+51820/udp                  ALLOW       Anywhere
 ```
-
-> **Port 18083 (EMQX Dashboard)** bleibt geschlossen. Zugriff nur per SSH-Tunnel:
-> ```bash
-> # Auf dem eigenen PC ausführen:
-> ssh -L 18083:localhost:18083 root@DEINE-VPS-IP
-> # Dann im Browser öffnen: http://localhost:18083
-> ```
 
 ---
 
@@ -205,8 +209,7 @@ cloudflared service install eyJhIjoiYTR...sehr-langer-token...
 Den langen Token-String (alles nach `service install `) kopieren und aufbewahren.
 Er wird später in die `.env`-Datei eingetragen als `CLOUDFLARE_TUNNEL_TOKEN`.
 
-> **Wichtig:** Den Token wie ein Passwort behandeln. Wer den Token hat,
-> kann Verbindungen durch den Tunnel schicken.
+> **Wichtig:** Den Token wie ein Passwort behandeln.
 
 ### Schritt 5: Public Hostname konfigurieren
 
@@ -221,10 +224,6 @@ Im nächsten Schritt „Route tunnel" → Tab **„Public Hostname"**:
 
 → **„Save tunnel"** klicken
 
-Das war es. Cloudflare leitet jetzt `https://cloud.deine-domain.de` durch den
-Tunnel auf den `frontend`-Container (Port 80) weiter.
-Das HTTPS-Zertifikat erstellt Cloudflare automatisch.
-
 > **Warum `frontend:80` und nicht `localhost:80`?**
 > `cloudflared` läuft im selben Docker-Netzwerk wie die anderen Container.
 > `frontend` ist der interne Docker-Containername, der direkt auflösbar ist.
@@ -232,8 +231,6 @@ Das HTTPS-Zertifikat erstellt Cloudflare automatisch.
 ---
 
 ## 7. Code auf den Server bringen
-
-### Option A: Per Git (empfohlen – ermöglicht einfache Updates)
 
 ```bash
 # Code nach /opt/ycontrol klonen
@@ -246,17 +243,6 @@ sudo chown -R $USER:$USER /opt/ycontrol
 cd /opt/ycontrol
 
 # Skripte ausführbar machen
-chmod +x install.sh deploy.sh
-```
-
-### Option B: Per SCP hochladen (ohne Git)
-
-```bash
-# Auf dem lokalen Windows-PC in PowerShell / CMD:
-scp -r "D:\Entwicklung\Ycontrol-Cloud_2026\Cloud V2.0" root@DEINE-VPS-IP:/opt/ycontrol
-
-# Dann auf dem VPS:
-cd /opt/ycontrol
 chmod +x install.sh deploy.sh
 ```
 
@@ -273,15 +259,12 @@ cp .env.production.example .env
 
 ### Schritt 2: Sichere Passwörter generieren
 
-Diese Befehle ausführen und die Ausgaben notieren:
-
 ```bash
-echo "DB_PASSWORD:            $(openssl rand -hex 32)"
-echo "JWT_ACCESS_SECRET:      $(openssl rand -hex 64)"
-echo "JWT_REFRESH_SECRET:     $(openssl rand -hex 64)"
-echo "MQTT_AUTH_SECRET:       $(openssl rand -hex 32)"
-echo "MQTT_BACKEND_PASSWORD:  $(openssl rand -hex 32)"
-echo "EMQX_DASHBOARD_PASSWORD:$(openssl rand -hex 16)"
+echo "DB_PASSWORD:           $(openssl rand -hex 32)"
+echo "JWT_ACCESS_SECRET:     $(openssl rand -hex 64)"
+echo "JWT_REFRESH_SECRET:    $(openssl rand -hex 64)"
+echo "MQTT_AUTH_SECRET:      $(openssl rand -hex 32)"
+echo "MQTT_BACKEND_PASSWORD: $(openssl rand -hex 32)"
 ```
 
 ### Schritt 3: .env bearbeiten
@@ -293,10 +276,10 @@ nano .env
 Alle Felder ausfüllen:
 
 ```env
-# Cloudflare Tunnel Token (aus Schritt 6, Punkt 4)
+# Cloudflare Tunnel Token (aus Schritt 6)
 CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiYTR...der-lange-token-aus-cloudflare...
 
-# App URL (so wie in Cloudflare konfiguriert)
+# App URL
 APP_URL=https://cloud.deine-domain.de
 
 # Datenbank
@@ -314,7 +297,9 @@ JWT_REFRESH_EXPIRES_IN=7d
 MQTT_AUTH_SECRET=<aus openssl rand -hex 32>
 MQTT_BACKEND_USER=backend-client
 MQTT_BACKEND_PASSWORD=<aus openssl rand -hex 32>
-EMQX_DASHBOARD_PASSWORD=<aus openssl rand -hex 16>
+
+# WireGuard VPN (kann nach Schritt 9 ausgefüllt werden)
+VPN_SERVER_PRIVATE_KEY=<aus wg genkey>
 ```
 
 Speichern: `Strg + O` → `Enter` → `Strg + X`
@@ -328,9 +313,73 @@ grep "AENDERN_" .env
 
 ---
 
-## 9. Erstinstallation starten
+## 9. WireGuard VPN einrichten
+
+Das WireGuard VPN ermöglicht Technikern sicheren Fernzugriff auf Anlagen-Netzwerke.
+Der VPN-Server läuft als Docker-Container direkt auf dem VPS.
+
+### Schritt 1: Server-Schlüsselpaar generieren
+
+WireGuard muss auf dem VPS **nicht** installiert sein – die Tools laufen im Container.
+Das Schlüsselpaar einmalig generieren:
 
 ```bash
+# WireGuard-Tools temporär nutzen (via Docker)
+docker run --rm alpine sh -c "apk add -q wireguard-tools && wg genkey | tee /tmp/server.key | wg pubkey"
+```
+
+Ausgabe:
+```
+<PRIVATER_SCHLÜSSEL>   ← erste Zeile (in .env eintragen)
+<ÖFFENTLICHER_SCHLÜSSEL>  ← zweite Zeile (im Cloud-UI eintragen)
+```
+
+Oder alternativ auf einem PC mit WireGuard installiert:
+```bash
+wg genkey | tee server.key | wg pubkey > server.pub
+cat server.key   # → VPN_SERVER_PRIVATE_KEY
+cat server.pub   # → im UI eintragen
+```
+
+### Schritt 2: Privaten Schlüssel in .env eintragen
+
+```bash
+nano /opt/ycontrol/.env
+# VPN_SERVER_PRIVATE_KEY=<privater Schlüssel aus Schritt 1>
+```
+
+### Schritt 3: Nach der Installation – VPN im UI konfigurieren
+
+Nach dem Starten der App unter **VPN → Server-Einstellungen**:
+
+| Feld | Wert |
+|------|------|
+| Öffentlicher Schlüssel | Ausgabe aus Schritt 1 (zweite Zeile) |
+| Server-Endpunkt | `DEINE-VPS-IP:51820` oder `vpn.deine-domain.de:51820` |
+| Port | `51820` |
+
+→ **Speichern** → `wg0.conf` wird automatisch vom Backend geschrieben und der WireGuard-Container neu geladen.
+
+### IP-Adressraum
+
+```
+Zone A — Management (10.0.0.0/16)
+  10.0.x.y     Techniker-PCs (VPN-Peers)
+  10.1.0.1     Cloud-Server (wg0 Interface)
+
+Zone B — Anlagen (10.11.0.0/8)
+  10.11.1.0/24 → Anlage 1  (NETMAP ↔ reales LAN, z.B. 192.168.10.0/24)
+  10.11.2.0/24 → Anlage 2
+  ...
+  max. 62 720 Anlagen
+```
+
+---
+
+## 10. Erstinstallation starten
+
+```bash
+cd /opt/ycontrol
 ./install.sh
 ```
 
@@ -340,15 +389,16 @@ grep "AENDERN_" .env
 [INFO]  Prüfe Voraussetzungen...
 [OK]    Docker & Docker Compose verfügbar
 [OK]    .env gefunden und vollständig
-[INFO]  Erstelle emqx/ Konfigurationsverzeichnis...
+[OK]    Mosquitto-Konfiguration vorhanden
 [INFO]  Baue Docker Images (ca. 3-5 Minuten beim ersten Mal)...
 [OK]    Images gebaut
 [INFO]  Starte PostgreSQL...
 [INFO]  Starte alle Services...
 [OK]    Alle Services gestartet
 [INFO]  Warte auf Backend (Migrations + Seed)...
-[OK]    Seed ausgeführt
+[OK]    Backend bereit
 [OK]    Cloudflare Tunnel läuft
+[OK]    Mosquitto MQTT Broker läuft
 
 ╔══════════════════════════════════════════════════════════════╗
 ║          Installation abgeschlossen!                         ║
@@ -356,21 +406,24 @@ grep "AENDERN_" .env
 
   🌐 App:      https://cloud.deine-domain.de
   Standard-Login:
-    E-Mail:    admin@example.com
+    E-Mail:    admin@ycontrol.local
     Passwort:  Admin1234!  ← bitte sofort ändern!
 ```
 
-**Was im Hintergrund passiert:**
-1. PostgreSQL startet und wird gesund
-2. EMQX (MQTT-Broker) startet
-3. Backend startet → `prisma migrate deploy` erstellt alle Tabellen
-4. Backend führt Seed aus (Admin-User, Rollen, Permissions)
-5. Frontend (nginx) startet mit der gebauten React-App
-6. `cloudflared` startet und verbindet sich mit Cloudflare → App ist sofort über `https://cloud.deine-domain.de` erreichbar
+**Gestartete Container:**
+
+| Container | Beschreibung |
+|-----------|-------------|
+| `ycontrol_postgres` | PostgreSQL Datenbank |
+| `ycontrol_mqtt` | Mosquitto MQTT-Broker (Port 1883) |
+| `ycontrol_wireguard` | WireGuard VPN-Server (Port 51820/UDP) |
+| `ycontrol_backend` | Node.js API (intern Port 3000) |
+| `ycontrol_frontend` | React + Nginx (intern Port 80) |
+| `ycontrol_cloudflared` | Cloudflare Tunnel |
 
 ---
 
-## 10. Testen ob alles läuft
+## 11. Testen ob alles läuft
 
 ### Container-Status prüfen
 
@@ -383,7 +436,8 @@ Alle Container müssen `running` oder `healthy` sein:
 ```
 NAME                    STATUS
 ycontrol_postgres       running (healthy)
-ycontrol_emqx           running (healthy)
+ycontrol_mqtt           running (healthy)
+ycontrol_wireguard      running
 ycontrol_backend        running (healthy)
 ycontrol_frontend       running
 ycontrol_cloudflared    running
@@ -398,9 +452,7 @@ docker compose -f docker-compose.prod.yml logs cloudflared | tail -20
 In den Logs sollte stehen:
 ```
 ... Registered tunnel connection connIndex=0 ...
-... Connection ... registered connIndex=1 ...
 ```
-(cloudflared baut normalerweise 4 parallele Verbindungen auf)
 
 ### Im Browser öffnen
 
@@ -414,23 +466,22 @@ https://cloud.deine-domain.de
 
 ```bash
 curl https://cloud.deine-domain.de/health
-# Erwartete Ausgabe: {"status":"ok"}
+# {"status":"ok"}
 ```
 
 ### Einloggen und Passwort ändern
 
-1. E-Mail: `admin@example.com`
+1. E-Mail: `admin@ycontrol.local`
 2. Passwort: `Admin1234!`
 3. Sofort zu **Profil / Einstellungen** navigieren und Passwort ändern
 
 ---
 
-## 11. Update einspielen
+## 12. Update einspielen
 
 ### Auf dem lokalen Entwicklungsrechner
 
 ```bash
-# Änderungen committen und pushen
 git add .
 git commit -m "Beschreibung der Änderungen"
 git push origin main
@@ -447,20 +498,19 @@ cd /opt/ycontrol
 
 | Schritt | Aktion |
 |---------|--------|
-| 1 | `git pull` – neue Commits holen |
-| 2 | Docker Images neu bauen (nur veränderte Teile dank Cache) |
-| 3 | Backend neu starten → `prisma migrate deploy` läuft automatisch |
-| 4 | Frontend neu starten |
-| 5 | cloudflared läuft weiter (kein Neustart nötig) |
-| 6 | Alte Images aufräumen |
+| 1 | `git fetch + reset --hard` – neuesten Code holen (lokale Änderungen werden überschrieben) |
+| 2 | Mosquitto neu starten (falls Konfig geändert) |
+| 3 | Docker Images neu bauen (mit Cache) |
+| 4 | Backend neu starten → `prisma db push` + Seed läuft automatisch |
+| 5 | Frontend neu starten |
+| 6 | cloudflared läuft weiter (kein Neustart nötig) |
+| 7 | Alte Images aufräumen |
 
 > **Downtime:** Backend ca. 5–15 Sekunden. Frontend ca. 0 Sekunden.
-> Der Cloudflare Tunnel bleibt während des Updates aktiv.
 
 ### Update ohne git pull
 
 ```bash
-# Z.B. nach manuellem Datei-Upload per SCP
 ./deploy.sh --skip-pull
 ```
 
@@ -473,20 +523,44 @@ docker compose -f docker-compose.prod.yml up -d --no-deps backend
 # Nur Frontend
 docker compose -f docker-compose.prod.yml build frontend
 docker compose -f docker-compose.prod.yml up -d --no-deps frontend
+
+# WireGuard-Konfig manuell neu laden
+docker kill --signal SIGHUP ycontrol_wireguard
 ```
-
-### Cloudflare Tunnel Token ändern
-
-Falls ein neues Token nötig ist (z.B. Sicherheitsvorfall):
-
-1. Im Cloudflare Zero Trust Dashboard: **Networks → Tunnels → Tunnel auswählen → Configure**
-2. Unter **„Credentials"** ein neues Token generieren
-3. Neues Token in `.env` eintragen: `CLOUDFLARE_TUNNEL_TOKEN=neues-token`
-4. `docker compose -f docker-compose.prod.yml restart cloudflared`
 
 ---
 
-## 12. Nützliche Befehle im Alltag
+## 13. Raspberry Pi registrieren
+
+### Setup-Script herunterladen
+
+Im Cloud-UI unter **Geräte → Setup-Script herunterladen** (erfordert `devices:read` Berechtigung).
+Das Script auf den Pi kopieren und ausführen:
+
+```bash
+sudo python3 ycontrol-setup.py
+```
+
+Das Script:
+1. Liest die YControl-Seriennummer (`/boot/firmware/ycontrolSN.txt`)
+2. Registriert das Gerät in der Cloud (wartet auf Admin-Freigabe)
+3. Installiert den Agent als systemd-Dienst
+4. Verbindet sich per MQTT und sendet Telemetrie
+
+### Gerät freigeben
+
+Im Cloud-UI unter **Geräte** → Gerät in der Liste → **Freigeben**.
+
+### VPN auf dem Pi aktivieren (optional)
+
+1. Im UI: **VPN → Anlagen-VPN → Anlage aktivieren** (LAN-Präfix eingeben, z.B. `192.168.10`)
+2. Das Gerät muss der Anlage zugeordnet sein (**Geräte → Anlage zuweisen**)
+3. Deploy-Button (📥-Icon) in der Anlagen-Zeile klicken
+4. Der Agent auf dem Pi empfängt den `vpn_install`-Befehl, installiert WireGuard automatisch und verbindet sich
+
+---
+
+## 14. Nützliche Befehle im Alltag
 
 ### Status & Übersicht
 
@@ -507,11 +581,14 @@ docker compose -f docker-compose.prod.yml logs -f
 # Nur Backend (letzte 100 Zeilen)
 docker compose -f docker-compose.prod.yml logs --tail=100 backend
 
-# Cloudflare Tunnel Verbindungsstatus
-docker compose -f docker-compose.prod.yml logs --tail=50 cloudflared
+# MQTT Broker
+docker compose -f docker-compose.prod.yml logs --tail=50 mqtt
 
-# Mit Zeitstempel
-docker compose -f docker-compose.prod.yml logs -f --timestamps backend
+# WireGuard VPN
+docker compose -f docker-compose.prod.yml logs --tail=50 wireguard
+
+# Cloudflare Tunnel
+docker compose -f docker-compose.prod.yml logs --tail=50 cloudflared
 ```
 
 ### In Container verbinden
@@ -523,9 +600,8 @@ docker compose -f docker-compose.prod.yml exec backend sh
 # PostgreSQL-Konsole
 docker compose -f docker-compose.prod.yml exec postgres psql -U postgres ycontrol_cloud
 
-# EMQX Dashboard (SSH-Tunnel auf lokalem PC öffnen, dann Browser)
-ssh -L 18083:localhost:18083 root@DEINE-VPS-IP
-# → http://localhost:18083
+# WireGuard Status
+docker compose -f docker-compose.prod.yml exec wireguard wg show
 ```
 
 ### Services steuern
@@ -568,7 +644,7 @@ docker system df
 
 ---
 
-## 13. Automatisches Backup einrichten
+## 15. Automatisches Backup einrichten
 
 ```bash
 # Backup-Verzeichnis erstellen
@@ -592,44 +668,38 @@ Folgende Zeilen einfügen:
 Testen:
 
 ```bash
-# Backup manuell auslösen
 cd /opt/ycontrol && docker compose -f docker-compose.prod.yml exec -T postgres \
   pg_dump -U postgres ycontrol_cloud | gzip > /opt/backups/test.sql.gz
-
-# Ergebnis prüfen
 ls -lh /opt/backups/
 ```
 
 ---
 
-## 14. Fehlerbehebung
+## 16. Fehlerbehebung
 
 ### Problem: Seite nicht erreichbar
 
 ```bash
 # 1. Läuft cloudflared?
 docker compose -f docker-compose.prod.yml ps cloudflared
-
-# 2. Cloudflare Tunnel Logs ansehen
 docker compose -f docker-compose.prod.yml logs cloudflared | tail -30
 
-# 3. Läuft das Frontend?
+# 2. Läuft das Frontend?
 docker compose -f docker-compose.prod.yml ps frontend
 
-# 4. Direkt vom VPS aus testen (geht am Tunnel vorbei)
-curl http://localhost  # sollte nicht funktionieren (kein Port gebunden)
-# Stattdessen:
+# 3. Direkt testen
 docker compose -f docker-compose.prod.yml exec cloudflared \
   wget -qO- http://frontend:80 | head -5
 ```
 
 **Häufige Ursachen:**
+
 | Symptom | Ursache | Lösung |
 |---------|---------|--------|
 | cloudflared `exited` | Falsches Token in `.env` | Token in Cloudflare Dashboard prüfen, `.env` korrigieren, `docker compose restart cloudflared` |
 | `ERR_TUNNEL_CONNECTION_FAILED` | cloudflared läuft nicht | `docker compose -f docker-compose.prod.yml up -d cloudflared` |
 | Seite lädt, aber weiß | Frontend Build-Fehler | `docker compose logs frontend` prüfen |
-| Login schlägt fehl (API-Fehler) | Backend nicht erreichbar | `docker compose logs backend` prüfen |
+| Login schlägt fehl | Backend nicht erreichbar | `docker compose logs backend` prüfen |
 
 ---
 
@@ -647,17 +717,16 @@ docker compose -f docker-compose.prod.yml logs backend
 
 ---
 
-### Problem: MQTT Verbindung vom Raspberry Pi schlägt fehl
+### Problem: MQTT-Verbindung vom Pi schlägt fehl
 
 ```bash
 # Port 1883 erreichbar?
-# Auf dem Pi oder lokalem PC:
 nc -zv DEINE-VPS-IP 1883
 # → "succeeded" muss erscheinen
 
-# EMQX läuft?
-docker compose -f docker-compose.prod.yml ps emqx
-docker compose -f docker-compose.prod.yml logs emqx | tail -20
+# Mosquitto läuft?
+docker compose -f docker-compose.prod.yml ps mqtt
+docker compose -f docker-compose.prod.yml logs mqtt | tail -20
 
 # Firewall prüfen
 sudo ufw status | grep 1883
@@ -665,14 +734,44 @@ sudo ufw status | grep 1883
 
 ---
 
-### Problem: Update schlägt fehl
+### Problem: WireGuard VPN funktioniert nicht
 
 ```bash
-# Images ohne Cache neu bauen
-docker compose -f docker-compose.prod.yml build --no-cache
+# WireGuard-Container läuft?
+docker compose -f docker-compose.prod.yml ps wireguard
+docker compose -f docker-compose.prod.yml logs wireguard | tail -30
 
-# Dann neu starten
-docker compose -f docker-compose.prod.yml up -d
+# WireGuard-Interface anzeigen
+docker compose -f docker-compose.prod.yml exec wireguard wg show
+
+# Port 51820 erreichbar? (UDP-Test vom Techniker-PC)
+nc -u -zv DEINE-VPS-IP 51820
+
+# Firewall prüfen
+sudo ufw status | grep 51820
+
+# Konfig manuell neu laden
+docker kill --signal SIGHUP ycontrol_wireguard
+```
+
+**Häufige Ursachen:**
+
+| Symptom | Ursache | Lösung |
+|---------|---------|--------|
+| `wg0.conf` fehlt | `VPN_SERVER_PRIVATE_KEY` nicht in `.env` | Schlüssel generieren und in `.env` eintragen, Backend neu starten |
+| Pi verbindet sich nicht | Server-Endpunkt falsch im UI | VPN → Einstellungen → Endpunkt auf `IP:51820` setzen |
+| Kein Zugriff auf Anlagen-LAN | NETMAP-Regeln fehlen | `wg show` auf Pi prüfen, `wg-quick down/up wg0` |
+
+---
+
+### Problem: Pi-Registrierung schlägt fehl
+
+```bash
+# Backend-Logs während Registrierung ansehen
+docker compose -f docker-compose.prod.yml logs -f backend
+
+# Health-Check
+curl https://cloud.deine-domain.de/health
 ```
 
 ---
@@ -687,4 +786,5 @@ echo "=== Container ===" && docker compose -f docker-compose.prod.yml ps
 echo "=== Disk ===" && df -h /
 echo "=== RAM ===" && free -h
 echo "=== Tunnel ===" && docker compose -f docker-compose.prod.yml logs --tail=10 cloudflared
+echo "=== WireGuard ===" && docker compose -f docker-compose.prod.yml exec wireguard wg show 2>/dev/null || echo "nicht verfügbar"
 ```
