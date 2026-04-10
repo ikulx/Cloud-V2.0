@@ -389,32 +389,40 @@ export function DeviceDetailPage() {
               <Typography variant="body2" color="text.secondary" mb={2}>
                 Pi-Visu über VPN-Proxy — der Server leitet die Anfrage durch das WireGuard-Tunnel weiter.
               </Typography>
-              <Box display="flex" gap={1} mb={2} flexWrap="wrap">
-                <Button
-                  variant="contained"
-                  startIcon={<OpenInBrowserIcon />}
-                  onClick={() => setVisuOpen((v) => !v)}
-                >
-                  {visuOpen ? 'Vorschau schliessen' : 'Vorschau anzeigen'}
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<OpenInNewIcon />}
-                  onClick={() => window.open(`/api/vpn/devices/${id}/visu/`, '_blank')}
-                >
-                  In neuem Fenster öffnen
-                </Button>
-              </Box>
-              {visuOpen && (
-                <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden', height: 600 }}>
-                  <iframe
-                    src={`/api/vpn/devices/${id}/visu/`}
-                    style={{ width: '100%', height: '100%', border: 'none' }}
-                    title={`Visualisierung – ${device.name}`}
-                    sandbox="allow-scripts allow-same-origin allow-forms"
-                  />
-                </Box>
-              )}
+              {(() => {
+                const token = localStorage.getItem('accessToken') ?? ''
+                const visuUrl = `/api/vpn/devices/${id}/visu/?access_token=${encodeURIComponent(token)}`
+                return (
+                  <>
+                    <Box display="flex" gap={1} mb={2} flexWrap="wrap">
+                      <Button
+                        variant="contained"
+                        startIcon={<OpenInBrowserIcon />}
+                        onClick={() => setVisuOpen((v) => !v)}
+                      >
+                        {visuOpen ? 'Vorschau schliessen' : 'Vorschau anzeigen'}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        startIcon={<OpenInNewIcon />}
+                        onClick={() => window.open(visuUrl, '_blank')}
+                      >
+                        In neuem Fenster öffnen
+                      </Button>
+                    </Box>
+                    {visuOpen && (
+                      <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden', height: 600 }}>
+                        <iframe
+                          src={visuUrl}
+                          style={{ width: '100%', height: '100%', border: 'none' }}
+                          title={`Visualisierung – ${device.name}`}
+                          sandbox="allow-scripts allow-same-origin allow-forms"
+                        />
+                      </Box>
+                    )}
+                  </>
+                )
+              })()}
             </CardContent>
           </Card>
         )}

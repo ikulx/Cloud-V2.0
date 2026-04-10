@@ -25,6 +25,8 @@ import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import http from 'http'
+import { verifyAccessToken } from '../lib/token'
+import { getUserAccessContext } from '../services/user-context.service'
 import {
   peerIp,
   generateWgKeypair,
@@ -487,9 +489,21 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
 
 // ─── Visu-Proxy ───────────────────────────────────────────────────────────────
 // GET /api/vpn/devices/:deviceId/visu/*
-// Der Cloud-Server (selbst im VPN) proxied die Pi-Visualisierung über HTTPS aus.
-// So entfällt das Mixed-Content-Problem im Browser.
-router.get('/devices/:deviceId/visu*', authenticate, async (req, res) => {
+// Authentifizierung: Bearer-Token im Header ODER ?access_token= als Query-Parameter
+// (iframe kann keine Custom-Header senden → Query-Parameter nötig)
+router.get('/devices/:deviceId/visu*', async (req, res) => {
+  // Token aus Header oder Query-Parameter
+  const headerToken = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.slice(7)
+    : null
+  const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : null
+  const rawToken = headerToken ?? queryToken
+
+  if (!rawToken) { res.status(401).json({ message: 'Authentifizierung erforderlich' }); return }
+  const payload = verifyAccessToken(rawToken)
+  if (!payload) { res.status(401).json({ message: 'Token ungültig' }); return }
+  const userCtx = await getUserAccessContext(payload.sub)
+  if (!userCtx) { res.status(401).json({ message: 'Benutzer nicht gefunden' }); return }
   const deviceId = req.params.deviceId as string
 
   const [vpnDevice, device] = await Promise.all([
