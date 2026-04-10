@@ -602,35 +602,55 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
         }
 
         res.status(status)
+        const proxyBase = `/api/vpn/devices/${deviceId}/visu`
+
         for (const [key, val] of Object.entries(proxyRes.headers)) {
           const k = key.toLowerCase()
           if (k === 'content-encoding' || k === 'transfer-encoding') continue
+          if (k === 'content-security-policy' || k === 'x-frame-options') {
+            // CSP relaxen damit Pi-Apps mit inline-Scripts funktionieren
+            // x-frame-options entfernen damit der iframe zugelassen wird
+            res.setHeader('content-security-policy',
+              "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
+            continue
+          }
           if (k === 'location' && val) {
-            // Location-Header auf Proxy-Pfad umschreiben
             const locStr = Array.isArray(val) ? val[0] : val
-            const proxyBase = `/api/vpn/devices/${deviceId}/visu`
-            const rewritten = locStr.replace(/^https?:\/\/[^/]+/, proxyBase)
+            const rewritten = locStr.startsWith('http')
+              ? locStr.replace(/^https?:\/\/[^/]+/, proxyBase)
+              : `${proxyBase}${locStr.startsWith('/') ? locStr : `/${locStr}`}`
             res.setHeader('location', rewritten)
             continue
           }
           res.setHeader(key, val as string)
         }
+        // CSP setzen falls Pi keinen geschickt hat (Cloudflare o.ä. könnte einen hinzufügen)
+        if (!res.getHeader('content-security-policy')) {
+          res.setHeader('content-security-policy',
+            "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
+        }
 
-        // HTML: <base>-Tag einfügen + interne Links auf Proxy umschreiben
+        // HTML: absolute Pfade + <base>-Tag umschreiben
         const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
         if (ct.includes('text/html')) {
           let body = ''
           proxyRes.setEncoding('utf-8')
           proxyRes.on('data', (chunk) => { body += chunk })
           proxyRes.on('end', () => {
-            // Basis-URL für relative Pfade setzen
+            // Absolute Pfade umschreiben: src="/assets/..." → src="/api/vpn/...visu/assets/..."
+            // (Vite-Apps bauen mit absoluten Pfaden, <base> hilft da nicht)
+            const rewritten = body.replace(
+              /(\b(?:src|href|action)\s*=\s*["'])\/(?!\/)/g,
+              `$1${proxyBase}/`
+            )
+            // <base>-Tag für restliche relative Pfade
             const baseHref = targetIpParam
-              ? `/api/vpn/devices/${deviceId}/visu/?targetIp=${encodeURIComponent(targetIpParam)}${targetPortParam ? `&targetPort=${targetPortParam}` : ''}&access_token=${encodeURIComponent(rawToken ?? '')}`
-              : `/api/vpn/devices/${deviceId}/visu/`
+              ? `${proxyBase}/?targetIp=${encodeURIComponent(targetIpParam)}${targetPortParam ? `&targetPort=${targetPortParam}` : ''}&access_token=${encodeURIComponent(rawToken ?? '')}`
+              : `${proxyBase}/`
             const base = `<base href="${baseHref}">`
-            const patched = body.includes('<head>')
-              ? body.replace('<head>', `<head>${base}`)
-              : `<head>${base}</head>${body}`
+            const patched = rewritten.includes('<head>')
+              ? rewritten.replace('<head>', `<head>${base}`)
+              : `<head>${base}</head>${rewritten}`
             res.removeHeader('content-length')
             res.send(patched)
           })

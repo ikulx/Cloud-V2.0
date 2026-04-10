@@ -503,7 +503,6 @@ export function DeviceDetailPage() {
                           src={visuUrl}
                           style={{ width: '100%', height: '100%', border: 'none' }}
                           title={`Visualisierung – ${device.name}`}
-                          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                         />
                       </Box>
                     )}
