@@ -282,7 +282,7 @@ export function DeviceDetailPage() {
                           size="small"
                           variant="outlined"
                           startIcon={<DownloadIcon />}
-                          onClick={() => downloadBlob(`/api/vpn/devices/${id}/pi-config`, `vpn-device.conf`)}
+                          onClick={() => downloadBlob(`/vpn/devices/${id}/pi-config`, `vpn-device.conf`)}
                         >
                           {t('vpn.downloadPiConfig')}
                         </Button>

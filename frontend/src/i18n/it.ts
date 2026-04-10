@@ -230,6 +230,7 @@ const it = {
     linkedUser: 'Utente collegato',
     downloadPeerConfig: 'Scarica config client',
     addPeerTitle: 'Aggiungi peer tecnico',
+    addPeerInfo: 'La coppia di chiavi viene generata automaticamente. Dopo la creazione, scarica semplicemente la config pronta all\'uso.',
     peerName: 'Nome',
     peerNamePlaceholder: 'es. Laptop Tecnico Rossi',
     publicKeyHint: 'Output di: wg pubkey (44 caratteri Base64)',

@@ -409,27 +409,22 @@ router.get('/peers', authenticate, requirePermission('vpn:manage'), async (_req,
   res.json(result)
 })
 
-// POST /api/vpn/peers
+// POST /api/vpn/peers  – Schlüsselpaar wird automatisch serverseitig generiert
 const peerSchema = z.object({
-  name:      z.string().min(1).max(100),
-  publicKey: z.string().min(44).max(44),  // Base64 von 32 Bytes = 44 Zeichen
-  userId:    z.string().uuid().optional(),
+  name:   z.string().min(1).max(100),
+  userId: z.string().uuid().optional(),
 })
 
 router.post('/peers', authenticate, requirePermission('vpn:manage'), async (req, res) => {
   const parsed = peerSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
 
-  const { name, publicKey, userId } = parsed.data
-
-  // Doppelten Schlüssel verhindern
-  const dup = await prisma.vpnPeer.findUnique({ where: { publicKey } })
-  if (dup) { res.status(409).json({ message: 'Dieser öffentliche Schlüssel ist bereits registriert' }); return }
-
+  const { name, userId } = parsed.data
+  const { privateKey, publicKey } = generateWgKeypair()
   const peerIndex = await nextPeerIndex()
 
   const peer = await prisma.vpnPeer.create({
-    data: { name, publicKey, peerIndex, userId: userId ?? null },
+    data: { name, publicKey, privateKey, peerIndex, userId: userId ?? null },
     include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
   })
 
@@ -467,7 +462,7 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
     res.status(409).json({ message: 'VPN-Server-Einstellungen nicht konfiguriert' }); return
   }
 
-  const config = generatePeerConfig({ peerIndex: peer.peerIndex, settings })
+  const config = generatePeerConfig({ peerIndex: peer.peerIndex, privateKey: peer.privateKey ?? undefined, settings })
   const filename = `ycontrol-vpn-${peer.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.conf`
   res.setHeader('Content-Type',        'text/plain; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)

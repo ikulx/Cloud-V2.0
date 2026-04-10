@@ -233,6 +233,7 @@ const de = {
     linkedUser: 'Verknüpfter Benutzer',
     downloadPeerConfig: 'Client-Config herunterladen',
     addPeerTitle: 'Techniker-Peer hinzufügen',
+    addPeerInfo: 'Das Schlüsselpaar wird automatisch generiert. Nach dem Erstellen einfach die fertige Config herunterladen.',
     peerName: 'Bezeichnung',
     peerNamePlaceholder: 'z.B. Laptop Techniker Müller',
     publicKeyHint: 'Output von: wg pubkey (44 Zeichen Base64)',

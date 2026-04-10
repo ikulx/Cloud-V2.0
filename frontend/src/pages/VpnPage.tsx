@@ -192,7 +192,7 @@ systemctl enable wg-quick@wg0`}
             variant="outlined"
             startIcon={<DownloadIcon />}
             sx={{ mt: 2 }}
-            onClick={() => downloadBlob('/api/vpn/server-config', 'wg0.conf')}
+            onClick={() => downloadBlob('/vpn/server-config', 'wg0.conf')}
           >
             {t('vpn.downloadServerConfig')}
           </Button>
@@ -285,7 +285,7 @@ function GeraeteTab() {
                     <Tooltip title={t('vpn.downloadPiConfig')}>
                       <IconButton
                         size="small"
-                        onClick={() => downloadBlob(`/api/vpn/devices/${d.deviceId}/pi-config`, `vpn-${d.deviceName}.conf`)}
+                        onClick={() => downloadBlob(`/vpn/devices/${d.deviceId}/pi-config`, `vpn-${d.deviceName}.conf`)}
                       >
                         <DownloadIcon fontSize="small" />
                       </IconButton>
@@ -331,24 +331,13 @@ function PeersTab() {
 
   const [addDialog, setAddDialog]   = useState(false)
   const [peerName, setPeerName]     = useState('')
-  const [publicKey, setPublicKey]   = useState('')
-  const [keyError, setKeyError]     = useState('')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
-  const validateKey = (k: string) => {
-    // WG public key: 44 Zeichen Base64
-    if (!/^[A-Za-z0-9+/]{43}=$/u.test(k)) {
-      setKeyError(t('vpn.invalidKey'))
-    } else {
-      setKeyError('')
-    }
-  }
-
   const handleAdd = () => {
-    if (!peerName || !publicKey || keyError) return
+    if (!peerName) return
     addMut.mutate(
-      { name: peerName, publicKey },
-      { onSuccess: () => { setAddDialog(false); setPeerName(''); setPublicKey(''); setKeyError('') } }
+      { name: peerName },
+      { onSuccess: () => { setAddDialog(false); setPeerName('') } }
     )
   }
 
@@ -402,7 +391,7 @@ function PeersTab() {
                   </TableCell>
                   <TableCell align="right">
                     <Tooltip title={t('vpn.downloadPeerConfig')}>
-                      <IconButton size="small" onClick={() => downloadBlob(`/api/vpn/peers/${p.id}/config`, `vpn-${p.name}.conf`)}>
+                      <IconButton size="small" onClick={() => downloadBlob(`/vpn/peers/${p.id}/config`, `vpn-${p.name}.conf`)}>
                         <DownloadIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
@@ -420,10 +409,11 @@ function PeersTab() {
       )}
 
       {/* Dialog: Peer hinzufügen */}
-      <Dialog open={addDialog} onClose={() => setAddDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog open={addDialog} onClose={() => setAddDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{t('vpn.addPeerTitle')}</DialogTitle>
         <DialogContent>
           <Box display="flex" flexDirection="column" gap={2} mt={1}>
+            <Alert severity="info" sx={{ fontSize: 12 }}>{t('vpn.addPeerInfo')}</Alert>
             <TextField
               label={t('vpn.peerName')}
               value={peerName}
@@ -431,31 +421,13 @@ function PeersTab() {
               placeholder={t('vpn.peerNamePlaceholder')}
               fullWidth
               size="small"
+              autoFocus
             />
-            <TextField
-              label={t('vpn.publicKey')}
-              value={publicKey}
-              onChange={(e) => { setPublicKey(e.target.value); validateKey(e.target.value) }}
-              helperText={keyError || t('vpn.publicKeyHint')}
-              error={!!keyError}
-              placeholder="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-              fullWidth
-              size="small"
-            />
-            <Box component="pre" sx={{ bgcolor: 'grey.100', p: 1.5, borderRadius: 1, fontSize: 11, color: 'text.secondary' }}>
-{`# Schlüsselpaar auf dem Techniker-PC generieren:
-wg genkey | tee tech.key | wg pubkey > tech.pub
-cat tech.pub   # → diesen Wert hier eintragen`}
-            </Box>
           </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setAddDialog(false)}>{t('common.cancel')}</Button>
-          <Button
-            variant="contained"
-            onClick={handleAdd}
-            disabled={!peerName || !publicKey || !!keyError || addMut.isPending}
-          >
+          <Button variant="contained" onClick={handleAdd} disabled={!peerName || addMut.isPending}>
             {t('vpn.addPeer')}
           </Button>
         </DialogActions>

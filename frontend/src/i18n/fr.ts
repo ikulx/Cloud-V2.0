@@ -230,6 +230,7 @@ const fr = {
     linkedUser: 'Utilisateur lié',
     downloadPeerConfig: 'Télécharger la config client',
     addPeerTitle: 'Ajouter un pair technicien',
+    addPeerInfo: 'La paire de clés est générée automatiquement. Après création, téléchargez simplement la config prête à l\'emploi.',
     peerName: 'Libellé',
     peerNamePlaceholder: 'ex. Laptop Technicien Dupont',
     publicKeyHint: 'Résultat de : wg pubkey (44 caractères Base64)',

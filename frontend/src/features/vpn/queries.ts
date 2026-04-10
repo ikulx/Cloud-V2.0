@@ -130,7 +130,7 @@ export function useVpnPeers() {
 export function useAddVpnPeer() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { name: string; publicKey: string; userId?: string }) =>
+    mutationFn: (data: { name: string; userId?: string }) =>
       apiPost<VpnPeer>('/vpn/peers', data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['vpn', 'peers'] }),
   })

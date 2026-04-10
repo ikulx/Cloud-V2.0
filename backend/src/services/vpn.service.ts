@@ -57,15 +57,14 @@ export interface VpnSettings {
  * seinen eigenen Schlüssel ein).
  */
 export function generatePeerConfig(opts: {
-  peerIndex:   number
-  settings:    VpnSettings
-  allowedCidrs?: string[]   // leer = alle (10.0.0.0/13)
+  peerIndex:    number
+  settings:     VpnSettings
+  privateKey?:  string       // Server-seitig generiert
+  allowedCidrs?: string[]
 }): string {
-  const { peerIndex, settings, allowedCidrs } = opts
+  const { peerIndex, settings, privateKey, allowedCidrs } = opts
   const ip = peerIp(peerIndex)
-  const allowed = allowedCidrs?.length
-    ? allowedCidrs.join(', ')
-    : '10.0.0.0/13'    // Zone A + Zone B
+  const allowed = allowedCidrs?.length ? allowedCidrs.join(', ') : '10.0.0.0/13'
 
   return `# Ycontrol VPN — Techniker-Konfiguration
 # Peer-IP: ${ip}  |  Zugriff: ${allowed}
@@ -73,7 +72,7 @@ export function generatePeerConfig(opts: {
 
 [Interface]
 Address    = ${ip}/32
-PrivateKey = <HIER_PRIVATEN_SCHLUESSEL_EINTRAGEN>
+PrivateKey = ${privateKey ?? '<BITTE_PRIVATEN_SCHLUESSEL_EINTRAGEN>'}
 DNS        = 10.1.0.1
 
 [Peer]

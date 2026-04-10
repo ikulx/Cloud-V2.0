@@ -331,14 +331,10 @@ def run_agent():
                             f.write(vpn_config)
                         os.chmod(wg_conf, 0o600)
                         print("[YControl] wg0.conf geschrieben")
-                        # 3. Laufenden Tunnel neu laden falls aktiv, sonst starten
-                        wg_active = subprocess.run(["systemctl", "is-active", "wg-quick@wg0"],
-                                                   capture_output=True).returncode == 0
-                        if wg_active:
-                            subprocess.run(["systemctl", "reload-or-restart", "wg-quick@wg0"], check=True)
-                        else:
-                            subprocess.run(["systemctl", "enable", "wg-quick@wg0"], check=True)
-                            subprocess.run(["systemctl", "start",  "wg-quick@wg0"], check=True)
+                        # 3. Failed-State zurücksetzen, dann enable + (re)start
+                        subprocess.run(["systemctl", "reset-failed", "wg-quick@wg0"], capture_output=True)
+                        subprocess.run(["systemctl", "enable", "wg-quick@wg0"], check=True)
+                        subprocess.run(["systemctl", "restart", "wg-quick@wg0"], check=True)
                         print("[YControl] VPN aktiv!")
                         c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "ok"}), qos=1)
                     except Exception as ex:

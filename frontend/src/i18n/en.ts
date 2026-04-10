@@ -230,6 +230,7 @@ const en = {
     linkedUser: 'Linked User',
     downloadPeerConfig: 'Download client config',
     addPeerTitle: 'Add Technician Peer',
+    addPeerInfo: 'The key pair is generated automatically. After creating, simply download the ready-to-use config.',
     peerName: 'Label',
     peerNamePlaceholder: 'e.g. Technician Smith Laptop',
     publicKeyHint: 'Output of: wg pubkey (44-char Base64)',

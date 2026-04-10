@@ -36,7 +36,15 @@
       "Bash(powershell -Command ':*)",
       "Bash(set PRISMA_FORCE_COLOR=0)",
       "Bash(node -e ':*)",
-      "Bash(grep -v \"^\\\\\\\\.\")"
+      "Bash(grep -v \"^\\\\\\\\.\")",
+      "Bash(xargs grep:*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node ./node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(cmd /c \"npx prisma migrate dev --name add-vpn-device\")",
+      "Bash(set PRISMA_NONINTERACTIVE=1)",
+      "Bash(echo \"Backend EXIT:$?\")",
+      "Bash(echo \"Frontend EXIT:$?\")"
     ]
   }
 }

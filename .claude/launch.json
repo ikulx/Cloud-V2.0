@@ -2,6 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "Docker (PostgreSQL + Mosquitto)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up"],
+      "cwd": ".",
+      "autoPort": true
+    },
+    {
       "name": "Backend (Node.js API)",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
