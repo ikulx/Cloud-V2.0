@@ -54,7 +54,7 @@ fi
 
 # ─── Images neu bauen ────────────────────────────────────────────────────────
 info "Baue Docker Images neu..."
-docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml build --no-cache
 success "Images gebaut"
 
 # ─── MQTT neu starten (Mosquitto – Config aus Git-Repo) ──────────────────────
