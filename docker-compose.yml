@@ -14,24 +14,14 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
-  emqx:
-    image: emqx:5
-    container_name: ycontrol_emqx
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: ycontrol_mqtt
     ports:
-      - "1883:1883"    # MQTT (TCP)
-      - "8083:8083"    # MQTT over WebSocket
-      - "18083:18083"  # EMQX Dashboard
-    environment:
-      - EMQX_DASHBOARD__DEFAULT_PASSWORD=admin123
-      - EMQX_NODE__NAME=emqx@127.0.0.1
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "1883:1883"
     volumes:
-      - ./emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
-      - ./emqx/acl.conf:/opt/emqx/etc/acl.conf:ro
-      - emqx_data:/opt/emqx/data
+      - ./mosquitto/mosquitto.dev.conf:/mosquitto/config/mosquitto.conf:ro
     restart: unless-stopped
 
 volumes:
   postgres_data:
-  emqx_data:
