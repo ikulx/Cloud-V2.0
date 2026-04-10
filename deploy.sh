@@ -181,7 +181,7 @@ if [ "$EMQX_READY" = "1" ]; then
         ST=$(curl -s -o /dev/null -w "%{http_code}" \
           -u "admin:${EMQX_PASS}" \
           "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "0")
-        if [ "$ST" != "401" ] && [ "$ST" != "0" ]; then
+        if echo "$ST" | grep -qE '^2[0-9][0-9]$'; then
           success "EMQX bereit (HTTP ${ST})"
           emqx_setup_mqtt_user "${EMQX_PASS}" \
             || warn "MQTT Backend-User konnte nicht angelegt werden (HTTP ${ST})"
