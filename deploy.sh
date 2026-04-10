@@ -91,18 +91,6 @@ info "Cloudflare Tunnel: kein Neustart nötig (Konfiguration liegt bei Cloudflar
 # Verhindert dass HTTP-Webhook-Auth aus alten Installs im emqx.conf bleibt
 mkdir -p emqx
 cat > emqx/emqx.conf << 'EMQXCONF'
-listeners.tcp.default {
-  bind = "0.0.0.0:1883"
-}
-
-listeners.ws.default {
-  bind = "0.0.0.0:8083"
-}
-
-dashboard {
-  listeners.http.bind = 18083
-}
-
 authentication = [
   {
     mechanism = password_based

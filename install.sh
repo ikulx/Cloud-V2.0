@@ -80,18 +80,6 @@ success ".env gefunden und vollständig"
 mkdir -p emqx
 info "Schreibe emqx.conf (immer überschreiben)..."
 cat > emqx/emqx.conf << 'EMQXCONF'
-listeners.tcp.default {
-  bind = "0.0.0.0:1883"
-}
-
-listeners.ws.default {
-  bind = "0.0.0.0:8083"
-}
-
-dashboard {
-  listeners.http.bind = 18083
-}
-
 authentication = [
   {
     mechanism = password_based
