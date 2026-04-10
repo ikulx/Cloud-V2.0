@@ -63,7 +63,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC12"
+AGENT_VERSION = "1.0.0-RC13"
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -323,8 +323,9 @@ def run_agent():
                         print("[YControl] Installiere WireGuard...")
                         subprocess.run(["apt-get", "update", "-qq"], check=True, capture_output=True)
                         subprocess.run(["apt-get", "install", "-y", "wireguard", "wireguard-tools", "iptables"], check=True)
-                        # 2. Kernel-Modul laden + IP-Forwarding aktivieren
+                        # 2. Kernel-Module laden + IP-Forwarding aktivieren
                         subprocess.run(["modprobe", "wireguard"], capture_output=True)
+                        subprocess.run(["modprobe", "xt_NETMAP"], capture_output=True)
                         with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
                             f.write("1")
                         # persistieren (falls noch nicht gesetzt)

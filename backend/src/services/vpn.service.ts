@@ -104,7 +104,18 @@ AllowedIPs = ${ip}/32
 `
 }
 
-/** Erzeugt die wg0.conf-Konfiguration für einen Pi (device-basiert, kein NETMAP). */
+/**
+ * Leitet den VPN-LAN-Präfix aus dem realen LAN-Präfix ab.
+ * Konvention: letztes Segment von localPrefix wird als drittes Oktett in 10.11.x verwendet.
+ * Beispiel: localPrefix="192.168.10" → vpnLanPrefix="10.11.10" → vpnLanNet="10.11.10.0/24"
+ * Techniker erreicht 192.168.10.5 via 10.11.10.5 (NETMAP 1:1)
+ */
+export function deriveVpnLanPrefix(localPrefix: string): string {
+  const lastSegment = localPrefix.split('.').pop() ?? '0'
+  return `10.11.${lastSegment}`
+}
+
+/** Erzeugt die wg0.conf-Konfiguration für einen Pi (mit NETMAP für LAN-Zugriff). */
 export function generateDevicePiConfig(opts: {
   vpnIp:        string
   localPrefix:  string
@@ -112,15 +123,18 @@ export function generateDevicePiConfig(opts: {
   settings:     VpnSettings
 }): string {
   const { vpnIp, localPrefix, piPrivateKey, settings } = opts
-  const localNet = `${localPrefix}.0/24`
+  const localNet   = `${localPrefix}.0/24`
+  const vpnLanNet  = `${deriveVpnLanPrefix(localPrefix)}.0/24`
 
   const postUp = [
     'iptables -A FORWARD -i %i -j ACCEPT',
     'iptables -A FORWARD -o %i -j ACCEPT',
-    // Masquerade VPN→LAN traffic: local devices see Pi's own eth0 IP as source
-    // so they can reply correctly without needing a custom route back to VPN
+    // MASQUERADE: VPN-Quell-IPs erscheinen als Pi-eth0-IP gegenüber LAN-Geräten
     `iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o eth0 -j MASQUERADE`,
     `iptables -t nat -A POSTROUTING -s ${localNet} -o eth0 -j MASQUERADE`,
+    // NETMAP 1:1: Techniker sendet an 10.11.X.Y → Pi leitet an 192.168.X.Y weiter
+    // conntrack kehrt den Weg automatisch um (Reply-Quelle wird 10.11.X.Y)
+    `iptables -t nat -A PREROUTING -i %i -d ${vpnLanNet} -j NETMAP --to ${localNet}`,
   ].join('; ')
 
   const preDown = [
@@ -128,10 +142,11 @@ export function generateDevicePiConfig(opts: {
     'iptables -D FORWARD -o %i -j ACCEPT',
     `iptables -t nat -D POSTROUTING -s 10.0.0.0/8 -o eth0 -j MASQUERADE`,
     `iptables -t nat -D POSTROUTING -s ${localNet} -o eth0 -j MASQUERADE`,
+    `iptables -t nat -D PREROUTING -i %i -d ${vpnLanNet} -j NETMAP --to ${localNet}`,
   ].join('; ')
 
   return `# Ycontrol VPN — Pi-Konfiguration
-# Gerät VPN-IP: ${vpnIp}  |  Reales LAN: ${localNet}
+# Gerät VPN-IP: ${vpnIp}  |  Reales LAN: ${localNet}  |  VPN-LAN: ${vpnLanNet}
 # Generiert: ${new Date().toISOString()}
 
 [Interface]
@@ -157,11 +172,12 @@ export function buildDevicePeerBlock(opts: {
   piPublicKey: string
 }): string {
   const { deviceName, vpnIp, localPrefix, piPublicKey } = opts
+  const vpnLanNet = `${deriveVpnLanPrefix(localPrefix)}.0/24`
   return `
 # Gerät: ${deviceName}
 [Peer]
 PublicKey  = ${piPublicKey}
-AllowedIPs = ${vpnIp}/32, ${localPrefix}.0/24
+AllowedIPs = ${vpnIp}/32, ${vpnLanNet}
 `
 }
 
