@@ -157,20 +157,39 @@ if [ "$EMQX_READY" = "1" ]; then
       success "EMQX Passwort über emqx ctl gesetzt"
       emqx_setup_mqtt_user "${EMQX_PASS}"
     else
-      # Versuch 3: emqx_data Volume zurücksetzen (EMQX komplett neu initialisieren)
-      warn "EMQX API weiterhin 401 – setze emqx_data Volume zurück (einmalige Aktion)..."
-      docker compose -f docker-compose.prod.yml stop emqx
-      EMQX_VOL=$(docker volume ls --format '{{.Name}}' | grep '_emqx_data$' | head -1)
-      if [ -n "$EMQX_VOL" ]; then
-        docker volume rm "$EMQX_VOL" >/dev/null 2>&1 && info "Volume '${EMQX_VOL}' gelöscht" || true
-      fi
-      docker compose -f docker-compose.prod.yml up -d emqx
-      info "Warte auf EMQX-Neustart (25s)..."
-      sleep 25
-      # Jetzt frische Installation: Passwort kommt aus EMQX_DASHBOARD__DEFAULT_PASSWORD
-      success "EMQX neu initialisiert"
-      emqx_setup_mqtt_user "${EMQX_PASS}" \
-        || warn "MQTT Backend-User konnte nicht angelegt werden – prüfe EMQX logs"
+      # Versuch 3: emqx_data Volume hart zurücksetzen
+      warn "EMQX API weiterhin 401 – setze emqx_data Volume zurück..."
+      docker compose -f docker-compose.prod.yml stop emqx >/dev/null 2>&1 || true
+      docker compose -f docker-compose.prod.yml rm -f emqx >/dev/null 2>&1 || true
+
+      # Volume direkt über bekannte Namen löschen (compose-Projektname = Verzeichnisname)
+      COMPOSE_PROJECT=$(basename "$(pwd)")
+      for vol in "${COMPOSE_PROJECT}_emqx_data" "ycontrol_emqx_data" "emqx_data"; do
+        if docker volume inspect "$vol" >/dev/null 2>&1; then
+          docker volume rm "$vol" >/dev/null 2>&1 \
+            && success "Volume '${vol}' gelöscht" \
+            || warn "Volume '${vol}' konnte nicht gelöscht werden (noch in Benutzung?)"
+          break
+        fi
+      done
+
+      docker compose -f docker-compose.prod.yml up -d emqx >/dev/null 2>&1
+
+      # Warten bis EMQX API antwortet (max 60s)
+      info "Warte auf EMQX nach Volume-Reset..."
+      for i in $(seq 1 12); do
+        ST=$(curl -s -o /dev/null -w "%{http_code}" \
+          -u "admin:${EMQX_PASS}" \
+          "http://localhost:18083/api/v5/authentication" 2>/dev/null || echo "0")
+        if [ "$ST" != "401" ] && [ "$ST" != "0" ]; then
+          success "EMQX bereit (HTTP ${ST})"
+          emqx_setup_mqtt_user "${EMQX_PASS}" \
+            || warn "MQTT Backend-User konnte nicht angelegt werden (HTTP ${ST})"
+          break
+        fi
+        info "EMQX noch nicht bereit (HTTP ${ST}) – warte 5s... ($i/12)"
+        sleep 5
+      done
     fi
   fi
 
