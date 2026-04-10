@@ -152,10 +152,15 @@ router.get('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), 
   })
 })
 
+// VPN-IP-Schema: 10.A.0.B  (A: 11–255, B: 1–254)
+// VPN-LAN wird abgeleitet: 10.A.B.0/24
+const VPN_IP_RE = /^10\.(1[1-9]|[2-9]\d|[1-2]\d{2}|255)\.0\.(25[0-4]|2[0-4]\d|1\d{2}|[1-9]\d|[1-9])$/
+const LOCAL_PREFIX_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+
 // POST /api/vpn/devices/:deviceId/enable
 const enableDeviceSchema = z.object({
-  vpnIp:       z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/),
-  localPrefix: z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/).optional(),
+  vpnIp:       z.string().regex(VPN_IP_RE, 'VPN-IP muss Format 10.A.0.B haben (A: 11–255, B: 1–254)'),
+  localPrefix: z.string().regex(LOCAL_PREFIX_RE, 'LAN-Präfix muss drei Oktette haben, z.B. 192.168.10').optional(),
 })
 
 router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:manage'), async (req, res) => {
@@ -199,8 +204,8 @@ router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:ma
 
 // PUT /api/vpn/devices/:deviceId
 const updateDeviceSchema = z.object({
-  vpnIp:       z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/).optional(),
-  localPrefix: z.string().regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}$/).optional(),
+  vpnIp:       z.string().regex(VPN_IP_RE, 'VPN-IP muss Format 10.A.0.B haben (A: 11–255, B: 1–254)').optional(),
+  localPrefix: z.string().regex(LOCAL_PREFIX_RE, 'LAN-Präfix muss drei Oktette haben, z.B. 192.168.10').optional(),
 })
 
 router.put('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), async (req, res) => {

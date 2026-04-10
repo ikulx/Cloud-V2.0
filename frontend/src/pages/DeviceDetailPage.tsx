@@ -36,6 +36,36 @@ import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { usePermission } from '../hooks/usePermission'
 import { useTranslation } from 'react-i18next'
 
+// ─── VPN-IP-Validierung ───────────────────────────────────────────────────────
+// Schema: 10.A.0.B  (A: 11–255, B: 1–254)
+// VPN-LAN wird daraus abgeleitet: 10.A.B.0/24
+
+const VPN_IP_RE = /^10\.(1[1-9]|[2-9]\d|[1-2]\d{2}|255)\.0\.(25[0-4]|2[0-4]\d|1\d{2}|[1-9]\d|[1-9])$/
+
+function validateVpnIp(ip: string): string | null {
+  if (!ip) return 'Pflichtfeld'
+  if (!VPN_IP_RE.test(ip)) return 'Format: 10.A.0.B  (A: 11–255, B: 1–254)  z.B. 10.11.0.2'
+  return null
+}
+
+// LAN-Präfix: drei Oktette, z.B. 192.168.10
+const LOCAL_PREFIX_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+
+function validateLocalPrefix(prefix: string): string | null {
+  if (!prefix) return 'Pflichtfeld'
+  const m = LOCAL_PREFIX_RE.exec(prefix)
+  if (!m) return 'Format: drei Oktette, z.B. 192.168.10'
+  if ([m[1], m[2], m[3]].some((o) => parseInt(o) > 255)) return 'Oktette müssen 0–255 sein'
+  return null
+}
+
+function vpnLanHint(vpnIp: string): string {
+  const parts = vpnIp.split('.')
+  if (parts.length === 4 && VPN_IP_RE.test(vpnIp))
+    return `→ VPN-LAN: ${parts[0]}.${parts[1]}.${parts[3]}.0/24`
+  return ''
+}
+
 // ─── Download-Helfer ──────────────────────────────────────────────────────────
 
 function downloadBlob(url: string, filename: string) {
@@ -226,7 +256,12 @@ export function DeviceDetailPage() {
                       value={newVpnIp}
                       onChange={(e) => setNewVpnIp(e.target.value)}
                       placeholder="10.11.0.2"
-                      helperText={t('vpn.vpnIpHint')}
+                      error={!!newVpnIp && !!validateVpnIp(newVpnIp)}
+                      helperText={
+                        newVpnIp && validateVpnIp(newVpnIp)
+                          ? validateVpnIp(newVpnIp)
+                          : vpnLanHint(newVpnIp) || t('vpn.vpnIpHint')
+                      }
                     />
                     <TextField
                       label={t('vpn.localPrefix')}
@@ -234,12 +269,17 @@ export function DeviceDetailPage() {
                       value={newLocalPrefix}
                       onChange={(e) => setNewLocalPrefix(e.target.value)}
                       placeholder="192.168.10"
-                      helperText={t('vpn.localPrefixHint')}
+                      error={!!newLocalPrefix && !!validateLocalPrefix(newLocalPrefix)}
+                      helperText={
+                        newLocalPrefix && validateLocalPrefix(newLocalPrefix)
+                          ? validateLocalPrefix(newLocalPrefix)
+                          : t('vpn.localPrefixHint')
+                      }
                     />
                     <Box>
                       <Button
                         variant="contained"
-                        disabled={!newVpnIp || !newLocalPrefix || enableVpn.isPending}
+                        disabled={!!validateVpnIp(newVpnIp) || !!validateLocalPrefix(newLocalPrefix) || enableVpn.isPending}
                         onClick={() => enableVpn.mutate(
                           { deviceId: id!, vpnIp: newVpnIp, localPrefix: newLocalPrefix },
                           { onSuccess: () => { setNewVpnIp(''); setNewLocalPrefix('192.168.10') } }
@@ -258,16 +298,28 @@ export function DeviceDetailPage() {
                         size="small"
                         value={editVpnIp}
                         onChange={(e) => setEditVpnIp(e.target.value)}
+                        error={!!editVpnIp && !!validateVpnIp(editVpnIp)}
+                        helperText={
+                          editVpnIp && validateVpnIp(editVpnIp)
+                            ? validateVpnIp(editVpnIp)
+                            : vpnLanHint(editVpnIp)
+                        }
                       />
                       <TextField
                         label={t('vpn.localPrefix')}
                         size="small"
                         value={editLocalPrefix}
                         onChange={(e) => setEditLocalPrefix(e.target.value)}
+                        error={!!editLocalPrefix && !!validateLocalPrefix(editLocalPrefix)}
+                        helperText={
+                          editLocalPrefix && validateLocalPrefix(editLocalPrefix)
+                            ? validateLocalPrefix(editLocalPrefix)
+                            : undefined
+                        }
                       />
                       <Button
                         variant="outlined"
-                        disabled={updateVpn.isPending}
+                        disabled={updateVpn.isPending || !!validateVpnIp(editVpnIp) || !!validateLocalPrefix(editLocalPrefix)}
                         onClick={() => updateVpn.mutate(
                           { deviceId: id!, vpnIp: editVpnIp, localPrefix: editLocalPrefix },
                           { onSuccess: () => setVpnMsg(t('vpn.saved')) }
