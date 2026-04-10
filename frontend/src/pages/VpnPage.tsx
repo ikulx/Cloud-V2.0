@@ -27,31 +27,16 @@ import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import RouterIcon from '@mui/icons-material/Router'
 import PeopleIcon from '@mui/icons-material/People'
 import SettingsIcon from '@mui/icons-material/Settings'
-import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew'
 import InstallDesktopIcon from '@mui/icons-material/InstallDesktop'
 import Snackbar from '@mui/material/Snackbar'
 import { useTranslation } from 'react-i18next'
 import {
   useVpnSettings, useUpdateVpnSettings,
-  useVpnAnlagen, useEnableVpnAnlage, useDisableVpnAnlage,
+  useVpnDevices, useDisableDeviceVpn, useDeployVpnToDevice,
   useVpnPeers, useAddVpnPeer, useDeleteVpnPeer,
-  useDeployVpnToAnlage,
 } from '../features/vpn/queries'
-import { useQuery } from '@tanstack/react-query'
-import { apiGet } from '../lib/api'
 import { apiFetch } from '../lib/api'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-
-// ─── Anlage-Selector (für VPN-Aktivierung) ───────────────────────────────────
-
-interface AnlageOption { id: string; name: string; location?: string | null }
-
-function useAllAnlagen() {
-  return useQuery({
-    queryKey: ['anlagen', 'all'],
-    queryFn: () => apiGet<AnlageOption[]>('/anlagen'),
-  })
-}
 
 // ─── Download-Helfer ─────────────────────────────────────────────────────────
 
@@ -84,12 +69,12 @@ export function VpnPage() {
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3 }}>
         <Tab icon={<SettingsIcon />} iconPosition="start" label={t('vpn.tabSettings')} />
-        <Tab icon={<RouterIcon />}   iconPosition="start" label={t('vpn.tabAnlagen')} />
+        <Tab icon={<RouterIcon />}   iconPosition="start" label={t('vpn.tabGeraete')} />
         <Tab icon={<PeopleIcon />}   iconPosition="start" label={t('vpn.tabPeers')} />
       </Tabs>
 
       {tab === 0 && <SettingsTab />}
-      {tab === 1 && <AnlagenTab />}
+      {tab === 1 && <GeraeteTab />}
       {tab === 2 && <PeersTab />}
     </Box>
   )
@@ -222,12 +207,11 @@ systemctl enable wg-quick@wg0`}
   10.0.x.y     Techniker-PCs (VPN-Peers)
   10.1.0.1     Cloud-Server (wg0)
 
-Zone B — Anlagen (10.11.0.0/8)
-  10.11.1.0/24 → Anlage 1   (NETMAP ↔ 192.168.x.0/24)
-  10.11.2.0/24 → Anlage 2
+Zone B — Geräte (frei wählbar, z.B. 10.11.x.x)
+  10.11.0.2    Gerät 1 (VPN-IP, /32 + LAN-Präfix.0/24)
+  10.11.0.3    Gerät 2
   ...
-  10.12.244.0/24 → Anlage 500
-  max. 62 720 Anlagen`}
+  VPN-IP und reales LAN-Präfix werden pro Gerät konfiguriert.`}
           </Box>
         </CardContent>
       </Card>
@@ -235,71 +219,50 @@ Zone B — Anlagen (10.11.0.0/8)
   )
 }
 
-// ─── Tab 2: Anlagen-VPN ───────────────────────────────────────────────────────
+// ─── Tab 2: Geräte-VPN ───────────────────────────────────────────────────────
 
-function AnlagenTab() {
+function GeraeteTab() {
   const { t } = useTranslation()
-  const { data: vpnAnlagen, isLoading } = useVpnAnlagen()
-  const { data: allAnlagen }            = useAllAnlagen()
-  const enableMut  = useEnableVpnAnlage()
-  const disableMut = useDisableVpnAnlage()
-  const deployMut  = useDeployVpnToAnlage()
-
-  const [enableDialog, setEnableDialog] = useState(false)
-  const [selectedAnlageId, setSelectedAnlageId] = useState('')
-  const [localPrefix, setLocalPrefix]   = useState('192.168.10')
+  const { data: vpnDevices, isLoading } = useVpnDevices()
+  const disableMut = useDisableDeviceVpn()
+  const deployMut  = useDeployVpnToDevice()
   const [confirmDisable, setConfirmDisable] = useState<string | null>(null)
   const [deployMsg, setDeployMsg] = useState<string | null>(null)
-
-  const enabledIds = new Set(vpnAnlagen?.map((v) => v.anlageId))
-  const available  = allAnlagen?.filter((a) => !enabledIds.has(a.id)) ?? []
-
-  const handleEnable = () => {
-    if (!selectedAnlageId) return
-    enableMut.mutate(
-      { anlageId: selectedAnlageId, localPrefix },
-      { onSuccess: () => { setEnableDialog(false); setSelectedAnlageId(''); setLocalPrefix('192.168.10') } }
-    )
-  }
 
   if (isLoading) return <CircularProgress />
 
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h6">{t('vpn.anlagenTitle', { count: vpnAnlagen?.length ?? 0 })}</Typography>
-        <Button variant="contained" startIcon={<PowerSettingsNewIcon />} onClick={() => setEnableDialog(true)}>
-          {t('vpn.enableAnlage')}
-        </Button>
+        <Typography variant="h6">{t('vpn.devicesTitle', { count: vpnDevices?.length ?? 0 })}</Typography>
+        <Typography variant="body2" color="text.secondary">{t('vpn.devicesHint')}</Typography>
       </Box>
 
-      {(!vpnAnlagen || vpnAnlagen.length === 0) ? (
-        <Alert severity="info">{t('vpn.noAnlagen')}</Alert>
+      {(!vpnDevices || vpnDevices.length === 0) ? (
+        <Alert severity="info">{t('vpn.noDevices')}</Alert>
       ) : (
         <Card>
           <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell>{t('common.name')}</TableCell>
-                <TableCell>{t('vpn.subnet')}</TableCell>
-                <TableCell>{t('vpn.piIp')}</TableCell>
+                <TableCell>{t('vpn.vpnIp')}</TableCell>
                 <TableCell>{t('vpn.localPrefix')}</TableCell>
                 <TableCell>{t('vpn.piKey')}</TableCell>
                 <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {vpnAnlagen.map((a) => (
-                <TableRow key={a.id}>
+              {vpnDevices.map((d) => (
+                <TableRow key={d.id}>
                   <TableCell>
-                    <Typography variant="body2" fontWeight={500}>{a.anlageName}</Typography>
-                    {a.anlageOrt && <Typography variant="caption" color="text.secondary">{a.anlageOrt}</Typography>}
+                    <Typography variant="body2" fontWeight={500}>{d.deviceName}</Typography>
+                    <Typography variant="caption" color="text.secondary" fontFamily="monospace">{d.serialNumber}</Typography>
                   </TableCell>
-                  <TableCell><Chip label={a.subnetCidr} size="small" color="primary" variant="outlined" /></TableCell>
-                  <TableCell><Typography variant="body2" fontFamily="monospace">{a.piIp}</Typography></TableCell>
-                  <TableCell><Typography variant="body2" fontFamily="monospace">{a.localPrefix}.0/24</Typography></TableCell>
+                  <TableCell><Chip label={d.vpnIp} size="small" color="primary" variant="outlined" /></TableCell>
+                  <TableCell><Typography variant="body2" fontFamily="monospace">{d.localPrefix}.0/24</Typography></TableCell>
                   <TableCell>
-                    {a.piPublicKey
+                    {d.piPublicKey
                       ? <Chip label={t('vpn.keyPresent')} size="small" color="success" />
                       : <Chip label={t('vpn.keyMissing')} size="small" color="warning" />}
                   </TableCell>
@@ -309,9 +272,9 @@ function AnlagenTab() {
                         <IconButton
                           size="small"
                           color="primary"
-                          disabled={deployMut.isPending}
-                          onClick={() => deployMut.mutate(a.anlageId, {
-                            onSuccess: (res) => setDeployMsg(t('vpn.deploySuccess', { count: res.targeted })),
+                          disabled={!d.isApproved || deployMut.isPending}
+                          onClick={() => deployMut.mutate(d.deviceId, {
+                            onSuccess: () => setDeployMsg(t('vpn.deploySuccess', { count: 1 })),
                             onError:   () => setDeployMsg(t('vpn.deployError')),
                           })}
                         >
@@ -320,12 +283,15 @@ function AnlagenTab() {
                       </span>
                     </Tooltip>
                     <Tooltip title={t('vpn.downloadPiConfig')}>
-                      <IconButton size="small" onClick={() => downloadBlob(`/api/vpn/anlagen/${a.anlageId}/pi-config`, `vpn-${a.anlageName}.conf`)}>
+                      <IconButton
+                        size="small"
+                        onClick={() => downloadBlob(`/api/vpn/devices/${d.deviceId}/pi-config`, `vpn-${d.deviceName}.conf`)}
+                      >
                         <DownloadIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title={t('vpn.disableAnlage')}>
-                      <IconButton size="small" color="error" onClick={() => setConfirmDisable(a.anlageId)}>
+                    <Tooltip title={t('vpn.disableDevice')}>
+                      <IconButton size="small" color="error" onClick={() => setConfirmDisable(d.deviceId)}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
@@ -337,7 +303,6 @@ function AnlagenTab() {
         </Card>
       )}
 
-      {/* Deploy-Feedback */}
       <Snackbar
         open={!!deployMsg}
         autoHideDuration={5000}
@@ -345,56 +310,11 @@ function AnlagenTab() {
         message={deployMsg}
       />
 
-      {/* Dialog: Anlage aktivieren */}
-      <Dialog open={enableDialog} onClose={() => setEnableDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{t('vpn.enableAnlageTitle')}</DialogTitle>
-        <DialogContent>
-          <Box display="flex" flexDirection="column" gap={2} mt={1}>
-            <TextField
-              select
-              label={t('vpn.selectAnlage')}
-              value={selectedAnlageId}
-              onChange={(e) => setSelectedAnlageId(e.target.value)}
-              SelectProps={{ native: true }}
-              fullWidth
-              size="small"
-            >
-              <option value="">— {t('vpn.selectAnlage')} —</option>
-              {available.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}{a.location ? ` (${a.location})` : ''}</option>
-              ))}
-            </TextField>
-            <TextField
-              label={t('vpn.localPrefix')}
-              value={localPrefix}
-              onChange={(e) => setLocalPrefix(e.target.value)}
-              helperText={t('vpn.localPrefixHint')}
-              placeholder="192.168.10"
-              fullWidth
-              size="small"
-            />
-            <Alert severity="info" sx={{ fontSize: 12 }}>
-              {t('vpn.enableAnlageInfo')}
-            </Alert>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEnableDialog(false)}>{t('common.cancel')}</Button>
-          <Button variant="contained" onClick={handleEnable} disabled={!selectedAnlageId || enableMut.isPending}>
-            {t('vpn.activate')}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Deaktivieren bestätigen */}
       <ConfirmDialog
         open={!!confirmDisable}
-        title={t('vpn.disableAnlageTitle')}
-        message={t('vpn.disableAnlageMessage')}
-        onConfirm={() => {
-          if (confirmDisable) disableMut.mutate(confirmDisable)
-          setConfirmDisable(null)
-        }}
+        title={t('vpn.disableDeviceTitle')}
+        message={t('vpn.disableDeviceMessage')}
+        onConfirm={() => { if (confirmDisable) disableMut.mutate(confirmDisable); setConfirmDisable(null) }}
         onClose={() => setConfirmDisable(null)}
       />
     </Box>

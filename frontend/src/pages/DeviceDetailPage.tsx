@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -21,12 +21,33 @@ import Tooltip from '@mui/material/Tooltip'
 import Snackbar from '@mui/material/Snackbar'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import InstallDesktopIcon from '@mui/icons-material/InstallDesktop'
+import DownloadIcon from '@mui/icons-material/Download'
 import { useDevice, useCreateDeviceTodo, useUpdateDeviceTodo, useCreateDeviceLog, useDeviceCommand } from '../features/devices/queries'
-import { useDeviceVpnInfo, useDeployVpnToDevice } from '../features/vpn/queries'
+import {
+  useDeviceVpnConfig,
+  useEnableDeviceVpn,
+  useUpdateDeviceVpn,
+  useDisableDeviceVpn,
+  useDeployVpnToDevice,
+} from '../features/vpn/queries'
+import { apiFetch } from '../lib/api'
 import { StatusChip } from '../components/StatusChip'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { usePermission } from '../hooks/usePermission'
 import { useTranslation } from 'react-i18next'
+
+// ─── Download-Helfer ──────────────────────────────────────────────────────────
+
+function downloadBlob(url: string, filename: string) {
+  apiFetch(url).then(async (res) => {
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(a.href)
+  })
+}
 
 export function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -41,6 +62,7 @@ export function DeviceDetailPage() {
   const canUpdateTodo = usePermission('todos:update')
   const canReadLog = usePermission('logbook:read')
   const canCreateLog = usePermission('logbook:create')
+  const canManageVpn = usePermission('vpn:manage')
 
   const [tab, setTab] = useState(0)
   const [todoTitle, setTodoTitle] = useState('')
@@ -50,10 +72,26 @@ export function DeviceDetailPage() {
   const updateTodo = useUpdateDeviceTodo(id!)
   const createLog = useCreateDeviceLog(id!)
   const sendCommand = useDeviceCommand(id!)
-  const { data: vpnInfos } = useDeviceVpnInfo(id)
-  const deployVpn = useDeployVpnToDevice()
+
+  // VPN
+  const { data: vpnConfig } = useDeviceVpnConfig(id)
+  const enableVpn  = useEnableDeviceVpn()
+  const updateVpn  = useUpdateDeviceVpn()
+  const disableVpn = useDisableDeviceVpn()
+  const deployVpn  = useDeployVpnToDevice()
   const [vpnMsg, setVpnMsg] = useState<string | null>(null)
-  const canManageVpn = usePermission('vpn:manage')
+  const [newVpnIp, setNewVpnIp] = useState('')
+  const [newLocalPrefix, setNewLocalPrefix] = useState('192.168.10')
+  const [editVpnIp, setEditVpnIp] = useState('')
+  const [editLocalPrefix, setEditLocalPrefix] = useState('')
+
+  // Sync edit fields when vpnConfig loads
+  useEffect(() => {
+    if (vpnConfig) {
+      setEditVpnIp(vpnConfig.vpnIp)
+      setEditLocalPrefix(vpnConfig.localPrefix)
+    }
+  }, [vpnConfig])
 
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
   if (!device) return <Typography>{t('detail.notFound')}</Typography>
@@ -73,7 +111,6 @@ export function DeviceDetailPage() {
           </Box>
           <Typography variant="body2" color="text.secondary">SN: {device.serialNumber}</Typography>
         </Box>
-
       </Box>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
@@ -168,59 +205,118 @@ export function DeviceDetailPage() {
               </>}
             </CardContent>
           </Card>
-          {/* VPN-Karte – nur wenn Berechtigung und mind. eine Anlage VPN hat */}
+
+          {/* VPN-Karte */}
           {canManageVpn && (
             <Card sx={{ gridColumn: { xs: '1', md: '1 / -1' } }}>
               <CardContent>
-                <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+                <Box display="flex" alignItems="center" gap={1} mb={2}>
                   <VpnKeyIcon color="primary" fontSize="small" />
                   <Typography variant="h6">{t('vpn.title')}</Typography>
+                  {vpnConfig && <Chip label={t('vpn.enabled')} size="small" color="success" />}
                 </Box>
 
-                {!vpnInfos || vpnInfos.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">
-                    {t('vpn.deviceNoVpn')}
-                  </Typography>
-                ) : (
-                  <Box display="flex" flexDirection="column" gap={1.5}>
-                    {vpnInfos.map((v) => (
-                      <Box
-                        key={v.anlageId}
-                        display="flex"
-                        alignItems="center"
-                        justifyContent="space-between"
-                        flexWrap="wrap"
-                        gap={1}
-                        sx={{ bgcolor: 'action.hover', borderRadius: 1, px: 2, py: 1 }}
+                {!vpnConfig ? (
+                  // VPN aktivieren
+                  <Box display="flex" flexDirection="column" gap={2} maxWidth={400}>
+                    <Typography variant="body2" color="text.secondary">{t('vpn.deviceNotEnabled')}</Typography>
+                    <TextField
+                      label={t('vpn.vpnIp')}
+                      size="small"
+                      value={newVpnIp}
+                      onChange={(e) => setNewVpnIp(e.target.value)}
+                      placeholder="10.11.0.2"
+                      helperText={t('vpn.vpnIpHint')}
+                    />
+                    <TextField
+                      label={t('vpn.localPrefix')}
+                      size="small"
+                      value={newLocalPrefix}
+                      onChange={(e) => setNewLocalPrefix(e.target.value)}
+                      placeholder="192.168.10"
+                      helperText={t('vpn.localPrefixHint')}
+                    />
+                    <Box>
+                      <Button
+                        variant="contained"
+                        disabled={!newVpnIp || !newLocalPrefix || enableVpn.isPending}
+                        onClick={() => enableVpn.mutate(
+                          { deviceId: id!, vpnIp: newVpnIp, localPrefix: newLocalPrefix },
+                          { onSuccess: () => { setNewVpnIp(''); setNewLocalPrefix('192.168.10') } }
+                        )}
                       >
-                        <Box>
-                          <Typography variant="body2" fontWeight={500}>{v.anlageName}</Typography>
-                          <Typography variant="caption" color="text.secondary" fontFamily="monospace">
-                            {v.subnetCidr} · Pi: {v.piIp} · LAN: {v.localPrefix}.0/24
-                          </Typography>
-                        </Box>
-                        <Tooltip title={t('vpn.deployToPi')}>
-                          <span>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              color="primary"
-                              startIcon={<InstallDesktopIcon />}
-                              disabled={!device.mqttConnected || !device.isApproved || deployVpn.isPending}
-                              onClick={() => deployVpn.mutate(
-                                { deviceId: id!, anlageId: v.anlageId },
-                                {
-                                  onSuccess: () => setVpnMsg(t('vpn.deploySuccess', { count: 1 })),
-                                  onError:   () => setVpnMsg(t('vpn.deployError')),
-                                }
-                              )}
-                            >
-                              {t('vpn.installVpn')}
-                            </Button>
-                          </span>
-                        </Tooltip>
-                      </Box>
-                    ))}
+                        {t('vpn.enableDevice')}
+                      </Button>
+                    </Box>
+                  </Box>
+                ) : (
+                  // VPN aktiv – Bearbeitung und Aktionen
+                  <Box display="flex" flexDirection="column" gap={2}>
+                    <Box display="flex" gap={2} flexWrap="wrap" alignItems="flex-start">
+                      <TextField
+                        label={t('vpn.vpnIp')}
+                        size="small"
+                        value={editVpnIp}
+                        onChange={(e) => setEditVpnIp(e.target.value)}
+                      />
+                      <TextField
+                        label={t('vpn.localPrefix')}
+                        size="small"
+                        value={editLocalPrefix}
+                        onChange={(e) => setEditLocalPrefix(e.target.value)}
+                      />
+                      <Button
+                        variant="outlined"
+                        disabled={updateVpn.isPending}
+                        onClick={() => updateVpn.mutate(
+                          { deviceId: id!, vpnIp: editVpnIp, localPrefix: editLocalPrefix },
+                          { onSuccess: () => setVpnMsg(t('vpn.saved')) }
+                        )}
+                      >
+                        {t('common.save')}
+                      </Button>
+                    </Box>
+                    <Box display="flex" gap={1} flexWrap="wrap">
+                      <Tooltip title={t('vpn.downloadPiConfig')}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<DownloadIcon />}
+                          onClick={() => downloadBlob(`/api/vpn/devices/${id}/pi-config`, `vpn-device.conf`)}
+                        >
+                          {t('vpn.downloadPiConfig')}
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title={t('vpn.deployToPi')}>
+                        <span>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                            startIcon={<InstallDesktopIcon />}
+                            disabled={!device.mqttConnected || !device.isApproved || deployVpn.isPending}
+                            onClick={() => deployVpn.mutate(id!, {
+                              onSuccess: () => setVpnMsg(t('vpn.deploySuccess', { count: 1 })),
+                              onError:   () => setVpnMsg(t('vpn.deployError')),
+                            })}
+                          >
+                            {t('vpn.installVpn')}
+                          </Button>
+                        </span>
+                      </Tooltip>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        onClick={() => disableVpn.mutate(id!)}
+                      >
+                        {t('vpn.disableDevice')}
+                      </Button>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      VPN-IP: <strong>{vpnConfig.vpnIp}</strong> · LAN: <strong>{vpnConfig.localPrefix}.0/24</strong>
+                      {vpnConfig.piPublicKey ? ` · ${t('vpn.keyPresent')}` : ` · ${t('vpn.keyMissing')}`}
+                    </Typography>
                   </Box>
                 )}
               </CardContent>

@@ -9,14 +9,21 @@ export interface VpnSettings {
   serverPort:      number
 }
 
-export interface VpnAnlage {
+export interface VpnDeviceRecord {
+  id:           string
+  deviceId:     string
+  deviceName:   string
+  serialNumber: string
+  isApproved:   boolean
+  vpnIp:        string
+  localPrefix:  string
+  piPublicKey:  string | null
+  createdAt:    string
+}
+
+export interface DeviceVpnConfig {
   id:          string
-  anlageId:    string
-  anlageName:  string
-  anlageOrt:   string | null
-  subnetIndex: number
-  subnetCidr:  string
-  piIp:        string
+  vpnIp:       string
   localPrefix: string
   piPublicKey: string | null
   createdAt:   string
@@ -50,29 +57,64 @@ export function useUpdateVpnSettings() {
   })
 }
 
-// ─── Anlagen ──────────────────────────────────────────────────────────────────
+// ─── Geräte-VPN ──────────────────────────────────────────────────────────────
 
-export function useVpnAnlagen() {
+/** Alle VPN-Geräte (für VpnPage) */
+export function useVpnDevices() {
   return useQuery({
-    queryKey: ['vpn', 'anlagen'],
-    queryFn:  () => apiGet<VpnAnlage[]>('/vpn/anlagen'),
+    queryKey: ['vpn', 'devices'],
+    queryFn:  () => apiGet<VpnDeviceRecord[]>('/vpn/devices'),
   })
 }
 
-export function useEnableVpnAnlage() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ anlageId, localPrefix }: { anlageId: string; localPrefix?: string }) =>
-      apiPost<VpnAnlage>(`/vpn/anlagen/${anlageId}/enable`, { localPrefix }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['vpn'] }),
+/** VPN-Konfiguration für ein einzelnes Gerät (für DeviceDetailPage) */
+export function useDeviceVpnConfig(deviceId: string | undefined) {
+  return useQuery({
+    queryKey: ['vpn', 'device', deviceId],
+    queryFn:  () => apiGet<DeviceVpnConfig | null>(`/vpn/devices/${deviceId}`),
+    enabled:  !!deviceId,
   })
 }
 
-export function useDisableVpnAnlage() {
+export function useEnableDeviceVpn() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (anlageId: string) => apiDelete(`/vpn/anlagen/${anlageId}`),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ['vpn'] }),
+    mutationFn: ({ deviceId, vpnIp, localPrefix }: { deviceId: string; vpnIp: string; localPrefix: string }) =>
+      apiPost<DeviceVpnConfig>(`/vpn/devices/${deviceId}/enable`, { vpnIp, localPrefix }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['vpn', 'device', vars.deviceId] })
+      qc.invalidateQueries({ queryKey: ['vpn', 'devices'] })
+    },
+  })
+}
+
+export function useUpdateDeviceVpn() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ deviceId, vpnIp, localPrefix }: { deviceId: string; vpnIp?: string; localPrefix?: string }) =>
+      apiPut(`/vpn/devices/${deviceId}`, { vpnIp, localPrefix }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['vpn', 'device', vars.deviceId] })
+      qc.invalidateQueries({ queryKey: ['vpn', 'devices'] })
+    },
+  })
+}
+
+export function useDisableDeviceVpn() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (deviceId: string) => apiDelete(`/vpn/devices/${deviceId}`),
+    onSuccess: (_data, deviceId) => {
+      qc.invalidateQueries({ queryKey: ['vpn', 'device', deviceId] })
+      qc.invalidateQueries({ queryKey: ['vpn', 'devices'] })
+    },
+  })
+}
+
+export function useDeployVpnToDevice() {
+  return useMutation({
+    mutationFn: (deviceId: string) =>
+      apiPost<{ ok: boolean; serial: string }>(`/vpn/devices/${deviceId}/deploy`, {}),
   })
 }
 
@@ -99,41 +141,5 @@ export function useDeleteVpnPeer() {
   return useMutation({
     mutationFn: (id: string) => apiDelete(`/vpn/peers/${id}`),
     onSuccess:  () => qc.invalidateQueries({ queryKey: ['vpn', 'peers'] }),
-  })
-}
-
-export function useDeployVpnToAnlage() {
-  return useMutation({
-    mutationFn: (anlageId: string) =>
-      apiPost<{ ok: boolean; targeted: number; serials: string[] }>(`/vpn/anlagen/${anlageId}/deploy`, {}),
-  })
-}
-
-// ─── Geräte-seitige VPN-Infos ────────────────────────────────────────────────
-
-export interface DeviceVpnInfo {
-  anlageId:    string
-  anlageName:  string
-  subnetCidr:  string
-  piIp:        string
-  localPrefix: string
-  hasKey:      boolean
-}
-
-export function useDeviceVpnInfo(deviceId: string | undefined) {
-  return useQuery({
-    queryKey: ['vpn', 'device', deviceId],
-    queryFn:  () => apiGet<DeviceVpnInfo[]>(`/vpn/devices/${deviceId}/info`),
-    enabled:  !!deviceId,
-  })
-}
-
-export function useDeployVpnToDevice() {
-  return useMutation({
-    mutationFn: ({ deviceId, anlageId }: { deviceId: string; anlageId: string }) =>
-      apiPost<{ ok: boolean; serial: string; anlageId: string }>(
-        `/vpn/devices/${deviceId}/deploy`,
-        { anlageId }
-      ),
   })
 }

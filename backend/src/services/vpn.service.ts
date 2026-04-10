@@ -4,14 +4,7 @@
  * IP-Schema:
  *   Zone A (Management):  10.0.x.y   → Techniker-PCs (peerIndex)
  *   Zone A (Server):      10.1.0.1   → Cloud-Server wg0-Interface
- *   Zone B (Anlagen):     10.11.x.0/24 … 10.255.x.0/24 → Anlagen (subnetIndex)
- *
- * Subnet-Berechnung (Zone B):
- *   subnetIndex 1   → 10.11.1.0/24
- *   subnetIndex 255 → 10.11.255.0/24
- *   subnetIndex 256 → 10.12.0.0/24
- *   subnetIndex 500 → 10.12.244.0/24
- *   max. 62 720 Anlagen
+ *   Zone B (Geräte):      Frei wählbare /32-IPs im 10.x.x.x-Netz
  */
 
 import crypto from 'crypto'
@@ -20,26 +13,6 @@ import path from 'path'
 import http from 'http'
 
 // ─── IP-Berechnungen ──────────────────────────────────────────────────────────
-
-/** CIDR-Block für eine Anlage (Zone B). */
-export function anlageCidr(subnetIndex: number): string {
-  // 10.11.0.0 als Basis; jedes /24 belegt 256 Adressen
-  const base = (10 << 24) | (11 << 16)               // 0x0A0B0000
-  const ip   = base + subnetIndex * 256               // Offset um N * 256
-  const b = (ip >> 16) & 0xff
-  const c = (ip >>  8) & 0xff
-  return `10.${b}.${c}.0/24`
-}
-
-/** Gateway-IP des VPN-Servers für diese Anlage (.1). */
-export function anlageGatewayIp(subnetIndex: number): string {
-  return anlageCidr(subnetIndex).replace('.0/24', '.1')
-}
-
-/** WireGuard-IP des Pi für diese Anlage (.2). */
-export function anlagePiIp(subnetIndex: number): string {
-  return anlageCidr(subnetIndex).replace('.0/24', '.2')
-}
 
 /**
  * IP-Adresse eines Techniker-Peers (Zone A: 10.0.x.y).
@@ -79,61 +52,6 @@ export interface VpnSettings {
 }
 
 /**
- * Erzeugt die WireGuard-Konfigurationsdatei für einen Pi.
- * Die Datei enthält den privaten Schlüssel des Pi und wird nur einmalig
- * über das Cloud-Frontend heruntergeladen.
- *
- * Auf dem Pi werden via PostUp/PreDown iptables-NETMAP-Regeln gesetzt,
- * die das virtuelle Subnetz (10.11.x.0/24) auf das reale LAN (192.168.10.0/24)
- * übersetzen.
- */
-export function generatePiConfig(opts: {
-  subnetIndex:    number
-  localPrefix:    string   // z.B. "192.168.10"
-  piPrivateKey:   string
-  settings:       VpnSettings
-}): string {
-  const { subnetIndex, localPrefix, piPrivateKey, settings } = opts
-  const cidr    = anlageCidr(subnetIndex)           // 10.11.X.0/24
-  const piIp    = anlagePiIp(subnetIndex)           // 10.11.X.2
-  const virtNet = cidr                              // Alias zur Lesbarkeit
-  const realNet = `${localPrefix}.0/24`
-
-  const postUp = [
-    // Eingehend: Virtuell → Real
-    `iptables -t nat -A PREROUTING  -d ${virtNet} -j NETMAP --to ${realNet}`,
-    // Ausgehend: Real → Virtuell
-    `iptables -t nat -A POSTROUTING -s ${realNet} -j NETMAP --to ${virtNet}`,
-    // IP-Forwarding aktivieren
-    `sysctl -w net.ipv4.ip_forward=1`,
-  ].join('; ')
-
-  const preDown = [
-    `iptables -t nat -D PREROUTING  -d ${virtNet} -j NETMAP --to ${realNet}`,
-    `iptables -t nat -D POSTROUTING -s ${realNet} -j NETMAP --to ${virtNet}`,
-  ].join('; ')
-
-  return `# Ycontrol VPN — Pi-Konfiguration
-# Virtuelle Anlage: ${cidr}  |  Reales LAN: ${realNet}
-# Generiert: ${new Date().toISOString()}
-
-[Interface]
-Address    = ${piIp}/32
-PrivateKey = ${piPrivateKey}
-PostUp     = ${postUp}
-PreDown    = ${preDown}
-
-[Peer]
-# Ycontrol Cloud-Server
-PublicKey           = ${settings.serverPublicKey}
-Endpoint            = ${settings.serverEndpoint}
-# Alle Zone-A- und Zone-B-Pakete über den Server leiten
-AllowedIPs          = 10.0.0.0/13
-PersistentKeepalive = 25
-`
-}
-
-/**
  * Erzeugt die WireGuard-Konfigurationsdatei für einen Techniker-PC.
  * Der private Schlüssel wird NICHT eingetragen (der Techniker setzt
  * seinen eigenen Schlüssel ein).
@@ -141,7 +59,7 @@ PersistentKeepalive = 25
 export function generatePeerConfig(opts: {
   peerIndex:   number
   settings:    VpnSettings
-  allowedCidrs?: string[]   // leer = alle Anlagen (0.0.0.0/0 oder 10.0.0.0/13)
+  allowedCidrs?: string[]   // leer = alle (10.0.0.0/13)
 }): string {
   const { peerIndex, settings, allowedCidrs } = opts
   const ip = peerIp(peerIndex)
@@ -168,28 +86,6 @@ PersistentKeepalive = 25
 }
 
 /**
- * Erzeugt den [Peer]-Block, der auf dem Cloud-Server für eine Anlage
- * in die wg0.conf eingetragen werden muss.
- */
-export function buildServerPiPeerBlock(opts: {
-  anlageId:     string
-  anlageName:   string
-  subnetIndex:  number
-  piPublicKey:  string
-}): string {
-  const { anlageId, anlageName, subnetIndex, piPublicKey } = opts
-  const cidr  = anlageCidr(subnetIndex)
-  const piIp  = anlagePiIp(subnetIndex)
-  return `
-# Anlage: ${anlageName} (${anlageId})
-[Peer]
-PublicKey  = ${piPublicKey}
-# Pi-Interface-IP + das gesamte virtuelle Subnetz
-AllowedIPs = ${piIp}/32, ${cidr}
-`
-}
-
-/**
  * Erzeugt den [Peer]-Block, der auf dem Cloud-Server für einen
  * Techniker-Peer in die wg0.conf eingetragen werden muss.
  */
@@ -208,12 +104,69 @@ AllowedIPs = ${ip}/32
 `
 }
 
+/** Erzeugt die wg0.conf-Konfiguration für einen Pi (device-basiert, kein NETMAP). */
+export function generateDevicePiConfig(opts: {
+  vpnIp:        string
+  localPrefix:  string
+  piPrivateKey: string
+  settings:     VpnSettings
+}): string {
+  const { vpnIp, localPrefix, piPrivateKey, settings } = opts
+  const localNet = `${localPrefix}.0/24`
+
+  const postUp = [
+    'iptables -A FORWARD -i %i -j ACCEPT',
+    'iptables -A FORWARD -o %i -j ACCEPT',
+    `iptables -t nat -A POSTROUTING -s ${localNet} -o eth0 -j MASQUERADE`,
+  ].join('; ')
+
+  const preDown = [
+    'iptables -D FORWARD -i %i -j ACCEPT',
+    'iptables -D FORWARD -o %i -j ACCEPT',
+    `iptables -t nat -D POSTROUTING -s ${localNet} -o eth0 -j MASQUERADE`,
+  ].join('; ')
+
+  return `# Ycontrol VPN — Pi-Konfiguration
+# Gerät VPN-IP: ${vpnIp}  |  Reales LAN: ${localNet}
+# Generiert: ${new Date().toISOString()}
+
+[Interface]
+Address    = ${vpnIp}/32
+PrivateKey = ${piPrivateKey}
+PostUp     = ${postUp}
+PreDown    = ${preDown}
+
+[Peer]
+# Ycontrol Cloud-Server
+PublicKey           = ${settings.serverPublicKey}
+Endpoint            = ${settings.serverEndpoint}
+AllowedIPs          = 10.0.0.0/13
+PersistentKeepalive = 25
+`
+}
+
+/** Server-seitiger [Peer]-Block für ein Gerät. */
+export function buildDevicePeerBlock(opts: {
+  deviceName:  string
+  vpnIp:       string
+  localPrefix: string
+  piPublicKey: string
+}): string {
+  const { deviceName, vpnIp, localPrefix, piPublicKey } = opts
+  return `
+# Gerät: ${deviceName}
+[Peer]
+PublicKey  = ${piPublicKey}
+AllowedIPs = ${vpnIp}/32, ${localPrefix}.0/24
+`
+}
+
 // ─── Server-Konfig-Sync ───────────────────────────────────────────────────────
 
 export interface ServerConfigOpts {
-  privateKey:  string
-  settings:    VpnSettings
-  anlagen: Array<{ anlageId: string; anlageName: string; subnetIndex: number; piPublicKey: string | null }>
+  privateKey: string
+  settings:   VpnSettings
+  devices: Array<{ deviceName: string; vpnIp: string; localPrefix: string; piPublicKey: string | null }>
   peers:   Array<{ peerIndex: number; name: string; publicKey: string }>
 }
 
@@ -223,20 +176,20 @@ export interface ServerConfigOpts {
  * Fehler werden nur geloggt (kein Crash) – im Dev-Modus ohne Docker läuft das leer.
  */
 export async function syncWireGuardConfig(opts: ServerConfigOpts, configPath: string, containerName: string): Promise<void> {
-  const { privateKey, settings, anlagen, peers } = opts
+  const { privateKey, settings, devices, peers } = opts
 
   if (!privateKey) {
     console.warn('[VPN] VPN_SERVER_PRIVATE_KEY nicht gesetzt – wg0.conf wird nicht geschrieben')
     return
   }
 
-  const anlagenBlocks = anlagen
-    .filter((a) => a.piPublicKey)
-    .map((a) => buildServerPiPeerBlock({
-      anlageId:    a.anlageId,
-      anlageName:  a.anlageName,
-      subnetIndex: a.subnetIndex,
-      piPublicKey: a.piPublicKey!,
+  const deviceBlocks = devices
+    .filter((d) => d.piPublicKey)
+    .map((d) => buildDevicePeerBlock({
+      deviceName:  d.deviceName,
+      vpnIp:       d.vpnIp,
+      localPrefix: d.localPrefix,
+      piPublicKey: d.piPublicKey!,
     }))
     .join('')
 
@@ -252,8 +205,8 @@ Address    = 10.1.0.1/8
 ListenPort = ${settings.serverPort}
 PrivateKey = ${privateKey}
 
-# ─── Anlagen ─────────────────────────────────────────────────────────────────
-${anlagenBlocks}
+# ─── Geräte ──────────────────────────────────────────────────────────────────
+${deviceBlocks}
 # ─── Techniker-Peers ─────────────────────────────────────────────────────────
 ${peerBlocks}`
 

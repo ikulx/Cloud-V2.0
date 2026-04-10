@@ -186,6 +186,7 @@ model Device {
   directGroups  GroupDevice[]
   todos         DeviceTodo[]
   logEntries    DeviceLogEntry[]
+  vpnDevice     VpnDevice?
 
   @@map("devices")
 }
@@ -332,6 +333,27 @@ model VpnAnlage {
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("vpn_anlagen")
+}
+
+/// WireGuard-VPN-Konfiguration pro Gerät
+model VpnDevice {
+  id           String   @id @default(uuid()) @db.Uuid
+  deviceId     String   @unique @map("device_id") @db.Uuid
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  /// WireGuard-IP des Pi im VPN-Netz, z.B. "10.11.0.2" – muss eindeutig sein
+  vpnIp        String   @unique @map("vpn_ip")
+
+  /// Reales LAN-Präfix des Pi (erste drei Oktette), z.B. "192.168.10"
+  localPrefix  String   @default("192.168.10") @map("local_prefix")
+
+  /// WireGuard-Schlüsselpaar des Pi (vom Cloud generiert)
+  piPublicKey  String?  @map("pi_public_key")
+  piPrivateKey String?  @map("pi_private_key")
+
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("vpn_devices")
 }
 
 /// WireGuard-Client-Peer (Techniker, Admin, mobiler Zugriff)
