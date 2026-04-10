@@ -63,7 +63,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC09"
+AGENT_VERSION = "1.0.0-RC10"
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -319,11 +319,24 @@ def run_agent():
                 print("[YControl] VPN-Installation gestartet...")
                 def do_vpn_install(c, vpn_config):
                     try:
-                        # 1. WireGuard installieren
+                        # 1. WireGuard + iptables installieren
                         print("[YControl] Installiere WireGuard...")
                         subprocess.run(["apt-get", "update", "-qq"], check=True, capture_output=True)
-                        subprocess.run(["apt-get", "install", "-y", "wireguard", "iptables"], check=True)
-                        # 2. Konfiguration schreiben (aus MQTT-Payload)
+                        subprocess.run(["apt-get", "install", "-y", "wireguard", "wireguard-tools", "iptables"], check=True)
+                        # 2. Kernel-Modul laden + IP-Forwarding aktivieren
+                        subprocess.run(["modprobe", "wireguard"], capture_output=True)
+                        with open("/proc/sys/net/ipv4/ip_forward", "w") as f:
+                            f.write("1")
+                        # persistieren (falls noch nicht gesetzt)
+                        try:
+                            sysctl_conf = "/etc/sysctl.conf"
+                            content = open(sysctl_conf).read()
+                            if "net.ipv4.ip_forward=1" not in content.replace(" ", ""):
+                                with open(sysctl_conf, "a") as f:
+                                    f.write("\\nnet.ipv4.ip_forward=1\\n")
+                        except Exception:
+                            pass
+                        # 3. Konfiguration schreiben (aus MQTT-Payload)
                         print("[YControl] Schreibe VPN-Konfiguration...")
                         os.makedirs("/etc/wireguard", exist_ok=True)
                         wg_conf = "/etc/wireguard/wg0.conf"
@@ -331,10 +344,19 @@ def run_agent():
                             f.write(vpn_config)
                         os.chmod(wg_conf, 0o600)
                         print("[YControl] wg0.conf geschrieben")
-                        # 3. Failed-State zurücksetzen, dann enable + (re)start
+                        # 4. Failed-State zurücksetzen, dann enable + (re)start
                         subprocess.run(["systemctl", "reset-failed", "wg-quick@wg0"], capture_output=True)
-                        subprocess.run(["systemctl", "enable", "wg-quick@wg0"], check=True)
-                        subprocess.run(["systemctl", "restart", "wg-quick@wg0"], check=True)
+                        subprocess.run(["systemctl", "enable", "wg-quick@wg0"], check=True, capture_output=True)
+                        result = subprocess.run(["systemctl", "restart", "wg-quick@wg0"], capture_output=True, text=True)
+                        if result.returncode != 0:
+                            # Detailliertes Journal holen
+                            journal = subprocess.run(
+                                ["journalctl", "-u", "wg-quick@wg0", "-n", "30", "--no-pager"],
+                                capture_output=True, text=True
+                            ).stdout
+                            err_msg = (result.stderr or result.stdout or journal or "unbekannter Fehler").strip()
+                            print("[YControl] wg-quick Fehler:\\n" + err_msg, file=sys.stderr)
+                            raise Exception(err_msg)
                         print("[YControl] VPN aktiv!")
                         c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "ok"}), qos=1)
                     except Exception as ex:
