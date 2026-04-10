@@ -525,19 +525,31 @@ router.get('/devices/:deviceId/ping', authenticate, requirePermission('vpn:manag
 //   ?targetIp=192.168.10.50   → anderes Gerät im Pi-LAN (via NETMAP-Route des Pi)
 //   ?targetPort=8080          → abweichender Port (überschreibt visuPort)
 router.get('/devices/:deviceId/visu*', async (req, res) => {
-  // Token aus Header oder Query-Parameter
+  const deviceId = req.params.deviceId as string
+  // Cookie-Name für diese Device-Session (Sub-Ressourcen kommen ohne access_token)
+  const cookieName = `visu_${deviceId.replace(/-/g, '')}`
+
+  // Token aus Header, Query-Parameter oder Session-Cookie
   const headerToken = req.headers.authorization?.startsWith('Bearer ')
-    ? req.headers.authorization.slice(7)
-    : null
+    ? req.headers.authorization.slice(7) : null
   const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : null
-  const rawToken = headerToken ?? queryToken
+  const cookieToken = (req.headers.cookie ?? '').split(';')
+    .map(c => c.trim()).find(c => c.startsWith(`${cookieName}=`))
+    ?.slice(cookieName.length + 1) ?? null
+  const rawToken = headerToken ?? queryToken ?? cookieToken
 
   if (!rawToken) { res.status(401).json({ message: 'Authentifizierung erforderlich' }); return }
   const payload = verifyAccessToken(rawToken)
   if (!payload) { res.status(401).json({ message: 'Token ungültig' }); return }
   const userCtx = await getUserAccessContext(payload.sub)
   if (!userCtx) { res.status(401).json({ message: 'Benutzer nicht gefunden' }); return }
-  const deviceId = req.params.deviceId as string
+
+  // Session-Cookie setzen damit Sub-Ressourcen (JS/CSS) ohne access_token-Param geladen werden
+  if (queryToken || headerToken) {
+    const cookiePath = `/api/vpn/devices/${deviceId}/visu`
+    res.setHeader('set-cookie',
+      `${cookieName}=${rawToken}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=3600`)
+  }
 
   const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
   if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
