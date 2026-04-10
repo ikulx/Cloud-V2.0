@@ -344,8 +344,9 @@ def run_agent():
                             f.write(vpn_config)
                         os.chmod(wg_conf, 0o600)
                         print("[YControl] wg0.conf geschrieben")
-                        # 4. Zuerst alten Interface sauber entfernen (falls vorhanden)
+                        # 4. Altes wg0-Interface sauber entfernen (falls vorhanden)
                         subprocess.run(["wg-quick", "down", "wg0"], capture_output=True)
+                        subprocess.run(["ip", "link", "delete", "wg0"], capture_output=True)
                         subprocess.run(["systemctl", "reset-failed", "wg-quick@wg0"], capture_output=True)
                         # 5. wg-quick direkt starten – so sehen wir den exakten Fehler
                         test = subprocess.run(["wg-quick", "up", "wg0"], capture_output=True, text=True)
