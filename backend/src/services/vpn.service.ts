@@ -64,16 +64,11 @@ export function generatePeerConfig(opts: {
 }): string {
   const { peerIndex, settings, privateKey, allowedCidrs } = opts
   const ip = peerIp(peerIndex)
-  // Default: alle privaten RFC-1918-Netze durch den Tunnel (kein Internet-Traffic)
-  // 10.0.0.0/8: VPN-Adressen (Techniker, Server, Geräte)
-  // 192.168.0.0/16 + 172.16.0.0/12: typische Pi-LANs hinter den Geräten
-  const allowed = allowedCidrs?.length
-    ? allowedCidrs.join(', ')
-    : '10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16'
+  // Nur VPN-Adressen (10.x.x.x) durch den Tunnel — Internet bleibt lokal
+  const allowed = allowedCidrs?.length ? allowedCidrs.join(', ') : '10.0.0.0/8'
 
-  return `# Ycontrol VPN — Techniker-Konfiguration (Split Tunnel)
-# Peer-IP: ${ip}  |  Durch VPN: ${allowed}
-# Internet-Traffic bleibt auf lokalem Netzwerk
+  return `# Ycontrol VPN — Techniker-Konfiguration
+# Peer-IP: ${ip}  |  Zugriff: ${allowed}
 # Generiert: ${new Date().toISOString()}
 
 [Interface]
