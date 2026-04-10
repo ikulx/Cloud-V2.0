@@ -209,6 +209,8 @@ const de = {
     vpnIpHint: 'IP-Adresse des Geräts im WireGuard-Netz, z.B. 10.11.0.2',
     localPrefix: 'Reales LAN-Präfix',
     localPrefixHint: 'Erste drei Oktette des realen Pi-Netzwerks (ohne Punkt am Ende)',
+    visuPort: 'Visu-Port',
+    visuPortHint: 'HTTP-Port des ycontrol-rt Containers (Standard: 80)',
     piKey: 'Pi-Schlüssel',
     keyPresent: 'Schlüssel vorhanden',
     keyMissing: 'Kein Schlüssel',

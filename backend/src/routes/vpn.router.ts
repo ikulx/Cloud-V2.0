@@ -35,7 +35,6 @@ import {
   buildDevicePeerBlock,
   buildServerPeerBlock,
   syncWireGuardConfig,
-  deriveVpnLanPrefix,
   type VpnSettings,
 } from '../services/vpn.service'
 import { env } from '../config/env'
@@ -151,6 +150,7 @@ router.get('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), 
     id:          vpnDevice.id,
     vpnIp:       vpnDevice.vpnIp,
     localPrefix: vpnDevice.localPrefix,
+    visuPort:    vpnDevice.visuPort,
     piPublicKey: vpnDevice.piPublicKey,
     createdAt:   vpnDevice.createdAt,
   })
@@ -165,6 +165,7 @@ const LOCAL_PREFIX_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
 const enableDeviceSchema = z.object({
   vpnIp:       z.string().regex(VPN_IP_RE, 'VPN-IP muss Format 10.A.0.B haben (A: 11–255, B: 1–254)'),
   localPrefix: z.string().regex(LOCAL_PREFIX_RE, 'LAN-Präfix muss drei Oktette haben, z.B. 192.168.10').optional(),
+  visuPort:    z.number().int().min(1).max(65535).optional(),
 })
 
 router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:manage'), async (req, res) => {
@@ -189,6 +190,7 @@ router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:ma
       deviceId,
       vpnIp: parsed.data.vpnIp,
       localPrefix: parsed.data.localPrefix ?? '192.168.10',
+      visuPort:    parsed.data.visuPort    ?? 80,
       piPublicKey,
       piPrivateKey,
     },
@@ -200,6 +202,7 @@ router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:ma
     deviceName:  device.name,
     vpnIp:       vpnDevice.vpnIp,
     localPrefix: vpnDevice.localPrefix,
+    visuPort:    vpnDevice.visuPort,
     piPublicKey: vpnDevice.piPublicKey,
     createdAt:   vpnDevice.createdAt,
   })
@@ -210,6 +213,7 @@ router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:ma
 const updateDeviceSchema = z.object({
   vpnIp:       z.string().regex(VPN_IP_RE, 'VPN-IP muss Format 10.A.0.B haben (A: 11–255, B: 1–254)').optional(),
   localPrefix: z.string().regex(LOCAL_PREFIX_RE, 'LAN-Präfix muss drei Oktette haben, z.B. 192.168.10').optional(),
+  visuPort:    z.number().int().min(1).max(65535).optional(),
 })
 
 router.put('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), async (req, res) => {
@@ -230,10 +234,11 @@ router.put('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), 
     data: {
       vpnIp:       parsed.data.vpnIp       ?? existing.vpnIp,
       localPrefix: parsed.data.localPrefix ?? existing.localPrefix,
+      visuPort:    parsed.data.visuPort    ?? existing.visuPort,
     },
   })
 
-  res.json({ id: updated.id, deviceId, vpnIp: updated.vpnIp, localPrefix: updated.localPrefix })
+  res.json({ id: updated.id, deviceId, vpnIp: updated.vpnIp, localPrefix: updated.localPrefix, visuPort: updated.visuPort })
   syncAll().catch((e) => console.error('[VPN] syncAll nach device update:', e))
 })
 
@@ -506,26 +511,27 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
   if (!userCtx) { res.status(401).json({ message: 'Benutzer nicht gefunden' }); return }
   const deviceId = req.params.deviceId as string
 
-  const [vpnDevice, device] = await Promise.all([
-    prisma.vpnDevice.findUnique({ where: { deviceId } }),
-    prisma.device.findUnique({ where: { id: deviceId }, select: { ipAddress: true, name: true } }),
-  ])
+  const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
 
   if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
-  if (!device?.ipAddress) { res.status(409).json({ message: 'Keine IP-Adresse für dieses Gerät bekannt' }); return }
 
-  // Pi-VPN-LAN-IP berechnen: 10.A.B (Prefix) + letztes Oktett der LAN-IP
-  const vpnLanPrefix = deriveVpnLanPrefix(vpnDevice.vpnIp)
-  const lanLastOctet = device.ipAddress.split('.').pop()
-  const piVisuIp = `${vpnLanPrefix}.${lanLastOctet}`
+  // Direkte VPN-IP verwenden (10.A.0.B) – der Server erreicht den Pi direkt über den WireGuard-Tunnel
+  // kein NETMAP nötig, Docker-Container lauscht auf 0.0.0.0 (alle Interfaces inkl. wg0)
+  const piVisuIp   = vpnDevice.vpnIp
+  const piVisuPort = vpnDevice.visuPort  // Default 80, konfigurierbar
 
   // Pfad nach /visu weitergeben
   const rawPath = req.path.replace(`/devices/${deviceId}/visu`, '') || '/'
   const targetPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
-  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''
-  const targetUrl = `http://${piVisuIp}${targetPath}${query}`
 
-  const proxyReq = http.request(targetUrl, { method: req.method, headers: { ...req.headers, host: piVisuIp } }, (proxyRes) => {
+  // Query-String weiterleiten, aber access_token entfernen (nicht an den Pi schicken)
+  const queryParams = new URLSearchParams(req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '')
+  queryParams.delete('access_token')
+  const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : ''
+  const targetUrl = `http://${piVisuIp}:${piVisuPort}${targetPath}${queryStr}`
+
+  const hostHeader = piVisuPort === 80 ? piVisuIp : `${piVisuIp}:${piVisuPort}`
+  const proxyReq = http.request(targetUrl, { method: req.method, headers: { ...req.headers, host: hostHeader } }, (proxyRes) => {
     // Content-Type weiterleiten
     res.status(proxyRes.statusCode ?? 200)
     for (const [key, val] of Object.entries(proxyRes.headers)) {
@@ -549,7 +555,7 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
 
   proxyReq.on('error', (err) => {
     console.error(`[VPN-Proxy] ${targetUrl}:`, err.message)
-    res.status(502).json({ message: `Pi nicht erreichbar (${piVisuIp}): ${err.message}` })
+    res.status(502).json({ message: `Pi nicht erreichbar (${piVisuIp}:${piVisuPort}): ${err.message}` })
   })
 
   if (req.body && req.method !== 'GET') {

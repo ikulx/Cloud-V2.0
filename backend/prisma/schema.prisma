@@ -347,6 +347,9 @@ model VpnDevice {
   /// Reales LAN-Präfix des Pi (erste drei Oktette), z.B. "192.168.10"
   localPrefix  String   @default("192.168.10") @map("local_prefix")
 
+  /// HTTP-Port des ycontrol-rt Containers auf dem Pi (Default: 80)
+  visuPort     Int      @default(80) @map("visu_port")
+
   /// WireGuard-Schlüsselpaar des Pi (vom Cloud generiert)
   piPublicKey  String?  @map("pi_public_key")
   piPrivateKey String?  @map("pi_private_key")

@@ -25,6 +25,7 @@ export interface DeviceVpnConfig {
   id:          string
   vpnIp:       string
   localPrefix: string
+  visuPort:    number
   piPublicKey: string | null
   createdAt:   string
 }
@@ -79,8 +80,8 @@ export function useDeviceVpnConfig(deviceId: string | undefined) {
 export function useEnableDeviceVpn() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ deviceId, vpnIp, localPrefix }: { deviceId: string; vpnIp: string; localPrefix: string }) =>
-      apiPost<DeviceVpnConfig>(`/vpn/devices/${deviceId}/enable`, { vpnIp, localPrefix }),
+    mutationFn: ({ deviceId, vpnIp, localPrefix, visuPort }: { deviceId: string; vpnIp: string; localPrefix: string; visuPort?: number }) =>
+      apiPost<DeviceVpnConfig>(`/vpn/devices/${deviceId}/enable`, { vpnIp, localPrefix, visuPort }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['vpn', 'device', vars.deviceId] })
       qc.invalidateQueries({ queryKey: ['vpn', 'devices'] })
@@ -91,8 +92,8 @@ export function useEnableDeviceVpn() {
 export function useUpdateDeviceVpn() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ deviceId, vpnIp, localPrefix }: { deviceId: string; vpnIp?: string; localPrefix?: string }) =>
-      apiPut(`/vpn/devices/${deviceId}`, { vpnIp, localPrefix }),
+    mutationFn: ({ deviceId, vpnIp, localPrefix, visuPort }: { deviceId: string; vpnIp?: string; localPrefix?: string; visuPort?: number }) =>
+      apiPut(`/vpn/devices/${deviceId}`, { vpnIp, localPrefix, visuPort }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['vpn', 'device', vars.deviceId] })
       qc.invalidateQueries({ queryKey: ['vpn', 'devices'] })

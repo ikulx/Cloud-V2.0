@@ -207,6 +207,8 @@ const it = {
     vpnIpHint: 'Indirizzo IP del dispositivo nella rete WireGuard, es. 10.11.0.2',
     localPrefix: 'Prefisso LAN reale',
     localPrefixHint: 'Primi tre ottetti della rete reale del Pi (senza punto finale)',
+    visuPort: 'Porta Visu',
+    visuPortHint: 'Porta HTTP del container ycontrol-rt (default: 80)',
     piKey: 'Chiave Pi',
     keyPresent: 'Chiave presente',
     keyMissing: 'Nessuna chiave',
