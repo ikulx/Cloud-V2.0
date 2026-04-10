@@ -604,16 +604,17 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
         res.status(status)
         const proxyBase = `/api/vpn/devices/${deviceId}/visu`
 
+        // Helmet setzt für ALLE Routen 'script-src self' – hier immer überschreiben
+        // damit inline-Scripts der Pi-App funktionieren
+        res.removeHeader('content-security-policy')
+        res.removeHeader('x-frame-options')
+        res.setHeader('content-security-policy',
+          "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
+
         for (const [key, val] of Object.entries(proxyRes.headers)) {
           const k = key.toLowerCase()
           if (k === 'content-encoding' || k === 'transfer-encoding') continue
-          if (k === 'content-security-policy' || k === 'x-frame-options') {
-            // CSP relaxen damit Pi-Apps mit inline-Scripts funktionieren
-            // x-frame-options entfernen damit der iframe zugelassen wird
-            res.setHeader('content-security-policy',
-              "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
-            continue
-          }
+          if (k === 'content-security-policy' || k === 'x-frame-options') continue  // bereits gesetzt
           if (k === 'location' && val) {
             const locStr = Array.isArray(val) ? val[0] : val
             const rewritten = locStr.startsWith('http')
@@ -624,11 +625,6 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
           }
           res.setHeader(key, val as string)
         }
-        // CSP setzen falls Pi keinen geschickt hat (Cloudflare o.ä. könnte einen hinzufügen)
-        if (!res.getHeader('content-security-policy')) {
-          res.setHeader('content-security-policy',
-            "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
-        }
 
         // HTML: absolute Pfade + <base>-Tag umschreiben
         const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
@@ -637,20 +633,26 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
           proxyRes.setEncoding('utf-8')
           proxyRes.on('data', (chunk) => { body += chunk })
           proxyRes.on('end', () => {
-            // Absolute Pfade umschreiben: src="/assets/..." → src="/api/vpn/...visu/assets/..."
-            // (Vite-Apps bauen mit absoluten Pfaden, <base> hilft da nicht)
-            const rewritten = body.replace(
+            // 1. Absolute Pfade umschreiben: src="/static/..." → src="/api/vpn/...visu/static/..."
+            //    (CRA/Webpack bauen mit absoluten Pfaden, <base> hilft da nicht)
+            let patched = body.replace(
               /(\b(?:src|href|action)\s*=\s*["'])\/(?!\/)/g,
               `$1${proxyBase}/`
             )
-            // <base>-Tag für restliche relative Pfade
+
+            // 2. <base>-Tag für restliche relative Pfade
             const baseHref = targetIpParam
               ? `${proxyBase}/?targetIp=${encodeURIComponent(targetIpParam)}${targetPortParam ? `&targetPort=${targetPortParam}` : ''}&access_token=${encodeURIComponent(rawToken ?? '')}`
               : `${proxyBase}/`
             const base = `<base href="${baseHref}">`
-            const patched = rewritten.includes('<head>')
-              ? rewritten.replace('<head>', `<head>${base}`)
-              : `<head>${base}</head>${rewritten}`
+            patched = patched.includes('<head>')
+              ? patched.replace('<head>', `<head>${base}`)
+              : `<head>${base}</head>${patched}`
+
+            // 3. CSP nochmal explizit als Meta-Tag setzen (überschreibt HTTP-Header im Dokument)
+            const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">`
+            patched = patched.replace('<head>', `<head>${cspMeta}`)
+
             res.removeHeader('content-length')
             res.send(patched)
           })
