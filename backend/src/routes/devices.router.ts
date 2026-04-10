@@ -63,7 +63,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC10"
+AGENT_VERSION = "1.0.0-RC11"
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -344,19 +344,17 @@ def run_agent():
                             f.write(vpn_config)
                         os.chmod(wg_conf, 0o600)
                         print("[YControl] wg0.conf geschrieben")
-                        # 4. Failed-State zurücksetzen, dann enable + (re)start
+                        # 4. Zuerst alten Interface sauber entfernen (falls vorhanden)
+                        subprocess.run(["wg-quick", "down", "wg0"], capture_output=True)
                         subprocess.run(["systemctl", "reset-failed", "wg-quick@wg0"], capture_output=True)
-                        subprocess.run(["systemctl", "enable", "wg-quick@wg0"], check=True, capture_output=True)
-                        result = subprocess.run(["systemctl", "restart", "wg-quick@wg0"], capture_output=True, text=True)
-                        if result.returncode != 0:
-                            # Detailliertes Journal holen
-                            journal = subprocess.run(
-                                ["journalctl", "-u", "wg-quick@wg0", "-n", "30", "--no-pager"],
-                                capture_output=True, text=True
-                            ).stdout
-                            err_msg = (result.stderr or result.stdout or journal or "unbekannter Fehler").strip()
-                            print("[YControl] wg-quick Fehler:\\n" + err_msg, file=sys.stderr)
+                        # 5. wg-quick direkt starten – so sehen wir den exakten Fehler
+                        test = subprocess.run(["wg-quick", "up", "wg0"], capture_output=True, text=True)
+                        if test.returncode != 0:
+                            err_msg = (test.stdout + "\\n" + test.stderr).strip()
+                            print("[YControl] wg-quick up Fehler:\\n" + err_msg, file=sys.stderr)
                             raise Exception(err_msg)
+                        print("[YControl] wg-quick up OK – registriere als Service...")
+                        subprocess.run(["systemctl", "enable", "wg-quick@wg0"], capture_output=True)
                         print("[YControl] VPN aktiv!")
                         c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "ok"}), qos=1)
                     except Exception as ex:
