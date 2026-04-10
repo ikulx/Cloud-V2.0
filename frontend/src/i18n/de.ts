@@ -215,6 +215,8 @@ const de = {
     deployToPi: 'VPN auf Pi installieren (via Agent)',
     deploySuccess: 'VPN-Installationsbefehl an {{count}} Gerät(e) gesendet',
     deployError: 'Deploy fehlgeschlagen – keine freigegebenen Geräte gefunden',
+    deviceNoVpn: 'Dieses Gerät ist keiner Anlage mit VPN-Zugang zugeordnet.',
+    installVpn: 'VPN installieren',
     downloadPiConfig: 'Pi WireGuard-Config herunterladen',
     disableAnlage: 'VPN deaktivieren',
     enableAnlageTitle: 'VPN für Anlage aktivieren',

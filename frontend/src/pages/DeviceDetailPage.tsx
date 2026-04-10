@@ -17,7 +17,12 @@ import ListItemText from '@mui/material/ListItemText'
 import IconButton from '@mui/material/IconButton'
 import Alert from '@mui/material/Alert'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import Tooltip from '@mui/material/Tooltip'
+import Snackbar from '@mui/material/Snackbar'
+import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import InstallDesktopIcon from '@mui/icons-material/InstallDesktop'
 import { useDevice, useCreateDeviceTodo, useUpdateDeviceTodo, useCreateDeviceLog, useDeviceCommand } from '../features/devices/queries'
+import { useDeviceVpnInfo, useDeployVpnToDevice } from '../features/vpn/queries'
 import { StatusChip } from '../components/StatusChip'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { usePermission } from '../hooks/usePermission'
@@ -45,6 +50,10 @@ export function DeviceDetailPage() {
   const updateTodo = useUpdateDeviceTodo(id!)
   const createLog = useCreateDeviceLog(id!)
   const sendCommand = useDeviceCommand(id!)
+  const { data: vpnInfos } = useDeviceVpnInfo(id)
+  const deployVpn = useDeployVpnToDevice()
+  const [vpnMsg, setVpnMsg] = useState<string | null>(null)
+  const canManageVpn = usePermission('vpn:manage')
 
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
   if (!device) return <Typography>{t('detail.notFound')}</Typography>
@@ -158,7 +167,72 @@ export function DeviceDetailPage() {
               </>}
             </CardContent>
           </Card>
+          {/* VPN-Karte – nur wenn Berechtigung und mind. eine Anlage VPN hat */}
+          {canManageVpn && (
+            <Card sx={{ gridColumn: { xs: '1', md: '1 / -1' } }}>
+              <CardContent>
+                <Box display="flex" alignItems="center" gap={1} mb={1.5}>
+                  <VpnKeyIcon color="primary" fontSize="small" />
+                  <Typography variant="h6">{t('vpn.title')}</Typography>
+                </Box>
+
+                {!vpnInfos || vpnInfos.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    {t('vpn.deviceNoVpn')}
+                  </Typography>
+                ) : (
+                  <Box display="flex" flexDirection="column" gap={1.5}>
+                    {vpnInfos.map((v) => (
+                      <Box
+                        key={v.anlageId}
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="space-between"
+                        flexWrap="wrap"
+                        gap={1}
+                        sx={{ bgcolor: 'action.hover', borderRadius: 1, px: 2, py: 1 }}
+                      >
+                        <Box>
+                          <Typography variant="body2" fontWeight={500}>{v.anlageName}</Typography>
+                          <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                            {v.subnetCidr} · Pi: {v.piIp} · LAN: {v.localPrefix}.0/24
+                          </Typography>
+                        </Box>
+                        <Tooltip title={t('vpn.deployToPi')}>
+                          <span>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                              startIcon={<InstallDesktopIcon />}
+                              disabled={!device.mqttConnected || !device.isApproved || deployVpn.isPending}
+                              onClick={() => deployVpn.mutate(
+                                { deviceId: id!, anlageId: v.anlageId },
+                                {
+                                  onSuccess: () => setVpnMsg(t('vpn.deploySuccess', { count: 1 })),
+                                  onError:   () => setVpnMsg(t('vpn.deployError')),
+                                }
+                              )}
+                            >
+                              {t('vpn.installVpn')}
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </Box>
+
+        <Snackbar
+          open={!!vpnMsg}
+          autoHideDuration={5000}
+          onClose={() => setVpnMsg(null)}
+          message={vpnMsg}
+        />
       )}
 
       {canReadTodos && tab === (1) && (

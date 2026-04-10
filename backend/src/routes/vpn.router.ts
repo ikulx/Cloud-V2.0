@@ -397,6 +397,72 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
   res.send(config)
 })
 
+// ─── Geräte-seitige VPN-Endpunkte ────────────────────────────────────────────
+
+// GET /api/vpn/devices/:deviceId/info
+// Gibt alle VPN-konfigurierten Anlagen zurück, denen dieses Gerät zugeordnet ist.
+router.get('/devices/:deviceId/info', authenticate, requirePermission('vpn:manage'), async (req, res) => {
+  const deviceId = req.params.deviceId as string
+
+  const anlageLinks = await prisma.anlageDevice.findMany({
+    where: { deviceId },
+    select: { anlageId: true, anlage: { select: { name: true } } },
+  })
+  if (anlageLinks.length === 0) { res.json([]); return }
+
+  const anlageIds = anlageLinks.map((l) => l.anlageId)
+  const vpnAnlagen = await prisma.vpnAnlage.findMany({
+    where: { anlageId: { in: anlageIds } },
+  })
+
+  const nameMap = new Map(anlageLinks.map((l) => [l.anlageId, l.anlage.name]))
+  const result = vpnAnlagen.map((v) => ({
+    anlageId:    v.anlageId,
+    anlageName:  nameMap.get(v.anlageId) ?? '—',
+    subnetCidr:  anlageCidr(v.subnetIndex),
+    piIp:        anlagePiIp(v.subnetIndex),
+    localPrefix: v.localPrefix,
+    hasKey:      !!v.piPublicKey,
+  }))
+
+  res.json(result)
+})
+
+// POST /api/vpn/devices/:deviceId/deploy
+// Sendet den vpn_install MQTT-Befehl an genau dieses eine Gerät.
+router.post('/devices/:deviceId/deploy', authenticate, requirePermission('vpn:manage'), async (req, res) => {
+  const deviceId = req.params.deviceId as string
+  const { anlageId } = req.body as { anlageId?: string }
+
+  const device = await prisma.device.findUnique({
+    where: { id: deviceId },
+    select: { serialNumber: true, isApproved: true },
+  })
+  if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
+  if (!device.isApproved) { res.status(409).json({ message: 'Gerät noch nicht freigegeben' }); return }
+
+  // anlageId aus Body oder erste VPN-konfigurierte Anlage des Geräts
+  let targetAnlageId = anlageId
+  if (!targetAnlageId) {
+    const link = await prisma.anlageDevice.findFirst({
+      where: {
+        deviceId,
+        anlageId: { in: (await prisma.vpnAnlage.findMany({ select: { anlageId: true } })).map((v) => v.anlageId) },
+      },
+    })
+    targetAnlageId = link?.anlageId
+  }
+  if (!targetAnlageId) { res.status(404).json({ message: 'Keine VPN-konfigurierte Anlage für dieses Gerät' }); return }
+
+  const settings = await getVpnSettings()
+  if (!settings.serverPublicKey || !settings.serverEndpoint) {
+    res.status(409).json({ message: 'VPN-Server-Einstellungen unvollständig' }); return
+  }
+
+  publishCommand(device.serialNumber, { action: 'vpn_install', anlageId: targetAnlageId })
+  res.json({ ok: true, serial: device.serialNumber, anlageId: targetAnlageId })
+})
+
 // ─── Pi-seitiger Konfig-Download (Device-Auth) ───────────────────────────────
 
 // GET /api/vpn/device-config?anlageId=...

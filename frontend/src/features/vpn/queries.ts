@@ -108,3 +108,32 @@ export function useDeployVpnToAnlage() {
       apiPost<{ ok: boolean; targeted: number; serials: string[] }>(`/vpn/anlagen/${anlageId}/deploy`, {}),
   })
 }
+
+// ─── Geräte-seitige VPN-Infos ────────────────────────────────────────────────
+
+export interface DeviceVpnInfo {
+  anlageId:    string
+  anlageName:  string
+  subnetCidr:  string
+  piIp:        string
+  localPrefix: string
+  hasKey:      boolean
+}
+
+export function useDeviceVpnInfo(deviceId: string | undefined) {
+  return useQuery({
+    queryKey: ['vpn', 'device', deviceId],
+    queryFn:  () => apiGet<DeviceVpnInfo[]>(`/vpn/devices/${deviceId}/info`),
+    enabled:  !!deviceId,
+  })
+}
+
+export function useDeployVpnToDevice() {
+  return useMutation({
+    mutationFn: ({ deviceId, anlageId }: { deviceId: string; anlageId: string }) =>
+      apiPost<{ ok: boolean; serial: string; anlageId: string }>(
+        `/vpn/devices/${deviceId}/deploy`,
+        { anlageId }
+      ),
+  })
+}
