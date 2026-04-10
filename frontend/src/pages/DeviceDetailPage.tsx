@@ -22,6 +22,8 @@ import Snackbar from '@mui/material/Snackbar'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import InstallDesktopIcon from '@mui/icons-material/InstallDesktop'
 import DownloadIcon from '@mui/icons-material/Download'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import OpenInBrowserIcon from '@mui/icons-material/OpenInBrowser'
 import { useDevice, useCreateDeviceTodo, useUpdateDeviceTodo, useCreateDeviceLog, useDeviceCommand } from '../features/devices/queries'
 import {
   useDeviceVpnConfig,
@@ -110,6 +112,7 @@ export function DeviceDetailPage() {
   const disableVpn = useDisableDeviceVpn()
   const deployVpn  = useDeployVpnToDevice()
   const [vpnMsg, setVpnMsg] = useState<string | null>(null)
+  const [visuOpen, setVisuOpen] = useState(false)
   const [newVpnIp, setNewVpnIp] = useState('')
   const [newLocalPrefix, setNewLocalPrefix] = useState('192.168.10')
   const [editVpnIp, setEditVpnIp] = useState('')
@@ -375,6 +378,46 @@ export function DeviceDetailPage() {
             </Card>
           )}
         </Box>
+
+        {/* ── Visualisierung ─────────────────────────────────── */}
+        {vpnConfig && device && (
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <OpenInBrowserIcon fontSize="small" /> Visualisierung
+              </Typography>
+              <Typography variant="body2" color="text.secondary" mb={2}>
+                Pi-Visu über VPN-Proxy — der Server leitet die Anfrage durch das WireGuard-Tunnel weiter.
+              </Typography>
+              <Box display="flex" gap={1} mb={2} flexWrap="wrap">
+                <Button
+                  variant="contained"
+                  startIcon={<OpenInBrowserIcon />}
+                  onClick={() => setVisuOpen((v) => !v)}
+                >
+                  {visuOpen ? 'Vorschau schliessen' : 'Vorschau anzeigen'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<OpenInNewIcon />}
+                  onClick={() => window.open(`/api/vpn/devices/${id}/visu/`, '_blank')}
+                >
+                  In neuem Fenster öffnen
+                </Button>
+              </Box>
+              {visuOpen && (
+                <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden', height: 600 }}>
+                  <iframe
+                    src={`/api/vpn/devices/${id}/visu/`}
+                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    title={`Visualisierung – ${device.name}`}
+                    sandbox="allow-scripts allow-same-origin allow-forms"
+                  />
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Snackbar
           open={!!vpnMsg}

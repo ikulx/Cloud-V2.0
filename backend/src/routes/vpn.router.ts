@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
+import http from 'http'
 import {
   peerIp,
   generateWgKeypair,
@@ -32,6 +33,7 @@ import {
   buildDevicePeerBlock,
   buildServerPeerBlock,
   syncWireGuardConfig,
+  deriveVpnLanPrefix,
   type VpnSettings,
 } from '../services/vpn.service'
 import { env } from '../config/env'
@@ -481,6 +483,65 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
   res.setHeader('Content-Type',        'text/plain; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.send(config)
+})
+
+// ─── Visu-Proxy ───────────────────────────────────────────────────────────────
+// GET /api/vpn/devices/:deviceId/visu/*
+// Der Cloud-Server (selbst im VPN) proxied die Pi-Visualisierung über HTTPS aus.
+// So entfällt das Mixed-Content-Problem im Browser.
+router.get('/devices/:deviceId/visu*', authenticate, async (req, res) => {
+  const deviceId = req.params.deviceId as string
+
+  const [vpnDevice, device] = await Promise.all([
+    prisma.vpnDevice.findUnique({ where: { deviceId } }),
+    prisma.device.findUnique({ where: { id: deviceId }, select: { ipAddress: true, name: true } }),
+  ])
+
+  if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
+  if (!device?.ipAddress) { res.status(409).json({ message: 'Keine IP-Adresse für dieses Gerät bekannt' }); return }
+
+  // Pi-VPN-LAN-IP berechnen: 10.A.B (Prefix) + letztes Oktett der LAN-IP
+  const vpnLanPrefix = deriveVpnLanPrefix(vpnDevice.vpnIp)
+  const lanLastOctet = device.ipAddress.split('.').pop()
+  const piVisuIp = `${vpnLanPrefix}.${lanLastOctet}`
+
+  // Pfad nach /visu weitergeben
+  const rawPath = req.path.replace(`/devices/${deviceId}/visu`, '') || '/'
+  const targetPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''
+  const targetUrl = `http://${piVisuIp}${targetPath}${query}`
+
+  const proxyReq = http.request(targetUrl, { method: req.method, headers: { ...req.headers, host: piVisuIp } }, (proxyRes) => {
+    // Content-Type weiterleiten
+    res.status(proxyRes.statusCode ?? 200)
+    for (const [key, val] of Object.entries(proxyRes.headers)) {
+      if (key.toLowerCase() !== 'content-encoding') res.setHeader(key, val as string)
+    }
+    // HTML: <base>-Tag einfügen damit relative URLs stimmen
+    const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
+    if (ct.includes('text/html')) {
+      let body = ''
+      proxyRes.setEncoding('utf-8')
+      proxyRes.on('data', (chunk) => { body += chunk })
+      proxyRes.on('end', () => {
+        const base = `<base href="/api/vpn/devices/${deviceId}/visu/">`
+        const patched = body.includes('<head>') ? body.replace('<head>', `<head>${base}`) : `${base}${body}`
+        res.send(patched)
+      })
+    } else {
+      proxyRes.pipe(res)
+    }
+  })
+
+  proxyReq.on('error', (err) => {
+    console.error(`[VPN-Proxy] ${targetUrl}:`, err.message)
+    res.status(502).json({ message: `Pi nicht erreichbar (${piVisuIp}): ${err.message}` })
+  })
+
+  if (req.body && req.method !== 'GET') {
+    proxyReq.write(typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+  }
+  proxyReq.end()
 })
 
 export default router
