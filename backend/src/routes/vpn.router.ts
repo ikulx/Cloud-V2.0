@@ -673,8 +673,8 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
         if (val) res.setHeader(key, val as string)
       }
 
-      // XML/XSLT (TECO): xml-stylesheet href umschreiben
-      if (ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml')) {
+      // XML/XSLT (TECO): xml-stylesheet href umschreiben (nur wenn nicht komprimiert)
+      if (willPatch && (ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml'))) {
         let body = ''
         proxyRes.setEncoding('utf-8')
         proxyRes.on('data', (chunk) => { body += chunk })
@@ -697,8 +697,8 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
           appendAuthCookie()
           res.send(patched)
         })
-      // HTML: nur absolute Pfade umschreiben (kein Interceptor)
-      } else if (ct.includes('text/html')) {
+      // HTML: nur absolute Pfade umschreiben (kein Interceptor, nur wenn nicht komprimiert)
+      } else if (willPatch && ct.includes('text/html')) {
         let body = ''
         proxyRes.setEncoding('utf-8')
         proxyRes.on('data', (chunk) => { body += chunk })
