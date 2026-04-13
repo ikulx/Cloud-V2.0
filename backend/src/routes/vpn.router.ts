@@ -725,30 +725,33 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
             res.send(patched)
           })
         // LAN-Geräte: XML/XSLT (TECO) – URLs in Processing Instructions und Attributen umschreiben
-        } else if (isLanDevice && (ct.includes('text/xml') || ct.includes('application/xml') || ct.includes('application/xhtml'))) {
+        // In XML müssen & als &amp; escaped werden!
+        } else if (isLanDevice && (ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml') || ct.includes('application/xhtml'))) {
           let body = ''
           proxyRes.setEncoding('utf-8')
           proxyRes.on('data', (chunk) => { body += chunk })
           proxyRes.on('end', () => {
-            const lanQuery = new URLSearchParams()
-            if (targetIpParam) lanQuery.set('targetIp', targetIpParam)
-            if (targetPortParam) lanQuery.set('targetPort', String(targetPortParam))
-            if (rawToken) lanQuery.set('access_token', rawToken)
-            const qs = lanQuery.toString()
+            // Query-Params mit &amp; für XML-Kontext
+            const qsParts: string[] = []
+            if (targetIpParam) qsParts.push(`targetIp=${encodeURIComponent(targetIpParam)}`)
+            if (targetPortParam) qsParts.push(`targetPort=${targetPortParam}`)
+            if (rawToken) qsParts.push(`access_token=${encodeURIComponent(rawToken)}`)
+            const qsXml = qsParts.join('&amp;')  // XML-escaped
 
-            // Absolute href/src in XML umschreiben: href="/foo" → href="/api/vpn/.../visu/foo?targetIp=..."
+            // xml-stylesheet Processing Instruction umschreiben:
+            // <?xml-stylesheet href="LOGIN.XSL"?> → <?xml-stylesheet href="/api/vpn/.../visu/LOGIN.XSL?targetIp=...&amp;..."?>
             let patched = body.replace(
-              /(\b(?:src|href)\s*=\s*["'])\/(?!\/)(.*?)(["'])/g,
-              (_m, pre, path, post) => `${pre}${proxyBase}/${path}${path.includes('?') ? '&' : '?'}${qs}${post}`
-            )
-            // xml-stylesheet href umschreiben
-            patched = patched.replace(
-              /(href\s*=\s*["'])(?!https?:\/\/)(.*?)(["'])/g,
-              (_m, pre, path, post) => {
-                if (path.startsWith(proxyBase)) return `${pre}${path}${post}`
+              /(<\?xml-stylesheet\s[^?]*href\s*=\s*["'])([^"'?]+)([^"']*)(["'])/g,
+              (_m, pre, path, _existingQs, post) => {
                 const absPath = path.startsWith('/') ? path : `/${path}`
-                return `${pre}${proxyBase}${absPath}${absPath.includes('?') ? '&' : '?'}${qs}${post}`
+                return `${pre}${proxyBase}${absPath}?${qsXml}${post}`
               }
+            )
+
+            // href/src Attribute in XML-Elementen umschreiben
+            patched = patched.replace(
+              /(\b(?:src|href)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
+              (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
             )
 
             res.removeHeader('content-length')
