@@ -196,22 +196,22 @@ export function DevicesPage() {
                           <Chip
                             label="MQTT"
                             size="small"
-                            color={device.mqttConnected ? 'success' : 'error'}
+                            color={device.isApproved ? (device.mqttConnected ? 'success' : 'error') : 'default'}
                             variant={device.isApproved ? 'filled' : 'outlined'}
                             sx={{ fontSize: '0.65rem', height: 20 }}
                           />
                           <Chip
                             label="VPN"
                             size="small"
-                            color={device.vpnActive ? 'success' : device.vpnDevice ? 'warning' : 'default'}
+                            color={device.vpnDevice ? (device.vpnActive ? 'success' : 'error') : 'default'}
                             variant={device.vpnDevice ? 'filled' : 'outlined'}
                             sx={{ fontSize: '0.65rem', height: 20 }}
                           />
                           <Chip
                             label="HTTP"
                             size="small"
-                            color={device.httpActive ? 'success' : device.mqttConnected ? 'error' : 'default'}
-                            variant={device.mqttConnected !== undefined ? 'filled' : 'outlined'}
+                            color={device.vpnDevice ? (device.httpActive ? 'success' : 'error') : 'default'}
+                            variant={device.vpnDevice ? 'filled' : 'outlined'}
                             sx={{ fontSize: '0.65rem', height: 20 }}
                           />
                         </Box>
