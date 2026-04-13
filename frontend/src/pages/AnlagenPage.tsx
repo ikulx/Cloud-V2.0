@@ -285,22 +285,28 @@ export function AnlagenPage() {
                                                     {t('devices.openNewTab', 'In neuem Tab öffnen')}
                                                   </Button>
                                                 </Box>
-                                                <Box
-                                                  sx={{
-                                                    border: '1px solid',
-                                                    borderColor: 'divider',
-                                                    borderRadius: 1,
-                                                    overflow: 'hidden',
-                                                    height: 600,
-                                                    bgcolor: 'background.paper',
-                                                  }}
-                                                >
-                                                  <iframe
-                                                    src={buildVisuUrl(device.id)}
-                                                    style={{ width: '100%', height: '100%', border: 'none' }}
-                                                    title={`Visualisierung – ${device.name}`}
-                                                  />
-                                                </Box>
+                                                {device.visuVersion ? (
+                                                  <Box
+                                                    sx={{
+                                                      border: '1px solid',
+                                                      borderColor: 'divider',
+                                                      borderRadius: 1,
+                                                      overflow: 'hidden',
+                                                      height: 600,
+                                                      bgcolor: 'background.paper',
+                                                    }}
+                                                  >
+                                                    <iframe
+                                                      src={buildVisuUrl(device.id)}
+                                                      style={{ width: '100%', height: '100%', border: 'none' }}
+                                                      title={`Visualisierung – ${device.name}`}
+                                                    />
+                                                  </Box>
+                                                ) : (
+                                                  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                                                    {t('devices.noVisuPreview', 'Keine Visu-Vorschau verfügbar – bitte im neuen Tab öffnen.')}
+                                                  </Typography>
+                                                )}
                                               </Box>
                                             </Collapse>
                                           </TableCell>
