@@ -705,17 +705,39 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
               (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
             )
           } else {
-            // HTML: absolute Pfade + <base>-Tag (kein Interceptor)
+            // HTML: absolute Pfade + <base>-Tag + leichter Interceptor für fetch/XHR
             body = body.replace(
               /(\b(?:src|href|action)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
               (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
             )
+            // Auch url() in inline-Styles umschreiben: url(/fonts/...) → url(/api/vpn/.../fonts/...)
+            body = body.replace(
+              /url\(\s*(['"]?)\/(?!\/|api\/vpn)(.*?)\1\s*\)/g,
+              (_m, q, path) => `url(${q}${proxyBase}/${path}${q})`
+            )
+
             const base = `<base href="${proxyBase}/">`
+            // Leichter Interceptor: fetch(), XHR und dynamische URLs über den Proxy leiten
+            const lanScript = [
+              '<script>',
+              '(function(){',
+              'var B="' + proxyBase + '";',
+              'function rw(u){if(typeof u!=="string"||!u.startsWith("/"))return u;if(u.startsWith(B)||u.startsWith("/api/vpn/"))return u;return B+u}',
+              // fetch() patchen
+              'var _f=window.fetch;',
+              'window.fetch=function(i,o){if(typeof i==="string")i=rw(i);return _f.call(this,i,o)};',
+              // XHR.open() patchen
+              'var _x=XMLHttpRequest.prototype.open;',
+              'XMLHttpRequest.prototype.open=function(){if(typeof arguments[1]==="string")arguments[1]=rw(arguments[1]);return _x.apply(this,arguments)};',
+              '})();',
+              '</script>',
+            ].join('')
+
             body = body.includes('<head>')
-              ? body.replace('<head>', `<head>${base}`)
+              ? body.replace('<head>', `<head>${base}${lanScript}`)
               : body.includes('<HEAD>')
-                ? body.replace('<HEAD>', `<HEAD>${base}`)
-                : `<head>${base}</head>${body}`
+                ? body.replace('<HEAD>', `<HEAD>${base}${lanScript}`)
+                : `<head>${base}${lanScript}</head>${body}`
           }
 
           res.removeHeader('content-length')
