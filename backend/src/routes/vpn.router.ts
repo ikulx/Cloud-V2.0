@@ -669,31 +669,21 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
             //    Die Pi-App ruft im Productionbuild io() ohne URL auf → verbindet zu aktuellem Origin.
             //    Dieses Script patcht XHR/fetch/WebSocket bevor socket.io-client lädt,
             //    damit alle /socket.io/-Requests zum Visu-Proxy weitergeleitet werden.
+            // WS_PROXY = z.B. /api/vpn/devices/xxx/visu/socket.io
+            // Alle /socket.io-Requests (relativ oder absolut) werden durch einfaches
+            // String-Replace umgeleitet: /socket.io → /api/vpn/.../visu/socket.io
             const wsProxyPath = `${proxyBase}/socket.io`
             const socketRedirectScript = `<script>
 (function(){
-  var WS_PROXY='${wsProxyPath}';
-  var _XHRopen=XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open=function(m,u){
-    if(typeof u==='string'&&/\\/socket\\.io[\\/\\?]/.test(u))
-      u=u.replace(/^(https?:\\/\\/[^\\/]*)\\/socket\\.io/,'$1'+WS_PROXY.replace('/socket.io',''));
-    return _XHRopen.apply(this,arguments);
-  };
-  var _fetch=window.fetch;
-  window.fetch=function(u,o){
-    if(typeof u==='string'&&/\\/socket\\.io[\\/\\?]/.test(u))
-      u=u.replace(/^(https?:\\/\\/[^\\/]*)\\/socket\\.io/,'$1'+WS_PROXY.replace('/socket.io',''));
-    return _fetch.call(this,u,o);
-  };
+  var P='${wsProxyPath}';
+  function fix(u){return typeof u==='string'&&u.includes('/socket.io')?u.replace('/socket.io',P):u;}
+  var _XO=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(m,u){return _XO.apply(this,[m,fix(u)].concat([].slice.call(arguments,2)));};
+  var _f=window.fetch;
+  window.fetch=function(u,o){return _f.call(this,fix(u),o);};
   var _WS=window.WebSocket;
-  function PatchedWS(u,p){
-    if(typeof u==='string'&&/\\/socket\\.io[\\/\\?]/.test(u))
-      u=u.replace(/^(wss?:\\/\\/[^\\/]*)\\/socket\\.io/,'$1'+WS_PROXY.replace('/socket.io',''));
-    return p?new _WS(u,p):new _WS(u);
-  }
-  PatchedWS.prototype=_WS.prototype;
-  Object.assign(PatchedWS,_WS);
-  window.WebSocket=PatchedWS;
+  function PWS(u,p){var fu=fix(u);return p?new _WS(fu,p):new _WS(fu);}
+  PWS.prototype=_WS.prototype;Object.assign(PWS,_WS);window.WebSocket=PWS;
 })();
 </script>`
             patched = patched.replace('<head>', `<head>${socketRedirectScript}`)
