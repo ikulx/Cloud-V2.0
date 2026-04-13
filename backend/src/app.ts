@@ -9,7 +9,12 @@ export function createApp() {
 
   app.use(helmet())
   app.use(cors({ origin: env.corsOrigin, credentials: true }))
-  app.use(express.json())
+  // Body-Parser für alle Routen AUSSER Visu-Proxy
+  // (Socket.IO Polling POST braucht den rohen Body-Stream für req.pipe())
+  app.use((req, res, next) => {
+    if (req.path.match(/\/api\/vpn\/devices\/[^/]+\/visu/)) return next()
+    express.json()(req, res, next)
+  })
 
   app.use('/api', apiRouter)
 

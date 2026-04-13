@@ -593,9 +593,23 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
     const portNum = parsed.port ? parseInt(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80)
     const hostHdr = portNum === 80 ? parsed.hostname : `${parsed.hostname}:${portNum}`
 
+    // Headers für den Pi bereinigen: keine Cloud-Cookies, Auth-Header oder
+    // Accept-Encoding (um Kompression zu vermeiden die wir nicht weiterleiten)
+    const fwdHeaders: Record<string, string | string[] | undefined> = {}
+    for (const [k, v] of Object.entries(req.headers)) {
+      const lk = k.toLowerCase()
+      if (lk === 'host' || lk === 'cookie' || lk === 'authorization' ||
+          lk === 'accept-encoding' || lk === 'connection' || lk === 'upgrade') continue
+      fwdHeaders[k] = v
+    }
+    fwdHeaders['host'] = hostHdr
+    // Content-Type und Content-Length für POST weitergeben (wichtig für Socket.IO Polling)
+    if (req.headers['content-type']) fwdHeaders['content-type'] = req.headers['content-type']
+    if (req.headers['content-length']) fwdHeaders['content-length'] = req.headers['content-length']
+
     const proxyReq = http.request(
       { hostname: parsed.hostname, port: portNum, path: parsed.pathname + parsed.search, method: req.method,
-        headers: { ...req.headers, host: hostHdr },
+        headers: fwdHeaders,
         timeout: 8000,   // 8s Gesamttimeout – feuert auch bei hängenden TCP-Verbindungen
       },
       (proxyRes) => {
