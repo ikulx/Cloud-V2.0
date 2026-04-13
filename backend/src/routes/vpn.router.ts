@@ -680,102 +680,65 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
             patched = patched.replace('<head>', `<head>${cspMeta}`)
 
             // 4. Umfassender URL-Interceptor für Cloud-Proxy:
-            //    CRA setzt __webpack_require__.p intern – window.__webpack_public_path__ hilft nicht.
-            //    Deshalb monkey-patchen wir createElement, fetch() und XHR, um /static/ und /assets/
-            //    URLs auf den Proxy-Pfad umzuschreiben. So werden Lazy-Chunks, SVGs, CSS und alle
-            //    anderen Assets korrekt über den VPN-Proxy geladen.
-            const proxyScript = `<script>(function(){
-  var B='${proxyBase}';
-  window.__VISU_SOCKET_PATH=B+'/socket.io/';
-
-  // Prüft ob ein Pfad umgeschrieben werden muss
-  function needsRewrite(p){
-    return p.startsWith('/static/') || p.startsWith('/assets/') ||
-           p==='/manifest.json' || p==='/favicon.ico' ||
-           p.startsWith('/logo');
-  }
-  function rewrite(url){
-    try{
-      var u=new URL(url,location.origin);
-      if(u.origin===location.origin && needsRewrite(u.pathname)){
-        return u.origin+B+u.pathname+u.search+u.hash;
-      }
-    }catch(e){}
-    return url;
-  }
-
-  // 1. createElement: script.src, link.href, img.src abfangen
-  var _ce=document.createElement;
-  document.createElement=function(tag){
-    var el=_ce.call(document,tag);
-    var tl=(tag||'').toLowerCase();
-    if(tl==='script'){
-      var d=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,'src');
-      if(d&&d.set)Object.defineProperty(el,'src',{
-        set:function(v){d.set.call(this,typeof v==='string'?rewrite(v):v);},
-        get:function(){return d.get.call(this);},configurable:true
-      });
-    }else if(tl==='link'){
-      var d=Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype,'href');
-      if(d&&d.set)Object.defineProperty(el,'href',{
-        set:function(v){d.set.call(this,typeof v==='string'?rewrite(v):v);},
-        get:function(){return d.get.call(this);},configurable:true
-      });
-    }else if(tl==='img'){
-      var d=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');
-      if(d&&d.set)Object.defineProperty(el,'src',{
-        set:function(v){d.set.call(this,typeof v==='string'?rewrite(v):v);},
-        get:function(){return d.get.call(this);},configurable:true
-      });
-    }
-    return el;
-  };
-
-  // 2. fetch() abfangen
-  var _fetch=window.fetch;
-  window.fetch=function(input,init){
-    if(typeof input==='string'){input=rewrite(input);}
-    else if(input instanceof Request){
-      try{
-        var u=new URL(input.url);
-        if(u.origin===location.origin&&needsRewrite(u.pathname)){
-          input=new Request(u.origin+B+u.pathname+u.search,input);
-        }
-      }catch(e){}
-    }
-    return _fetch.call(this,input,init);
-  };
-
-  // 3. XMLHttpRequest.open() abfangen
-  var _xo=XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open=function(method,url){
-    if(typeof url==='string')url=rewrite(url);
-    var a=Array.prototype.slice.call(arguments);
-    a[1]=url;
-    return _xo.apply(this,a);
-  };
-
-  // 4. Bestehende img-Elemente im DOM nachträglich fixen (z.B. aus serverseitigem HTML)
-  new MutationObserver(function(muts){
-    muts.forEach(function(m){
-      m.addedNodes.forEach(function(n){
-        if(n.nodeType===1){
-          if(n.tagName==='IMG'&&n.getAttribute('src')){
-            var s=n.getAttribute('src');
-            if(needsRewrite(s))n.setAttribute('src',B+s);
-          }
-          // Auch verschachtelte Bilder
-          if(n.querySelectorAll){
-            n.querySelectorAll('img[src]').forEach(function(img){
-              var s=img.getAttribute('src');
-              if(s&&needsRewrite(s))img.setAttribute('src',B+s);
-            });
-          }
-        }
-      });
-    });
-  }).observe(document.documentElement,{childList:true,subtree:true});
-})();</script>`
+            //    CRA setzt __webpack_require__.p intern auf "/" – window.__webpack_public_path__ hilft nicht.
+            //    Deshalb monkey-patchen wir createElement, fetch(), XHR und WebSocket,
+            //    um /static/, /assets/ und /socket.io/ URLs auf den Proxy-Pfad umzuschreiben.
+            //    Zusätzlich: __VISU_BASENAME für React Router (BrowserRouter basename-Prop)
+            //    und __VISU_SOCKET_PATH für socket.io path-Option.
+            const proxyScript = [
+              '<script>',
+              '(function(){',
+              'try{',
+              'var B="' + proxyBase + '";',
+              'console.log("[VisuProxy] Interceptor active, base="+B);',
+              'window.__VISU_SOCKET_PATH=B+"/socket.io/";',
+              'window.__VISU_BASENAME=B;',
+              // needsRewrite: prüft ob Pfad umgeschrieben werden muss
+              'function nr(p){return p.startsWith("/static/")||p.startsWith("/assets/")||p==="/manifest.json"||p==="/favicon.ico"||p.startsWith("/logo")}',
+              // rewrite: schreibt URL um wenn nötig
+              'function rw(u){try{var x=new URL(u,location.origin);if(x.origin===location.origin&&nr(x.pathname))return x.origin+B+x.pathname+x.search+x.hash}catch(e){}return u}',
+              // 1. createElement: script.src, link.href, img.src
+              'var ce=document.createElement;',
+              'document.createElement=function(t){',
+              '  var el=ce.call(document,t),tl=(t||"").toLowerCase();',
+              '  if(tl==="script"){var ds=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,"src");if(ds&&ds.set)Object.defineProperty(el,"src",{set:function(v){ds.set.call(this,typeof v==="string"?rw(v):v)},get:function(){return ds.get.call(this)},configurable:true})}',
+              '  else if(tl==="link"){var dl=Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype,"href");if(dl&&dl.set)Object.defineProperty(el,"href",{set:function(v){dl.set.call(this,typeof v==="string"?rw(v):v)},get:function(){return dl.get.call(this)},configurable:true})}',
+              '  else if(tl==="img"){var di=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,"src");if(di&&di.set)Object.defineProperty(el,"src",{set:function(v){di.set.call(this,typeof v==="string"?rw(v):v)},get:function(){return di.get.call(this)},configurable:true})}',
+              '  return el',
+              '};',
+              // 2. fetch()
+              'var fe=window.fetch;',
+              'window.fetch=function(i,o){',
+              '  if(typeof i==="string")i=rw(i);',
+              '  else if(i instanceof Request){try{var x=new URL(i.url);if(x.origin===location.origin&&nr(x.pathname))i=new Request(x.origin+B+x.pathname+x.search,i)}catch(e){}}',
+              '  return fe.call(this,i,o)',
+              '};',
+              // 3. XMLHttpRequest.open()
+              'var xo=XMLHttpRequest.prototype.open;',
+              'XMLHttpRequest.prototype.open=function(){',
+              '  if(typeof arguments[1]==="string")arguments[1]=rw(arguments[1]);',
+              '  return xo.apply(this,arguments)',
+              '};',
+              // 4. WebSocket: socket.io WebSocket-Transport URL umschreiben
+              'var WS=window.WebSocket;',
+              'window.WebSocket=function(u,p){',
+              '  if(typeof u==="string"){try{var x=new URL(u);if(x.origin.replace("http","ws")===location.origin.replace("http","ws")&&(nr(x.pathname)||x.pathname.startsWith("/socket.io/")))x.pathname=B+x.pathname,u=x.toString()}catch(e){}}',
+              '  return p!==undefined?new WS(u,p):new WS(u)',
+              '};',
+              'window.WebSocket.prototype=WS.prototype;',
+              'window.WebSocket.CONNECTING=WS.CONNECTING;window.WebSocket.OPEN=WS.OPEN;window.WebSocket.CLOSING=WS.CLOSING;window.WebSocket.CLOSED=WS.CLOSED;',
+              // 5. MutationObserver: img-Elemente im DOM nachträglich fixen
+              'new MutationObserver(function(ms){ms.forEach(function(m){m.addedNodes.forEach(function(n){',
+              '  if(n.nodeType!==1)return;',
+              '  var s=n.tagName==="IMG"&&n.getAttribute("src");',
+              '  if(s&&nr(s))n.setAttribute("src",B+s);',
+              '  if(n.querySelectorAll)n.querySelectorAll("img[src]").forEach(function(i){var a=i.getAttribute("src");if(a&&nr(a))i.setAttribute("src",B+a)})',
+              '})})}).observe(document.documentElement,{childList:true,subtree:true});',
+              'console.log("[VisuProxy] Interceptor ready, socket="+window.__VISU_SOCKET_PATH+", basename="+window.__VISU_BASENAME);',
+              '}catch(err){console.error("[VisuProxy] Interceptor error:",err)}',
+              '})();',
+              '</script>',
+            ].join('\n')
             patched = patched.replace('<head>', `<head>${proxyScript}`)
 
             res.removeHeader('content-length')
