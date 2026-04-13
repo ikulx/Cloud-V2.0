@@ -555,13 +555,24 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
   const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
   if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
 
-  // Session-Cookie setzen damit Sub-Ressourcen ohne access_token-Param geladen werden
   const proxyBase = `/api/vpn/devices/${deviceId}/lan/${lanIp}/${lanPort}`
-  if (queryToken || headerToken) {
-    res.setHeader('set-cookie',
-      `${cookieName}=${rawToken}; Path=${proxyBase}/; HttpOnly; SameSite=Lax; Max-Age=3600`)
-  }
+  // Auth-Cookie: wird am Ende jeder Response gesetzt (nicht vorher, da Proxy-Header sonst überschreiben)
+  const authCookie = (queryToken || headerToken)
+    ? `${cookieName}=${rawToken}; Path=${proxyBase}/; HttpOnly; SameSite=Lax; Max-Age=3600`
+    : null
   console.log(`[VPN-LAN] Auth: query=${!!queryToken} cookie=${!!cookieToken} header=${!!headerToken} → token=${!!rawToken}`)
+
+  // Helper: Auth-Cookie an Response anhängen (nach allen Proxy-Headern)
+  function appendAuthCookie() {
+    if (!authCookie) return
+    const existing = res.getHeader('set-cookie')
+    if (existing) {
+      const arr = Array.isArray(existing) ? existing : [String(existing)]
+      res.setHeader('set-cookie', [...arr, authCookie])
+    } else {
+      res.setHeader('set-cookie', authCookie)
+    }
+  }
 
   // VPN-LAN-IP berechnen: letztes Oktett der LAN-IP → NETMAP-Prefix des Pi
   const lanLastOctet = lanIp.split('.').pop()
@@ -635,6 +646,7 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
             if (val) res.setHeader(key, val as string)
           }
           res.setHeader('location', `${proxyBase}${locPath}`)
+          appendAuthCookie()
           proxyRes.resume()
           res.end()
           return
@@ -649,11 +661,12 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
         "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
 
       const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
-      const willPatch = ct.includes('text/html') || ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml')
+      const isCompressed = !!(proxyRes.headers['content-encoding'])
+      // Nur patchen wenn nicht komprimiert (gzip-Body kann nicht als UTF-8 gelesen werden)
+      const willPatch = !isCompressed && (ct.includes('text/html') || ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml'))
 
       for (const [key, val] of Object.entries(proxyRes.headers)) {
         const k = key.toLowerCase()
-        // content-encoding/transfer-encoding nur bei zu patchenden Responses entfernen
         if ((k === 'content-encoding' || k === 'transfer-encoding') && willPatch) continue
         if (k === 'content-security-policy' || k === 'x-frame-options') continue
         if (val) res.setHeader(key, val as string)
@@ -680,6 +693,7 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
             (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
           )
           res.removeHeader('content-length')
+          appendAuthCookie()
           res.send(patched)
         })
       // HTML: nur absolute Pfade umschreiben (kein Interceptor)
@@ -700,10 +714,12 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
               ? patched.replace('<HEAD>', `<HEAD>${base}`)
               : `<head>${base}</head>${patched}`
           res.removeHeader('content-length')
+          appendAuthCookie()
           res.send(patched)
         })
       } else {
         // Alles andere (CSS, JS, Bilder, etc.) direkt durchleiten
+        appendAuthCookie()
         proxyRes.pipe(res)
       }
     })
