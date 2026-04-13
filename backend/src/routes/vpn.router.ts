@@ -617,12 +617,20 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
     if (req.headers['content-type']) fwdHeaders['content-type'] = req.headers['content-type']
     if (req.headers['content-length']) fwdHeaders['content-length'] = req.headers['content-length']
 
-    const reqModule = parsed.protocol === 'https:' ? https : http
+    const isHttpsReq = parsed.protocol === 'https:'
+    const reqModule = isHttpsReq ? https : http
+    if (isHttpsReq) console.log(`[VPN-Proxy] HTTPS-Request → ${parsed.hostname}:${portNum}`)
     const proxyReq = reqModule.request(
       { hostname: parsed.hostname, port: portNum, path: parsed.pathname + parsed.search, method: req.method,
         headers: fwdHeaders,
         timeout: 15000,  // 15s Gesamttimeout – HTTPS-Handshake via VPN braucht mehr Zeit
         rejectUnauthorized: false,  // Self-signed Zertifikate akzeptieren (LAN-Geräte)
+        // Ältere Embedded-Geräte (TECO, SPS) nutzen oft TLS 1.0/1.1 und Legacy-Ciphers
+        ...(isHttpsReq ? {
+          secureProtocol: 'TLS_method',
+          minVersion: 'TLSv1' as const,
+          ciphers: 'ALL',
+        } : {}),
       },
       (proxyRes) => {
         const status = proxyRes.statusCode ?? 200
@@ -680,9 +688,70 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
           res.setHeader(key, val as string)
         }
 
-        // HTML: absolute Pfade + <base>-Tag umschreiben
+        // HTML-Verarbeitung: Visu bekommt volle Interception, LAN-Geräte nur base+path-rewrite
         const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
-        if (ct.includes('text/html') && !isLanDevice) {
+
+        // LAN-Geräte (TECO, SPS etc.): nur <base>-Tag und absolute Pfade umschreiben, kein Interceptor
+        if (ct.includes('text/html') && isLanDevice) {
+          let body = ''
+          proxyRes.setEncoding('utf-8')
+          proxyRes.on('data', (chunk) => { body += chunk })
+          proxyRes.on('end', () => {
+            // Query-Params für alle Links: targetIp, targetPort, access_token
+            const lanQuery = new URLSearchParams()
+            if (targetIpParam) lanQuery.set('targetIp', targetIpParam)
+            if (targetPortParam) lanQuery.set('targetPort', String(targetPortParam))
+            if (rawToken) lanQuery.set('access_token', rawToken)
+            const lanBase = `${proxyBase}/?${lanQuery.toString()}`
+
+            // Absolute Pfade umschreiben: src="/foo" → src="/api/vpn/.../visu/foo?targetIp=...&..."
+            let patched = body.replace(
+              /(\b(?:src|href|action)\s*=\s*["'])\/(?!\/)/g,
+              `$1${proxyBase}/`
+            )
+
+            // <base>-Tag injizieren
+            const base = `<base href="${lanBase}">`
+            patched = patched.includes('<head>')
+              ? patched.replace('<head>', `<head>${base}`)
+              : patched.includes('<HEAD>')
+                ? patched.replace('<HEAD>', `<HEAD>${base}`)
+                : `<head>${base}</head>${patched}`
+
+            res.removeHeader('content-length')
+            res.send(patched)
+          })
+        // LAN-Geräte: XML/XSLT (TECO) – URLs in Processing Instructions und Attributen umschreiben
+        } else if (isLanDevice && (ct.includes('text/xml') || ct.includes('application/xml') || ct.includes('application/xhtml'))) {
+          let body = ''
+          proxyRes.setEncoding('utf-8')
+          proxyRes.on('data', (chunk) => { body += chunk })
+          proxyRes.on('end', () => {
+            const lanQuery = new URLSearchParams()
+            if (targetIpParam) lanQuery.set('targetIp', targetIpParam)
+            if (targetPortParam) lanQuery.set('targetPort', String(targetPortParam))
+            if (rawToken) lanQuery.set('access_token', rawToken)
+            const qs = lanQuery.toString()
+
+            // Absolute href/src in XML umschreiben: href="/foo" → href="/api/vpn/.../visu/foo?targetIp=..."
+            let patched = body.replace(
+              /(\b(?:src|href)\s*=\s*["'])\/(?!\/)(.*?)(["'])/g,
+              (_m, pre, path, post) => `${pre}${proxyBase}/${path}${path.includes('?') ? '&' : '?'}${qs}${post}`
+            )
+            // xml-stylesheet href umschreiben
+            patched = patched.replace(
+              /(href\s*=\s*["'])(?!https?:\/\/)(.*?)(["'])/g,
+              (_m, pre, path, post) => {
+                if (path.startsWith(proxyBase)) return `${pre}${path}${post}`
+                const absPath = path.startsWith('/') ? path : `/${path}`
+                return `${pre}${proxyBase}${absPath}${absPath.includes('?') ? '&' : '?'}${qs}${post}`
+              }
+            )
+
+            res.removeHeader('content-length')
+            res.send(patched)
+          })
+        } else if (ct.includes('text/html') && !isLanDevice) {
           let body = ''
           proxyRes.setEncoding('utf-8')
           proxyRes.on('data', (chunk) => { body += chunk })
