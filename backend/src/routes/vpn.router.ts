@@ -529,10 +529,12 @@ router.get('/devices/:deviceId/ping', authenticate, requirePermission('vpn:manag
 // Separate Route: targetIp und targetPort im Pfad statt Query-Parameter.
 // So bleiben die Routing-Infos bei Redirects, Form-Posts und Sub-Ressourcen erhalten.
 // URL-Schema: /api/vpn/devices/:deviceId/lan/:lanIp/:lanPort/...
-router.all(['/devices/:deviceId/lan/:lanIp/:lanPort', '/devices/:deviceId/lan/:lanIp/:lanPort/*'], async (req, res) => {
-  const deviceId = req.params.deviceId as string
-  const lanIp = req.params.lanIp as string
-  const lanPortStr = req.params.lanPort as string
+// Regex-Route: matcht /devices/:deviceId/lan/:lanIp/:lanPort und alles dahinter
+// Express 4 kann kein optionales Wildcard nach Named-Params, deshalb Regex
+router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) => {
+  const deviceId = req.params[0] as string
+  const lanIp = req.params[1] as string
+  const lanPortStr = req.params[2] as string
   const lanPort = parseInt(lanPortStr) || 80
 
   // Auth (gleich wie Visu-Route)
@@ -557,17 +559,17 @@ router.all(['/devices/:deviceId/lan/:lanIp/:lanPort', '/devices/:deviceId/lan/:l
   const proxyBase = `/api/vpn/devices/${deviceId}/lan/${lanIp}/${lanPort}`
   if (queryToken || headerToken) {
     res.setHeader('set-cookie',
-      `${cookieName}=${rawToken}; Path=${proxyBase}; HttpOnly; SameSite=Lax; Max-Age=3600`)
+      `${cookieName}=${rawToken}; Path=${proxyBase}/; HttpOnly; SameSite=Lax; Max-Age=3600`)
   }
+  console.log(`[VPN-LAN] Auth: query=${!!queryToken} cookie=${!!cookieToken} header=${!!headerToken} → token=${!!rawToken}`)
 
   // VPN-LAN-IP berechnen: letztes Oktett der LAN-IP → NETMAP-Prefix des Pi
   const lanLastOctet = lanIp.split('.').pop()
   const vpnLanPrefix = deriveVpnLanPrefix(vpnDevice.vpnIp)
   const piTargetIp = `${vpnLanPrefix}.${lanLastOctet}`
 
-  // Pfad nach /lan/:ip/:port weitergeben
-  const lanPathPrefix = `/devices/${deviceId}/lan/${lanIp}/${lanPortStr}`
-  const rawPath = req.path.replace(lanPathPrefix, '') || '/'
+  // Pfad nach /lan/:ip/:port weitergeben (Regex-Gruppe [3] = restlicher Pfad)
+  const rawPath = (req.params[3] as string) || '/'
   const targetPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
 
   // Query-String weiterleiten, access_token entfernen
@@ -646,14 +648,16 @@ router.all(['/devices/:deviceId/lan/:lanIp/:lanPort', '/devices/:deviceId/lan/:l
       res.setHeader('content-security-policy',
         "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
 
+      const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
+      const willPatch = ct.includes('text/html') || ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml')
+
       for (const [key, val] of Object.entries(proxyRes.headers)) {
         const k = key.toLowerCase()
-        if (k === 'content-encoding' || k === 'transfer-encoding') continue
+        // content-encoding/transfer-encoding nur bei zu patchenden Responses entfernen
+        if ((k === 'content-encoding' || k === 'transfer-encoding') && willPatch) continue
         if (k === 'content-security-policy' || k === 'x-frame-options') continue
         if (val) res.setHeader(key, val as string)
       }
-
-      const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
 
       // XML/XSLT (TECO): xml-stylesheet href umschreiben
       if (ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml')) {
