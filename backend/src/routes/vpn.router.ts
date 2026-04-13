@@ -26,6 +26,7 @@ import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import http from 'http'
 import https from 'https'
+import zlib from 'zlib'
 import { verifyAccessToken } from '../lib/token'
 import { getUserAccessContext } from '../services/user-context.service'
 import {
@@ -661,62 +662,72 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
         "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
 
       const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
-      const isCompressed = !!(proxyRes.headers['content-encoding'])
-      // Nur patchen wenn nicht komprimiert (gzip-Body kann nicht als UTF-8 gelesen werden)
-      const willPatch = !isCompressed && (ct.includes('text/html') || ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml'))
+      const encoding = (proxyRes.headers['content-encoding'] ?? '').toLowerCase()
+      const needsPatch = ct.includes('text/html') || ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml')
 
+      // Headers weiterleiten (content-encoding + transfer-encoding entfernen wenn wir patchen)
       for (const [key, val] of Object.entries(proxyRes.headers)) {
         const k = key.toLowerCase()
-        if (k === 'transfer-encoding') continue  // immer entfernen – Konflikt mit content-length bei nginx
-        if (k === 'content-encoding' && willPatch) continue
+        if (k === 'transfer-encoding') continue
+        if (k === 'content-encoding' && needsPatch) continue  // wir senden unkomprimiert nach Patching
         if (k === 'content-security-policy' || k === 'x-frame-options') continue
         if (val) res.setHeader(key, val as string)
       }
 
-      // XML/XSLT (TECO): xml-stylesheet href umschreiben (nur wenn nicht komprimiert)
-      if (willPatch && (ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml'))) {
-        let body = ''
-        proxyRes.setEncoding('utf-8')
-        proxyRes.on('data', (chunk) => { body += chunk })
-        proxyRes.on('end', () => {
-          // xml-stylesheet href umschreiben (mit &amp; für XML)
-          let patched = body.replace(
-            /(<\?xml-stylesheet\s[^?]*href\s*=\s*["'])([^"']+)(["'])/g,
-            (_m, pre, path, post) => {
-              if (path.startsWith('http') || path.startsWith(proxyBase)) return `${pre}${path}${post}`
-              const absPath = path.startsWith('/') ? path : `/${path}`
-              return `${pre}${proxyBase}${absPath}${post}`
-            }
-          )
-          // Absolute href/src in XML-Elementen umschreiben
-          patched = patched.replace(
-            /(\b(?:src|href)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
-            (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
-          )
+      if (needsPatch) {
+        // Body sammeln – bei gzip/deflate/br zuerst dekomprimieren
+        let stream: NodeJS.ReadableStream = proxyRes
+        if (encoding === 'gzip' || encoding === 'x-gzip') {
+          stream = proxyRes.pipe(zlib.createGunzip())
+        } else if (encoding === 'deflate') {
+          stream = proxyRes.pipe(zlib.createInflate())
+        } else if (encoding === 'br') {
+          stream = proxyRes.pipe(zlib.createBrotliDecompress())
+        }
+
+        const chunks: Buffer[] = []
+        stream.on('data', (chunk: Buffer) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+        stream.on('end', () => {
+          let body = Buffer.concat(chunks).toString('utf-8')
+
+          if (ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml')) {
+            // XML/XSLT: xml-stylesheet href umschreiben
+            body = body.replace(
+              /(<\?xml-stylesheet\s[^?]*href\s*=\s*["'])([^"']+)(["'])/g,
+              (_m, pre, path, post) => {
+                if (path.startsWith('http') || path.startsWith(proxyBase)) return `${pre}${path}${post}`
+                const absPath = path.startsWith('/') ? path : `/${path}`
+                return `${pre}${proxyBase}${absPath}${post}`
+              }
+            )
+            body = body.replace(
+              /(\b(?:src|href)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
+              (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
+            )
+          } else {
+            // HTML: absolute Pfade + <base>-Tag (kein Interceptor)
+            body = body.replace(
+              /(\b(?:src|href|action)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
+              (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
+            )
+            const base = `<base href="${proxyBase}/">`
+            body = body.includes('<head>')
+              ? body.replace('<head>', `<head>${base}`)
+              : body.includes('<HEAD>')
+                ? body.replace('<HEAD>', `<HEAD>${base}`)
+                : `<head>${base}</head>${body}`
+          }
+
           res.removeHeader('content-length')
+          res.removeHeader('content-encoding')
           appendAuthCookie()
-          res.send(patched)
+          res.send(body)
         })
-      // HTML: nur absolute Pfade umschreiben (kein Interceptor, nur wenn nicht komprimiert)
-      } else if (willPatch && ct.includes('text/html')) {
-        let body = ''
-        proxyRes.setEncoding('utf-8')
-        proxyRes.on('data', (chunk) => { body += chunk })
-        proxyRes.on('end', () => {
-          let patched = body.replace(
-            /(\b(?:src|href|action)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
-            (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
-          )
-          // <base>-Tag für relative Pfade
-          const base = `<base href="${proxyBase}/">`
-          patched = patched.includes('<head>')
-            ? patched.replace('<head>', `<head>${base}`)
-            : patched.includes('<HEAD>')
-              ? patched.replace('<HEAD>', `<HEAD>${base}`)
-              : `<head>${base}</head>${patched}`
-          res.removeHeader('content-length')
-          appendAuthCookie()
-          res.send(patched)
+        stream.on('error', (err) => {
+          console.error(`[VPN-LAN] Decompress error:`, err.message)
+          if (!res.headersSent) {
+            res.status(502).json({ message: `Dekomprimierungsfehler: ${err.message}` })
+          }
         })
       } else {
         // Alles andere (CSS, JS, Bilder, etc.) direkt durchleiten
