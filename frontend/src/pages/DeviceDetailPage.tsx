@@ -24,7 +24,14 @@ import InstallDesktopIcon from '@mui/icons-material/InstallDesktop'
 import DownloadIcon from '@mui/icons-material/Download'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import OpenInBrowserIcon from '@mui/icons-material/OpenInBrowser'
-import { useDevice, useCreateDeviceTodo, useUpdateDeviceTodo, useCreateDeviceLog, useDeviceCommand } from '../features/devices/queries'
+import AddIcon from '@mui/icons-material/Add'
+import DeleteIcon from '@mui/icons-material/Delete'
+import Table from '@mui/material/Table'
+import TableBody from '@mui/material/TableBody'
+import TableCell from '@mui/material/TableCell'
+import TableHead from '@mui/material/TableHead'
+import TableRow from '@mui/material/TableRow'
+import { useDevice, useCreateDeviceTodo, useUpdateDeviceTodo, useCreateDeviceLog, useDeviceCommand, useCreateLanDevice, useDeleteDevice } from '../features/devices/queries'
 import {
   useDeviceVpnConfig,
   useEnableDeviceVpn,
@@ -125,6 +132,12 @@ export function DeviceDetailPage() {
   const [editVpnIp, setEditVpnIp] = useState('')
   const [editLocalPrefix, setEditLocalPrefix] = useState('')
   const [editVisuPort, setEditVisuPort] = useState('80')
+
+  // LAN-Geräte
+  const createLanDevice = useCreateLanDevice(id!)
+  const deleteLanDevice = useDeleteDevice()
+  const [lanForm, setLanForm] = useState({ name: '', lanTargetIp: '', lanTargetPort: '80', notes: '' })
+  const [lanFormOpen, setLanFormOpen] = useState(false)
 
   // Sync edit fields when vpnConfig loads
   useEffect(() => {
@@ -512,6 +525,132 @@ export function DeviceDetailPage() {
                   </>
                 )
               })()}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── LAN-Geräte ────────────────────────────────────── */}
+        {vpnConfig && device && (
+          <Card sx={{ mt: 3 }}>
+            <CardContent>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="h6">LAN-Geräte</Typography>
+                {canUpdate && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => setLanFormOpen((v) => !v)}
+                  >
+                    {lanFormOpen ? 'Abbrechen' : 'LAN-Gerät hinzufügen'}
+                  </Button>
+                )}
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Geräte im lokalen Netzwerk des Pi (z.B. TECO, SPS), erreichbar via NETMAP über den VPN-Tunnel.
+              </Typography>
+
+              {lanFormOpen && (
+                <Box display="flex" gap={1} mb={2} flexWrap="wrap" alignItems="flex-end">
+                  <TextField
+                    label="Name"
+                    size="small"
+                    value={lanForm.name}
+                    onChange={(e) => setLanForm({ ...lanForm, name: e.target.value })}
+                    sx={{ minWidth: 160 }}
+                  />
+                  <TextField
+                    label="IP-Adresse"
+                    size="small"
+                    value={lanForm.lanTargetIp}
+                    onChange={(e) => setLanForm({ ...lanForm, lanTargetIp: e.target.value })}
+                    placeholder="192.168.10.50"
+                    sx={{ minWidth: 140 }}
+                  />
+                  <TextField
+                    label="Port"
+                    size="small"
+                    type="number"
+                    value={lanForm.lanTargetPort}
+                    onChange={(e) => setLanForm({ ...lanForm, lanTargetPort: e.target.value })}
+                    sx={{ width: 80 }}
+                  />
+                  <TextField
+                    label="Notizen"
+                    size="small"
+                    value={lanForm.notes}
+                    onChange={(e) => setLanForm({ ...lanForm, notes: e.target.value })}
+                    sx={{ minWidth: 140, flexGrow: 1 }}
+                  />
+                  <Button
+                    variant="contained"
+                    size="small"
+                    disabled={!lanForm.name || !lanForm.lanTargetIp || createLanDevice.isPending}
+                    onClick={async () => {
+                      await createLanDevice.mutateAsync({
+                        name: lanForm.name,
+                        lanTargetIp: lanForm.lanTargetIp,
+                        lanTargetPort: parseInt(lanForm.lanTargetPort) || 80,
+                        notes: lanForm.notes || undefined,
+                      })
+                      setLanForm({ name: '', lanTargetIp: '', lanTargetPort: '80', notes: '' })
+                      setLanFormOpen(false)
+                    }}
+                  >
+                    Erstellen
+                  </Button>
+                </Box>
+              )}
+
+              {(!device.childDevices || device.childDevices.length === 0) && !lanFormOpen && (
+                <Typography color="text.secondary">Keine LAN-Geräte konfiguriert.</Typography>
+              )}
+
+              {device.childDevices && device.childDevices.length > 0 && (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Name</TableCell>
+                      <TableCell>IP</TableCell>
+                      <TableCell>Port</TableCell>
+                      <TableCell align="right">Aktionen</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {device.childDevices.map((child) => {
+                      const lanUrl = (() => {
+                        const token = localStorage.getItem('accessToken') ?? ''
+                        const p = new URLSearchParams({ access_token: token })
+                        if (me?.email) p.set('remoteUser', me.email)
+                        if (child.lanTargetIp) p.set('targetIp', child.lanTargetIp)
+                        if (child.lanTargetPort) p.set('targetPort', String(child.lanTargetPort))
+                        return `/api/vpn/devices/${id}/visu/?${p.toString()}`
+                      })()
+                      return (
+                        <TableRow key={child.id} hover>
+                          <TableCell>{child.name}</TableCell>
+                          <TableCell><code>{child.lanTargetIp}</code></TableCell>
+                          <TableCell>{child.lanTargetPort ?? 80}</TableCell>
+                          <TableCell align="right">
+                            <Tooltip title="In neuem Tab öffnen">
+                              <IconButton size="small" onClick={() => window.open(lanUrl, '_blank')}>
+                                <OpenInNewIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            {canUpdate && (
+                              <Tooltip title="Entfernen">
+                                <IconButton size="small" color="error" onClick={() => deleteLanDevice.mutate(child.id)}>
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         )}

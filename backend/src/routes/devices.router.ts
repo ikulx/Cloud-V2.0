@@ -34,6 +34,8 @@ const deviceInclude = {
   directGroups: { include: { group: { select: { id: true, name: true } } } },
   _count: { select: { todos: { where: { status: 'OPEN' as const } } } },
   vpnDevice: { select: { vpnIp: true } },
+  parentDevice: { select: { id: true, name: true } },
+  childDevices: { select: { id: true, name: true, lanTargetIp: true, lanTargetPort: true } },
 }
 
 // ─── Setup Script (Python Agent) ─────────────────────────────────────────────
@@ -981,6 +983,70 @@ router.post('/:id/logs', authenticate, requirePermission('logbook:create'), asyn
     include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
   })
   res.status(201).json(log)
+})
+
+// ─── LAN-Geräte (Nicht-Visu-Geräte im Pi-LAN) ──────────────────────────────
+
+const lanDeviceSchema = z.object({
+  name:        z.string().min(1).max(200),
+  lanTargetIp: z.string().min(7).max(45),
+  lanTargetPort: z.number().int().min(1).max(65535).optional().default(80),
+  notes:       z.string().optional(),
+})
+
+// POST /api/devices/:id/lan-devices  – LAN-Gerät unter einem Pi-Gerät anlegen
+router.post('/:id/lan-devices', authenticate, requirePermission('devices:create'), async (req, res) => {
+  const parentId = req.params.id as string
+  const parsed = lanDeviceSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
+
+  // Prüfe ob übergeordnetes Gerät existiert und VPN hat
+  const parent = await prisma.device.findUnique({
+    where: { id: parentId },
+    include: { vpnDevice: { select: { id: true } } },
+  })
+  if (!parent) { res.status(404).json({ message: 'Übergeordnetes Gerät nicht gefunden' }); return }
+  if (!parent.vpnDevice) { res.status(409).json({ message: 'Übergeordnetes Gerät hat kein VPN' }); return }
+
+  // Serial auto-generieren
+  const serial = `LAN-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+
+  const device = await prisma.device.create({
+    data: {
+      name: parsed.data.name,
+      serialNumber: serial,
+      parentDeviceId: parentId,
+      lanTargetIp: parsed.data.lanTargetIp,
+      lanTargetPort: parsed.data.lanTargetPort,
+      notes: parsed.data.notes ?? null,
+      status: 'UNKNOWN',
+      // LAN-Geräte erben die Anlagen-Zuweisungen des übergeordneten Geräts
+    },
+    include: deviceInclude,
+  })
+  res.status(201).json(device)
+})
+
+// PUT /api/devices/:id/lan-device  – LAN-Gerät bearbeiten (nur für LAN-Geräte)
+router.put('/:id/lan-device', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const parsed = lanDeviceSchema.partial().safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+
+  const existing = await prisma.device.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
+  if (!existing.parentDeviceId) { res.status(409).json({ message: 'Kein LAN-Gerät' }); return }
+
+  const device = await prisma.device.update({
+    where: { id: req.params.id as string },
+    data: {
+      name: parsed.data.name,
+      lanTargetIp: parsed.data.lanTargetIp,
+      lanTargetPort: parsed.data.lanTargetPort,
+      notes: parsed.data.notes,
+    },
+    include: deviceInclude,
+  })
+  res.json(device)
 })
 
 export default router

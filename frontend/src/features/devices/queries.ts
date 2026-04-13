@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiPatch, apiDelete } from '../../lib/api'
+import { apiGet, apiPost, apiPatch, apiPut, apiDelete } from '../../lib/api'
 import type { Device } from '../../types/model'
 
 export const devicesKeys = {
@@ -84,6 +84,27 @@ export function useCreateDeviceLog(deviceId: string) {
 export function useDeviceCommand(deviceId: string) {
   return useMutation({
     mutationFn: (action: string) => apiPost(`/devices/${deviceId}/command`, { action }),
+  })
+}
+
+export function useCreateLanDevice(parentDeviceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { name: string; lanTargetIp: string; lanTargetPort?: number; notes?: string }) =>
+      apiPost<Device>(`/devices/${parentDeviceId}/lan-devices`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: devicesKeys.all })
+      qc.invalidateQueries({ queryKey: devicesKeys.detail(parentDeviceId) })
+    },
+  })
+}
+
+export function useUpdateLanDevice(deviceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { name?: string; lanTargetIp?: string; lanTargetPort?: number; notes?: string }) =>
+      apiPut<Device>(`/devices/${deviceId}/lan-device`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: devicesKeys.all }),
   })
 }
 

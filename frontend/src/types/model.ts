@@ -64,6 +64,11 @@ export interface Device {
   vpnActive?: boolean
   httpActive?: boolean
   vpnDevice?: { vpnIp: string } | null
+  parentDeviceId: string | null
+  lanTargetIp: string | null
+  lanTargetPort: number | null
+  parentDevice?: { id: string; name: string } | null
+  childDevices?: { id: string; name: string; lanTargetIp: string | null; lanTargetPort: number | null }[]
   todos?: DeviceTodo[]
   logEntries?: DeviceLogEntry[]
   _count?: { todos: number }

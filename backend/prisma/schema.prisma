@@ -183,6 +183,14 @@ model Device {
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
+  // LAN-Gerät: über ein übergeordnetes Pi-Gerät via VPN erreichbar
+  parentDeviceId  String?      @map("parent_device_id") @db.Uuid
+  lanTargetIp     String?      @map("lan_target_ip")
+  lanTargetPort   Int?         @map("lan_target_port")
+
+  parentDevice  Device?  @relation("DeviceChildren", fields: [parentDeviceId], references: [id], onDelete: SetNull)
+  childDevices  Device[] @relation("DeviceChildren")
+
   anlageDevices AnlageDevice[]
   directUsers   UserDirectDevice[]
   directGroups  GroupDevice[]
