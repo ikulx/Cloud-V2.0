@@ -679,11 +679,12 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
             const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">`
             patched = patched.replace('<head>', `<head>${cspMeta}`)
 
-            // 4. Socket.IO-Pfad für Cloud-Proxy setzen:
-            //    Das Pi-Frontend prüft window.__VISU_SOCKET_PATH und nutzt ihn als
-            //    Socket.IO `path`-Option (native, kein XHR/fetch/WebSocket-Patching nötig).
-            const socketScript = `<script>window.__VISU_SOCKET_PATH='${proxyBase}/socket.io/';</script>`
-            patched = patched.replace('<head>', `<head>${socketScript}`)
+            // 4. Socket.IO-Pfad + Webpack Public Path für Cloud-Proxy setzen:
+            //    - __VISU_SOCKET_PATH: Pi-Frontend nutzt es als Socket.IO `path`-Option
+            //    - __webpack_public_path__: CRA-Runtime lädt Lazy-Chunks von diesem Pfad
+            //      (ohne das laden Chunks von /static/js/... statt /api/vpn/.../visu/static/js/...)
+            const proxyScript = `<script>window.__VISU_SOCKET_PATH='${proxyBase}/socket.io/';__webpack_public_path__='${proxyBase}/';</script>`
+            patched = patched.replace('<head>', `<head>${proxyScript}`)
 
             res.removeHeader('content-length')
             res.send(patched)
