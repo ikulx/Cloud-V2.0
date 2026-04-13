@@ -36,6 +36,7 @@ import { apiFetch } from '../lib/api'
 import { StatusChip } from '../components/StatusChip'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { usePermission } from '../hooks/usePermission'
+import { useSession } from '../context/SessionContext'
 import { useTranslation } from 'react-i18next'
 
 // ─── VPN-IP-Validierung ───────────────────────────────────────────────────────
@@ -85,6 +86,7 @@ export function DeviceDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const { me } = useSession()
   const { data: device, isLoading } = useDevice(id!)
   useDeviceStatus(id)
 
@@ -475,6 +477,7 @@ export function DeviceDetailPage() {
               {(() => {
                 const token = localStorage.getItem('accessToken') ?? ''
                 const params = new URLSearchParams({ access_token: token })
+                if (me?.email) params.set('remoteUser', me.email)
                 if (visuTargetIp.trim()) params.set('targetIp', visuTargetIp.trim())
                 if (visuTargetPort.trim()) params.set('targetPort', visuTargetPort.trim())
                 const visuUrl = `/api/vpn/devices/${id}/visu/?${params.toString()}`
