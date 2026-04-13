@@ -667,7 +667,8 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
 
       for (const [key, val] of Object.entries(proxyRes.headers)) {
         const k = key.toLowerCase()
-        if ((k === 'content-encoding' || k === 'transfer-encoding') && willPatch) continue
+        if (k === 'transfer-encoding') continue  // immer entfernen – Konflikt mit content-length bei nginx
+        if (k === 'content-encoding' && willPatch) continue
         if (k === 'content-security-policy' || k === 'x-frame-options') continue
         if (val) res.setHeader(key, val as string)
       }
