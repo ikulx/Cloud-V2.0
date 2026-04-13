@@ -618,20 +618,23 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
     if (req.headers['content-length']) fwdHeaders['content-length'] = req.headers['content-length']
 
     const isHttpsReq = parsed.protocol === 'https:'
-    const reqModule = isHttpsReq ? https : http
     if (isHttpsReq) console.log(`[VPN-Proxy] HTTPS-Request → ${parsed.hostname}:${portNum}`)
-    const proxyReq = reqModule.request(
-      { hostname: parsed.hostname, port: portNum, path: parsed.pathname + parsed.search, method: req.method,
-        headers: fwdHeaders,
-        timeout: 15000,  // 15s Gesamttimeout – HTTPS-Handshake via VPN braucht mehr Zeit
-        rejectUnauthorized: false,  // Self-signed Zertifikate akzeptieren (LAN-Geräte)
-        // Ältere Embedded-Geräte (TECO, SPS) nutzen oft TLS 1.0/1.1 und Legacy-Ciphers
-        ...(isHttpsReq ? {
-          secureProtocol: 'TLS_method',
-          minVersion: 'TLSv1' as const,
-          ciphers: 'ALL',
-        } : {}),
-      },
+
+    const reqOpts: https.RequestOptions = {
+      hostname: parsed.hostname, port: portNum,
+      path: parsed.pathname + parsed.search, method: req.method,
+      headers: fwdHeaders,
+      timeout: 15000,
+      rejectUnauthorized: false,
+    }
+    // Ältere Embedded-Geräte (TECO, SPS) nutzen oft TLS 1.0/1.1 und Legacy-Ciphers
+    if (isHttpsReq) {
+      reqOpts.minVersion = 'TLSv1'
+      reqOpts.ciphers = 'ALL'
+    }
+
+    const reqModule = isHttpsReq ? https : http
+    const proxyReq = reqModule.request(reqOpts,
       (proxyRes) => {
         const status = proxyRes.statusCode ?? 200
 
