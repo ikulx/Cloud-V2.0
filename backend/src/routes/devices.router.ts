@@ -780,7 +780,9 @@ router.get('/agent-update', async (req, res) => {
 
 // GET /api/devices
 router.get('/', authenticate, requirePermission('devices:read'), async (req, res) => {
-  const where = buildVisibleDevicesWhere(req.user!)
+  const accessWhere = buildVisibleDevicesWhere(req.user!)
+  // LAN-Geräte (parentDeviceId gesetzt) nur unter ihrem Haupt-Gerät anzeigen, nicht in der Hauptliste
+  const where = { AND: [accessWhere, { parentDeviceId: null }] }
   const devices = await prisma.device.findMany({ where, include: deviceInclude, orderBy: { name: 'asc' } })
   res.json(devices.map((d) => ({
     ...d,

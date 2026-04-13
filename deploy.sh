@@ -72,12 +72,10 @@ info "Starte Backend neu (inkl. DB-Migrations)..."
 docker compose -f docker-compose.prod.yml up -d --no-deps backend
 
 info "Warte auf Backend-Start..."
-sleep 10
-
 RETRIES=0
-MAX_RETRIES=20
-until docker compose -f docker-compose.prod.yml ps backend | grep -q "healthy\|running"; do
-  sleep 3
+MAX_RETRIES=30
+until docker compose -f docker-compose.prod.yml exec -T backend wget -qO- http://localhost:3000/health >/dev/null 2>&1; do
+  sleep 2
   RETRIES=$((RETRIES + 1))
   if [ $RETRIES -ge $MAX_RETRIES ]; then
     warn "Backend nicht in 60s ready – prüfe Logs:"
