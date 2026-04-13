@@ -679,11 +679,103 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
             const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">`
             patched = patched.replace('<head>', `<head>${cspMeta}`)
 
-            // 4. Socket.IO-Pfad + Webpack Public Path für Cloud-Proxy setzen:
-            //    - __VISU_SOCKET_PATH: Pi-Frontend nutzt es als Socket.IO `path`-Option
-            //    - __webpack_public_path__: CRA-Runtime lädt Lazy-Chunks von diesem Pfad
-            //      (ohne das laden Chunks von /static/js/... statt /api/vpn/.../visu/static/js/...)
-            const proxyScript = `<script>window.__VISU_SOCKET_PATH='${proxyBase}/socket.io/';__webpack_public_path__='${proxyBase}/';</script>`
+            // 4. Umfassender URL-Interceptor für Cloud-Proxy:
+            //    CRA setzt __webpack_require__.p intern – window.__webpack_public_path__ hilft nicht.
+            //    Deshalb monkey-patchen wir createElement, fetch() und XHR, um /static/ und /assets/
+            //    URLs auf den Proxy-Pfad umzuschreiben. So werden Lazy-Chunks, SVGs, CSS und alle
+            //    anderen Assets korrekt über den VPN-Proxy geladen.
+            const proxyScript = `<script>(function(){
+  var B='${proxyBase}';
+  window.__VISU_SOCKET_PATH=B+'/socket.io/';
+
+  // Prüft ob ein Pfad umgeschrieben werden muss
+  function needsRewrite(p){
+    return p.startsWith('/static/') || p.startsWith('/assets/') ||
+           p==='/manifest.json' || p==='/favicon.ico' ||
+           p.startsWith('/logo');
+  }
+  function rewrite(url){
+    try{
+      var u=new URL(url,location.origin);
+      if(u.origin===location.origin && needsRewrite(u.pathname)){
+        return u.origin+B+u.pathname+u.search+u.hash;
+      }
+    }catch(e){}
+    return url;
+  }
+
+  // 1. createElement: script.src, link.href, img.src abfangen
+  var _ce=document.createElement;
+  document.createElement=function(tag){
+    var el=_ce.call(document,tag);
+    var tl=(tag||'').toLowerCase();
+    if(tl==='script'){
+      var d=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,'src');
+      if(d&&d.set)Object.defineProperty(el,'src',{
+        set:function(v){d.set.call(this,typeof v==='string'?rewrite(v):v);},
+        get:function(){return d.get.call(this);},configurable:true
+      });
+    }else if(tl==='link'){
+      var d=Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype,'href');
+      if(d&&d.set)Object.defineProperty(el,'href',{
+        set:function(v){d.set.call(this,typeof v==='string'?rewrite(v):v);},
+        get:function(){return d.get.call(this);},configurable:true
+      });
+    }else if(tl==='img'){
+      var d=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');
+      if(d&&d.set)Object.defineProperty(el,'src',{
+        set:function(v){d.set.call(this,typeof v==='string'?rewrite(v):v);},
+        get:function(){return d.get.call(this);},configurable:true
+      });
+    }
+    return el;
+  };
+
+  // 2. fetch() abfangen
+  var _fetch=window.fetch;
+  window.fetch=function(input,init){
+    if(typeof input==='string'){input=rewrite(input);}
+    else if(input instanceof Request){
+      try{
+        var u=new URL(input.url);
+        if(u.origin===location.origin&&needsRewrite(u.pathname)){
+          input=new Request(u.origin+B+u.pathname+u.search,input);
+        }
+      }catch(e){}
+    }
+    return _fetch.call(this,input,init);
+  };
+
+  // 3. XMLHttpRequest.open() abfangen
+  var _xo=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(method,url){
+    if(typeof url==='string')url=rewrite(url);
+    var a=Array.prototype.slice.call(arguments);
+    a[1]=url;
+    return _xo.apply(this,a);
+  };
+
+  // 4. Bestehende img-Elemente im DOM nachträglich fixen (z.B. aus serverseitigem HTML)
+  new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      m.addedNodes.forEach(function(n){
+        if(n.nodeType===1){
+          if(n.tagName==='IMG'&&n.getAttribute('src')){
+            var s=n.getAttribute('src');
+            if(needsRewrite(s))n.setAttribute('src',B+s);
+          }
+          // Auch verschachtelte Bilder
+          if(n.querySelectorAll){
+            n.querySelectorAll('img[src]').forEach(function(img){
+              var s=img.getAttribute('src');
+              if(s&&needsRewrite(s))img.setAttribute('src',B+s);
+            });
+          }
+        }
+      });
+    });
+  }).observe(document.documentElement,{childList:true,subtree:true});
+})();</script>`
             patched = patched.replace('<head>', `<head>${proxyScript}`)
 
             res.removeHeader('content-length')
