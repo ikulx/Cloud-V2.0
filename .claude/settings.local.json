@@ -44,7 +44,11 @@
       "Bash(cmd /c \"npx prisma migrate dev --name add-vpn-device\")",
       "Bash(set PRISMA_NONINTERACTIVE=1)",
       "Bash(echo \"Backend EXIT:$?\")",
-      "Bash(echo \"Frontend EXIT:$?\")"
+      "Bash(echo \"Frontend EXIT:$?\")",
+      "Bash(find \"/d/Entwicklung/React-Visu/Visu-v3 - Kopie/node-frontend/src\" -type f \\\\\\( -name \"*.js\" -o -name \"*.jsx\" \\\\\\) -exec grep -l \"fetch\\\\|axios\" {} \\\\;)",
+      "Read(//d/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0/backend/**)",
+      "Read(//d/Entwicklung/React-Visu/Visu-v3 - Kopie/node-frontend/**)",
+      "Bash(docker buildx:*)"
     ]
   }
 }
