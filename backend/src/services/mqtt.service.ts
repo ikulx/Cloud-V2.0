@@ -101,6 +101,9 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
   if (typeof data.schemaNumber === 'string' && data.schemaNumber.trim()) update.schemaNumber = data.schemaNumber.trim()
   if (typeof data.visuVersion === 'string' && data.visuVersion.trim()) update.visuVersion = data.visuVersion.trim()
 
+  if (typeof data.vpnActive === 'boolean') update.vpnActive = data.vpnActive
+  if (typeof data.httpActive === 'boolean') update.httpActive = data.httpActive
+
   if (Object.keys(update).length > 0) {
     await prisma.device.update({ where: { id: device.id }, data: update })
     console.log(`[MQTT] Tele ${serial}:`, update)

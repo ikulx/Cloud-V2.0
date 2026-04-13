@@ -177,6 +177,8 @@ model Device {
   projectNumber   String?      @map("project_number")
   schemaNumber    String?      @map("schema_number")
   visuVersion     String?      @map("visu_version")
+  vpnActive       Boolean      @default(false) @map("vpn_active")
+  httpActive      Boolean      @default(false) @map("http_active")
   notes           String?
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
