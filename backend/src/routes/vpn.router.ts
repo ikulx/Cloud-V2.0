@@ -665,28 +665,11 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
             const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">`
             patched = patched.replace('<head>', `<head>${cspMeta}`)
 
-            // 4. Socket.IO-Redirect-Script injizieren:
-            //    Die Pi-App ruft im Productionbuild io() ohne URL auf → verbindet zu aktuellem Origin.
-            //    Dieses Script patcht XHR/fetch/WebSocket bevor socket.io-client lädt,
-            //    damit alle /socket.io/-Requests zum Visu-Proxy weitergeleitet werden.
-            // WS_PROXY = z.B. /api/vpn/devices/xxx/visu/socket.io
-            // Alle /socket.io-Requests (relativ oder absolut) werden durch einfaches
-            // String-Replace umgeleitet: /socket.io → /api/vpn/.../visu/socket.io
-            const wsProxyPath = `${proxyBase}/socket.io`
-            const socketRedirectScript = `<script>
-(function(){
-  var P='${wsProxyPath}';
-  function fix(u){return typeof u==='string'&&u.includes('/socket.io')?u.replace('/socket.io',P):u;}
-  var _XO=XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.open=function(m,u){return _XO.apply(this,[m,fix(u)].concat([].slice.call(arguments,2)));};
-  var _f=window.fetch;
-  window.fetch=function(u,o){return _f.call(this,fix(u),o);};
-  var _WS=window.WebSocket;
-  function PWS(u,p){var fu=fix(u);return p?new _WS(fu,p):new _WS(fu);}
-  PWS.prototype=_WS.prototype;Object.assign(PWS,_WS);window.WebSocket=PWS;
-})();
-</script>`
-            patched = patched.replace('<head>', `<head>${socketRedirectScript}`)
+            // 4. Socket.IO-Pfad für Cloud-Proxy setzen:
+            //    Das Pi-Frontend prüft window.__VISU_SOCKET_PATH und nutzt ihn als
+            //    Socket.IO `path`-Option (native, kein XHR/fetch/WebSocket-Patching nötig).
+            const socketScript = `<script>window.__VISU_SOCKET_PATH='${proxyBase}/socket.io/';</script>`
+            patched = patched.replace('<head>', `<head>${socketScript}`)
 
             res.removeHeader('content-length')
             res.send(patched)

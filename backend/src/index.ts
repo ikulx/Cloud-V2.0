@@ -40,7 +40,7 @@ async function main() {
   // um. Hier wird der WS-Upgrade-Request abgefangen und zu Pi weitergeleitet.
   const wss = new WebSocketServer({ noServer: true })
 
-  httpServer.on('upgrade', async (req, socket, head) => {
+  httpServer.on('upgrade', (req, socket, head) => {
     const match = (req.url ?? '').match(/^\/api\/vpn\/devices\/([^/?]+)\/visu\/socket\.io(.*)/i)
     if (!match) return  // andere Upgrades (z.B. Socket.IO der Cloud-App) nicht anfassen
 
@@ -54,45 +54,54 @@ async function main() {
       ?.slice(cookieName.length + 1)
 
     if (!token || !verifyAccessToken(token)) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      try { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n') } catch {}
       socket.destroy()
       return
     }
 
-    const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
-    if (!vpnDevice) {
-      socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
-      socket.destroy()
-      return
-    }
+    // Async DB-Abfrage in eigener Funktion mit Error-Handling
+    // (damit ein DB-Fehler NICHT als unhandled rejection den Prozess crasht)
+    prisma.vpnDevice.findUnique({ where: { deviceId } })
+      .then((vpnDevice) => {
+        if (!vpnDevice) {
+          try { socket.write('HTTP/1.1 404 Not Found\r\n\r\n') } catch {}
+          socket.destroy()
+          return
+        }
 
-    const piWsUrl = `ws://${vpnDevice.vpnIp}:${vpnDevice.visuPort}/socket.io${socketPath}`
-    console.log(`[WS-Tunnel] ${deviceId} → ${piWsUrl}`)
+        const piWsUrl = `ws://${vpnDevice.vpnIp}:${vpnDevice.visuPort}/socket.io${socketPath}`
+        console.log(`[WS-Tunnel] ${deviceId} → ${piWsUrl}`)
 
-    const piWs = new WebSocket(piWsUrl, { headers: { host: `${vpnDevice.vpnIp}:${vpnDevice.visuPort}` } })
+        const piWs = new WebSocket(piWsUrl, { headers: { host: `${vpnDevice.vpnIp}:${vpnDevice.visuPort}` } })
 
-    piWs.once('open', () => {
-      wss.handleUpgrade(req, socket, head, (clientWs) => {
-        clientWs.on('message', (data, isBinary) => {
-          if (piWs.readyState === WebSocket.OPEN) piWs.send(data, { binary: isBinary })
+        piWs.once('open', () => {
+          wss.handleUpgrade(req, socket, head, (clientWs) => {
+            clientWs.on('message', (data, isBinary) => {
+              if (piWs.readyState === WebSocket.OPEN) piWs.send(data, { binary: isBinary })
+            })
+            piWs.on('message', (data, isBinary) => {
+              if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary })
+            })
+            clientWs.on('close', (code, reason) => { try { piWs.close(code, reason) } catch {} })
+            piWs.on('close', (code, reason) => {
+              try { if (clientWs.readyState === WebSocket.OPEN) clientWs.close(code, reason) } catch {}
+            })
+            clientWs.on('error', () => { try { piWs.terminate() } catch {} })
+            piWs.on('error', () => { try { clientWs.terminate() } catch {} })
+          })
         })
-        piWs.on('message', (data, isBinary) => {
-          if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary })
+
+        piWs.on('error', (err) => {
+          console.error(`[WS-Tunnel] Fehler bei ${piWsUrl}:`, err.message)
+          try { socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n') } catch {}
+          socket.destroy()
         })
-        clientWs.on('close', (code, reason) => piWs.close(code, reason))
-        piWs.on('close', (code, reason) => {
-          if (clientWs.readyState === WebSocket.OPEN) clientWs.close(code, reason)
-        })
-        clientWs.on('error', () => piWs.terminate())
-        piWs.on('error', () => clientWs.terminate())
       })
-    })
-
-    piWs.on('error', (err) => {
-      console.error(`[WS-Tunnel] Fehler bei ${piWsUrl}:`, err.message)
-      socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
-      socket.destroy()
-    })
+      .catch((err) => {
+        console.error(`[WS-Tunnel] DB-Fehler:`, err.message)
+        try { socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n') } catch {}
+        socket.destroy()
+      })
   })
   // ─────────────────────────────────────────────────────────────────────────────
 
