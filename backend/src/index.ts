@@ -7,6 +7,8 @@ import { createSocketServer } from './socket/socket-server'
 import { initMqttService } from './services/mqtt.service'
 import { env } from './config/env'
 import { prisma } from './db/prisma'
+import { verifyAccessToken } from './lib/token'
+import WebSocket, { WebSocketServer } from 'ws'
 
 /** VPN-Route setzen: 10.0.0.0/8 via ycontrol_wireguard
  *  Damit kann der Backend-Container den Pi direkt über den WireGuard-Tunnel erreichen.
@@ -31,6 +33,68 @@ async function main() {
   app.set('io', io)
 
   await setupVpnRoute()
+
+  // ─── WebSocket-Tunnel für Visu-Proxy (Socket.IO) ─────────────────────────────
+  // Die Pi-App verbindet Socket.IO im Productionbuild zu aktuellem Origin.
+  // Das injizierte Script leitet /socket.io/* zu /api/vpn/devices/:id/visu/socket.io/*
+  // um. Hier wird der WS-Upgrade-Request abgefangen und zu Pi weitergeleitet.
+  const wss = new WebSocketServer({ noServer: true })
+
+  httpServer.on('upgrade', async (req, socket, head) => {
+    const match = (req.url ?? '').match(/^\/api\/vpn\/devices\/([^/?]+)\/visu\/socket\.io(.*)/i)
+    if (!match) return  // andere Upgrades (z.B. Socket.IO der Cloud-App) nicht anfassen
+
+    const [, deviceId, socketPath] = match
+
+    // Auth via Session-Cookie (Browser sendet Cookie automatisch mit)
+    const cookieName = `visu_${deviceId.replace(/-/g, '')}`
+    const token = (req.headers.cookie ?? '').split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith(`${cookieName}=`))
+      ?.slice(cookieName.length + 1)
+
+    if (!token || !verifyAccessToken(token)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
+    if (!vpnDevice) {
+      socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
+      socket.destroy()
+      return
+    }
+
+    const piWsUrl = `ws://${vpnDevice.vpnIp}:${vpnDevice.visuPort}/socket.io${socketPath}`
+    console.log(`[WS-Tunnel] ${deviceId} → ${piWsUrl}`)
+
+    const piWs = new WebSocket(piWsUrl, { headers: { host: `${vpnDevice.vpnIp}:${vpnDevice.visuPort}` } })
+
+    piWs.once('open', () => {
+      wss.handleUpgrade(req, socket, head, (clientWs) => {
+        clientWs.on('message', (data, isBinary) => {
+          if (piWs.readyState === WebSocket.OPEN) piWs.send(data, { binary: isBinary })
+        })
+        piWs.on('message', (data, isBinary) => {
+          if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary })
+        })
+        clientWs.on('close', (code, reason) => piWs.close(code, reason))
+        piWs.on('close', (code, reason) => {
+          if (clientWs.readyState === WebSocket.OPEN) clientWs.close(code, reason)
+        })
+        clientWs.on('error', () => piWs.terminate())
+        piWs.on('error', () => clientWs.terminate())
+      })
+    })
+
+    piWs.on('error', (err) => {
+      console.error(`[WS-Tunnel] Fehler bei ${piWsUrl}:`, err.message)
+      socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+      socket.destroy()
+    })
+  })
+  // ─────────────────────────────────────────────────────────────────────────────
 
   await prisma.$connect()
   console.log('✓ Database connected')

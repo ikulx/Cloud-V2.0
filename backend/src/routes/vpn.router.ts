@@ -524,7 +524,7 @@ router.get('/devices/:deviceId/ping', authenticate, requirePermission('vpn:manag
 // Query-Parameter (optional):
 //   ?targetIp=192.168.10.50   → anderes Gerät im Pi-LAN (via NETMAP-Route des Pi)
 //   ?targetPort=8080          → abweichender Port (überschreibt visuPort)
-router.get('/devices/:deviceId/visu*', async (req, res) => {
+router.all('/devices/:deviceId/visu*', async (req, res) => {
   const deviceId = req.params.deviceId as string
   // Cookie-Name für diese Device-Session (Sub-Ressourcen kommen ohne access_token)
   const cookieName = `visu_${deviceId.replace(/-/g, '')}`
@@ -665,6 +665,39 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
             const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">`
             patched = patched.replace('<head>', `<head>${cspMeta}`)
 
+            // 4. Socket.IO-Redirect-Script injizieren:
+            //    Die Pi-App ruft im Productionbuild io() ohne URL auf → verbindet zu aktuellem Origin.
+            //    Dieses Script patcht XHR/fetch/WebSocket bevor socket.io-client lädt,
+            //    damit alle /socket.io/-Requests zum Visu-Proxy weitergeleitet werden.
+            const wsProxyPath = `${proxyBase}/socket.io`
+            const socketRedirectScript = `<script>
+(function(){
+  var WS_PROXY='${wsProxyPath}';
+  var _XHRopen=XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open=function(m,u){
+    if(typeof u==='string'&&/\\/socket\\.io[\\/\\?]/.test(u))
+      u=u.replace(/^(https?:\\/\\/[^\\/]*)\\/socket\\.io/,'$1'+WS_PROXY.replace('/socket.io',''));
+    return _XHRopen.apply(this,arguments);
+  };
+  var _fetch=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&/\\/socket\\.io[\\/\\?]/.test(u))
+      u=u.replace(/^(https?:\\/\\/[^\\/]*)\\/socket\\.io/,'$1'+WS_PROXY.replace('/socket.io',''));
+    return _fetch.call(this,u,o);
+  };
+  var _WS=window.WebSocket;
+  function PatchedWS(u,p){
+    if(typeof u==='string'&&/\\/socket\\.io[\\/\\?]/.test(u))
+      u=u.replace(/^(wss?:\\/\\/[^\\/]*)\\/socket\\.io/,'$1'+WS_PROXY.replace('/socket.io',''));
+    return p?new _WS(u,p):new _WS(u);
+  }
+  PatchedWS.prototype=_WS.prototype;
+  Object.assign(PatchedWS,_WS);
+  window.WebSocket=PatchedWS;
+})();
+</script>`
+            patched = patched.replace('<head>', `<head>${socketRedirectScript}`)
+
             res.removeHeader('content-length')
             res.send(patched)
           })
@@ -689,10 +722,13 @@ router.get('/devices/:deviceId/visu*', async (req, res) => {
       }
     })
 
-    if (req.body && req.method !== 'GET' && req.method !== 'HEAD') {
-      proxyReq.write(typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+    // Für POST-Requests (Socket.IO Polling) den Body direkt streamen,
+    // nicht req.body nutzen (das ist nach express.json() bereits geparst/verbraucht)
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      req.pipe(proxyReq, { end: true })
+    } else {
+      proxyReq.end()
     }
-    proxyReq.end()
   }
 
   doProxy(targetUrl, 5)
