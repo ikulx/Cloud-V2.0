@@ -525,6 +525,208 @@ router.get('/devices/:deviceId/ping', authenticate, requirePermission('vpn:manag
 // Query-Parameter (optional):
 //   ?targetIp=192.168.10.50   → anderes Gerät im Pi-LAN (via NETMAP-Route des Pi)
 //   ?targetPort=8080          → abweichender Port (überschreibt visuPort)
+// ─── LAN-Geräte Proxy ────────────────────────────────────────────────────────
+// Separate Route: targetIp und targetPort im Pfad statt Query-Parameter.
+// So bleiben die Routing-Infos bei Redirects, Form-Posts und Sub-Ressourcen erhalten.
+// URL-Schema: /api/vpn/devices/:deviceId/lan/:lanIp/:lanPort/...
+router.all(['/devices/:deviceId/lan/:lanIp/:lanPort', '/devices/:deviceId/lan/:lanIp/:lanPort/*'], async (req, res) => {
+  const deviceId = req.params.deviceId as string
+  const lanIp = req.params.lanIp as string
+  const lanPortStr = req.params.lanPort as string
+  const lanPort = parseInt(lanPortStr) || 80
+
+  // Auth (gleich wie Visu-Route)
+  const cookieName = `lan_${deviceId.replace(/-/g, '')}_${lanIp.replace(/\./g, '')}`
+  const headerToken = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null
+  const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : null
+  const cookieToken = (req.headers.cookie ?? '').split(';')
+    .map(c => c.trim()).find(c => c.startsWith(`${cookieName}=`))
+    ?.slice(cookieName.length + 1) ?? null
+  const rawToken = headerToken ?? queryToken ?? cookieToken
+
+  if (!rawToken) { res.status(401).json({ message: 'Authentifizierung erforderlich' }); return }
+  const payload = verifyAccessToken(rawToken)
+  if (!payload) { res.status(401).json({ message: 'Token ungültig' }); return }
+  const userCtx = await getUserAccessContext(payload.sub)
+  if (!userCtx) { res.status(401).json({ message: 'Benutzer nicht gefunden' }); return }
+
+  const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
+  if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
+
+  // Session-Cookie setzen damit Sub-Ressourcen ohne access_token-Param geladen werden
+  const proxyBase = `/api/vpn/devices/${deviceId}/lan/${lanIp}/${lanPort}`
+  if (queryToken || headerToken) {
+    res.setHeader('set-cookie',
+      `${cookieName}=${rawToken}; Path=${proxyBase}; HttpOnly; SameSite=Lax; Max-Age=3600`)
+  }
+
+  // VPN-LAN-IP berechnen: letztes Oktett der LAN-IP → NETMAP-Prefix des Pi
+  const lanLastOctet = lanIp.split('.').pop()
+  const vpnLanPrefix = deriveVpnLanPrefix(vpnDevice.vpnIp)
+  const piTargetIp = `${vpnLanPrefix}.${lanLastOctet}`
+
+  // Pfad nach /lan/:ip/:port weitergeben
+  const lanPathPrefix = `/devices/${deviceId}/lan/${lanIp}/${lanPortStr}`
+  const rawPath = req.path.replace(lanPathPrefix, '') || '/'
+  const targetPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
+
+  // Query-String weiterleiten, access_token entfernen
+  const queryParams = new URLSearchParams(req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '')
+  queryParams.delete('access_token')
+  const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : ''
+
+  const isHttps = lanPort === 443
+  const targetProto = isHttps ? 'https' : 'http'
+  const targetUrl = `${targetProto}://${piTargetIp}:${lanPort}${targetPath}${queryStr}`
+
+  console.log(`[VPN-LAN] ${deviceId} → ${targetUrl} (LAN: ${lanIp}:${lanPort})`)
+
+  function doLanProxy(url: string, redirectsLeft: number): void {
+    const parsed = new URL(url)
+    const portNum = parsed.port ? parseInt(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80)
+    const hostHdr = portNum === 80 ? parsed.hostname : `${parsed.hostname}:${portNum}`
+
+    // Headers weiterleiten – Cookies für LAN-Geräte durchlassen
+    const fwdHeaders: Record<string, string | string[] | undefined> = {}
+    for (const [k, v] of Object.entries(req.headers)) {
+      const lk = k.toLowerCase()
+      if (lk === 'host' || lk === 'authorization' ||
+          lk === 'accept-encoding' || lk === 'connection' || lk === 'upgrade') continue
+      fwdHeaders[k] = v
+    }
+    fwdHeaders['host'] = hostHdr
+
+    const isHttpsReq = parsed.protocol === 'https:'
+    const reqOpts: https.RequestOptions = {
+      hostname: parsed.hostname, port: portNum,
+      path: parsed.pathname + parsed.search, method: req.method,
+      headers: fwdHeaders,
+      timeout: 15000,
+      rejectUnauthorized: false,
+    }
+    if (isHttpsReq) {
+      reqOpts.minVersion = 'TLSv1'
+      reqOpts.ciphers = 'ALL'
+    }
+
+    const reqModule = isHttpsReq ? https : http
+    const proxyReq = reqModule.request(reqOpts, (proxyRes) => {
+      const status = proxyRes.statusCode ?? 200
+
+      // Redirects an den Browser durchreichen (LAN-Geräte brauchen Session-Cookies)
+      if ([301, 302, 303, 307, 308].includes(status)) {
+        const loc = proxyRes.headers.location
+        if (loc) {
+          let locPath: string
+          if (loc.startsWith('http')) {
+            try { locPath = new URL(loc).pathname } catch { locPath = loc }
+          } else {
+            locPath = loc.startsWith('/') ? loc : `/${loc}`
+          }
+          // Location auf Proxy-Pfad umschreiben – Routing-Infos bleiben im Pfad!
+          res.status(status)
+          // Alle Response-Header durchleiten (Set-Cookie etc.)
+          for (const [key, val] of Object.entries(proxyRes.headers)) {
+            const k = key.toLowerCase()
+            if (k === 'location') continue
+            if (k === 'content-encoding' || k === 'transfer-encoding') continue
+            if (val) res.setHeader(key, val as string)
+          }
+          res.setHeader('location', `${proxyBase}${locPath}`)
+          proxyRes.resume()
+          res.end()
+          return
+        }
+      }
+
+      res.status(status)
+      // CSP und X-Frame-Options für iframe-Einbettung
+      res.removeHeader('content-security-policy')
+      res.removeHeader('x-frame-options')
+      res.setHeader('content-security-policy',
+        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors *;")
+
+      for (const [key, val] of Object.entries(proxyRes.headers)) {
+        const k = key.toLowerCase()
+        if (k === 'content-encoding' || k === 'transfer-encoding') continue
+        if (k === 'content-security-policy' || k === 'x-frame-options') continue
+        if (val) res.setHeader(key, val as string)
+      }
+
+      const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
+
+      // XML/XSLT (TECO): xml-stylesheet href umschreiben
+      if (ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml')) {
+        let body = ''
+        proxyRes.setEncoding('utf-8')
+        proxyRes.on('data', (chunk) => { body += chunk })
+        proxyRes.on('end', () => {
+          // xml-stylesheet href umschreiben (mit &amp; für XML)
+          let patched = body.replace(
+            /(<\?xml-stylesheet\s[^?]*href\s*=\s*["'])([^"']+)(["'])/g,
+            (_m, pre, path, post) => {
+              if (path.startsWith('http') || path.startsWith(proxyBase)) return `${pre}${path}${post}`
+              const absPath = path.startsWith('/') ? path : `/${path}`
+              return `${pre}${proxyBase}${absPath}${post}`
+            }
+          )
+          // Absolute href/src in XML-Elementen umschreiben
+          patched = patched.replace(
+            /(\b(?:src|href)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
+            (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
+          )
+          res.removeHeader('content-length')
+          res.send(patched)
+        })
+      // HTML: nur absolute Pfade umschreiben (kein Interceptor)
+      } else if (ct.includes('text/html')) {
+        let body = ''
+        proxyRes.setEncoding('utf-8')
+        proxyRes.on('data', (chunk) => { body += chunk })
+        proxyRes.on('end', () => {
+          let patched = body.replace(
+            /(\b(?:src|href|action)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
+            (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
+          )
+          // <base>-Tag für relative Pfade
+          const base = `<base href="${proxyBase}/">`
+          patched = patched.includes('<head>')
+            ? patched.replace('<head>', `<head>${base}`)
+            : patched.includes('<HEAD>')
+              ? patched.replace('<HEAD>', `<HEAD>${base}`)
+              : `<head>${base}</head>${patched}`
+          res.removeHeader('content-length')
+          res.send(patched)
+        })
+      } else {
+        // Alles andere (CSS, JS, Bilder, etc.) direkt durchleiten
+        proxyRes.pipe(res)
+      }
+    })
+
+    proxyReq.on('timeout', () => proxyReq.destroy(new Error('PROXY_TIMEOUT')))
+    proxyReq.on('error', (err) => {
+      console.error(`[VPN-LAN] ${url}:`, err.message)
+      if (!res.headersSent) {
+        if (err.message === 'PROXY_TIMEOUT') {
+          res.status(504).json({ message: `Timeout – LAN-Gerät nicht erreichbar (${lanIp}:${lanPort})` })
+        } else {
+          res.status(502).json({ message: `LAN-Gerät nicht erreichbar (${lanIp}:${lanPort}): ${err.message}` })
+        }
+      }
+    })
+
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      req.pipe(proxyReq, { end: true })
+    } else {
+      proxyReq.end()
+    }
+  }
+
+  doLanProxy(targetUrl, 0)
+})
+
+// ─── Visu-Proxy (Ycontrol Visu auf Pi) ───────────────────────────────────────
 router.all('/devices/:deviceId/visu*', async (req, res) => {
   const deviceId = req.params.deviceId as string
   // Cookie-Name für diese Device-Session (Sub-Ressourcen kommen ohne access_token)
@@ -555,24 +757,8 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
   const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
   if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
 
-  // Ziel-IP bestimmen:
-  // - Standard: direkte VPN-IP des Pi (10.A.0.B) – kein NETMAP nötig
-  // - Mit ?targetIp=192.168.10.50: anderes LAN-Gerät via NETMAP-Route (10.A.B.50)
-  const targetIpParam = typeof req.query.targetIp === 'string' ? req.query.targetIp : null
-  const targetPortParam = typeof req.query.targetPort === 'string' ? parseInt(req.query.targetPort) : null
-
-  let piVisuIp: string
-  if (targetIpParam) {
-    // Letztes Oktett der LAN-IP → VPN-LAN-IP über NETMAP-Prefix des Pi
-    const lanLastOctet = targetIpParam.split('.').pop()
-    const vpnLanPrefix = deriveVpnLanPrefix(vpnDevice.vpnIp)
-    piVisuIp = `${vpnLanPrefix}.${lanLastOctet}`
-  } else {
-    piVisuIp = vpnDevice.vpnIp  // direkte VPN-IP
-  }
-  const piVisuPort = (targetPortParam && targetPortParam > 0 && targetPortParam < 65536)
-    ? targetPortParam
-    : vpnDevice.visuPort  // Default 80, konfigurierbar
+  const piVisuIp = vpnDevice.vpnIp
+  const piVisuPort = vpnDevice.visuPort
 
   // Pfad nach /visu weitergeben
   const rawPath = req.path.replace(`/devices/${deviceId}/visu`, '') || '/'
@@ -581,18 +767,11 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
   // Query-String weiterleiten, interne Parameter entfernen
   const queryParams = new URLSearchParams(req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '')
   queryParams.delete('access_token')
-  queryParams.delete('targetIp')
-  queryParams.delete('targetPort')
   queryParams.delete('remoteUser')
   const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : ''
-  // HTTPS wenn Port 443 (oder explizit als HTTPS konfiguriert)
-  const isHttps = piVisuPort === 443
-  const targetProto = isHttps ? 'https' : 'http'
-  const targetUrl = `${targetProto}://${piVisuIp}:${piVisuPort}${targetPath}${queryStr}`
-  // LAN-Geräte (via targetIp): kein Interceptor-Script injizieren
-  const isLanDevice = !!targetIpParam
+  const targetUrl = `http://${piVisuIp}:${piVisuPort}${targetPath}${queryStr}`
 
-  console.log(`[VPN-Proxy] ${deviceId} → ${targetUrl}${isLanDevice ? ' (LAN-Gerät, kein Interceptor)' : ''}`)
+  console.log(`[VPN-Proxy] ${deviceId} → ${targetUrl}`)
 
   // Hilfsfunktion: einen einzelnen Proxy-Request ausführen (für Redirect-Folgen)
   function doProxy(url: string, redirectsLeft: number): void {
@@ -605,11 +784,8 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
     const fwdHeaders: Record<string, string | string[] | undefined> = {}
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase()
-      // LAN-Geräte: Cookies durchleiten (TECO braucht Session-Cookies)
-      // Visu: Cookies sperren (sind Cloud-Cookies, nicht Pi-Cookies)
-      if (lk === 'host' || lk === 'authorization' ||
+      if (lk === 'host' || lk === 'cookie' || lk === 'authorization' ||
           lk === 'accept-encoding' || lk === 'connection' || lk === 'upgrade') continue
-      if (lk === 'cookie' && !isLanDevice) continue
       fwdHeaders[k] = v
     }
     fwdHeaders['host'] = hostHdr
@@ -617,40 +793,22 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
     if (req.headers['content-type']) fwdHeaders['content-type'] = req.headers['content-type']
     if (req.headers['content-length']) fwdHeaders['content-length'] = req.headers['content-length']
 
-    const isHttpsReq = parsed.protocol === 'https:'
-    if (isHttpsReq) console.log(`[VPN-Proxy] HTTPS-Request → ${parsed.hostname}:${portNum}`)
-
-    const reqOpts: https.RequestOptions = {
-      hostname: parsed.hostname, port: portNum,
-      path: parsed.pathname + parsed.search, method: req.method,
-      headers: fwdHeaders,
-      timeout: 15000,
-      rejectUnauthorized: false,
-    }
-    // Ältere Embedded-Geräte (TECO, SPS) nutzen oft TLS 1.0/1.1 und Legacy-Ciphers
-    if (isHttpsReq) {
-      reqOpts.minVersion = 'TLSv1'
-      reqOpts.ciphers = 'ALL'
-    }
-
-    const reqModule = isHttpsReq ? https : http
-    const proxyReq = reqModule.request(reqOpts,
+    const proxyReq = http.request(
+      { hostname: parsed.hostname, port: portNum, path: parsed.pathname + parsed.search, method: req.method,
+        headers: fwdHeaders, timeout: 8000 },
       (proxyRes) => {
         const status = proxyRes.statusCode ?? 200
 
-        // Redirects (301/302/303/307/308):
-        // - Visu (kein LAN-Gerät): serverseitig folgen (bis max. 5 Hops)
-        // - LAN-Geräte: an Browser durchreichen (TECO braucht Session-Cookies)
-        if ([301, 302, 303, 307, 308].includes(status)) {
+        // Redirects serverseitig folgen (bis max. 5 Hops)
+        if ([301, 302, 303, 307, 308].includes(status) && redirectsLeft > 0) {
           const loc = proxyRes.headers.location
-          if (loc && !isLanDevice && redirectsLeft > 0) {
-            const nextUrl = loc.startsWith('http') ? loc : `${parsed.protocol}//${parsed.hostname}:${portNum}${loc}`
-            proxyRes.resume()  // Body verwerfen
+          if (loc) {
+            const nextUrl = loc.startsWith('http') ? loc : `http://${parsed.hostname}:${portNum}${loc}`
+            proxyRes.resume()
             console.log(`[VPN-Proxy] Redirect → ${nextUrl}`)
             doProxy(nextUrl, redirectsLeft - 1)
             return
           }
-          // LAN-Geräte: Redirect an Browser durchreichen (Location wird unten umgeschrieben)
         }
 
         res.status(status)
@@ -669,95 +827,18 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
           if (k === 'content-security-policy' || k === 'x-frame-options') continue  // bereits gesetzt
           if (k === 'location' && val) {
             const locStr = Array.isArray(val) ? val[0] : val
-            // Pfad aus dem Location-Header extrahieren
-            let locPath: string
-            if (locStr.startsWith('http')) {
-              try { locPath = new URL(locStr).pathname } catch { locPath = locStr }
-            } else {
-              locPath = locStr.startsWith('/') ? locStr : `/${locStr}`
-            }
-            // Für LAN-Geräte: Query-Params (targetIp, targetPort, access_token) anhängen
-            if (isLanDevice) {
-              const lp = new URLSearchParams()
-              if (targetIpParam) lp.set('targetIp', targetIpParam)
-              if (targetPortParam) lp.set('targetPort', String(targetPortParam))
-              if (rawToken) lp.set('access_token', rawToken)
-              res.setHeader('location', `${proxyBase}${locPath}?${lp.toString()}`)
-            } else {
-              res.setHeader('location', `${proxyBase}${locPath}`)
-            }
+            const locPath = locStr.startsWith('http')
+              ? (() => { try { return new URL(locStr).pathname } catch { return locStr } })()
+              : locStr.startsWith('/') ? locStr : `/${locStr}`
+            res.setHeader('location', `${proxyBase}${locPath}`)
             continue
           }
           res.setHeader(key, val as string)
         }
 
-        // HTML-Verarbeitung: Visu bekommt volle Interception, LAN-Geräte nur base+path-rewrite
+        // HTML: Visu-Interceptor injizieren
         const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
-
-        // LAN-Geräte (TECO, SPS etc.): nur <base>-Tag und absolute Pfade umschreiben, kein Interceptor
-        if (ct.includes('text/html') && isLanDevice) {
-          let body = ''
-          proxyRes.setEncoding('utf-8')
-          proxyRes.on('data', (chunk) => { body += chunk })
-          proxyRes.on('end', () => {
-            // Query-Params für alle Links: targetIp, targetPort, access_token
-            const lanQuery = new URLSearchParams()
-            if (targetIpParam) lanQuery.set('targetIp', targetIpParam)
-            if (targetPortParam) lanQuery.set('targetPort', String(targetPortParam))
-            if (rawToken) lanQuery.set('access_token', rawToken)
-            const lanBase = `${proxyBase}/?${lanQuery.toString()}`
-
-            // Absolute Pfade umschreiben: src="/foo" → src="/api/vpn/.../visu/foo?targetIp=...&..."
-            let patched = body.replace(
-              /(\b(?:src|href|action)\s*=\s*["'])\/(?!\/)/g,
-              `$1${proxyBase}/`
-            )
-
-            // <base>-Tag injizieren
-            const base = `<base href="${lanBase}">`
-            patched = patched.includes('<head>')
-              ? patched.replace('<head>', `<head>${base}`)
-              : patched.includes('<HEAD>')
-                ? patched.replace('<HEAD>', `<HEAD>${base}`)
-                : `<head>${base}</head>${patched}`
-
-            res.removeHeader('content-length')
-            res.send(patched)
-          })
-        // LAN-Geräte: XML/XSLT (TECO) – URLs in Processing Instructions und Attributen umschreiben
-        // In XML müssen & als &amp; escaped werden!
-        } else if (isLanDevice && (ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml') || ct.includes('application/xhtml'))) {
-          let body = ''
-          proxyRes.setEncoding('utf-8')
-          proxyRes.on('data', (chunk) => { body += chunk })
-          proxyRes.on('end', () => {
-            // Query-Params mit &amp; für XML-Kontext
-            const qsParts: string[] = []
-            if (targetIpParam) qsParts.push(`targetIp=${encodeURIComponent(targetIpParam)}`)
-            if (targetPortParam) qsParts.push(`targetPort=${targetPortParam}`)
-            if (rawToken) qsParts.push(`access_token=${encodeURIComponent(rawToken)}`)
-            const qsXml = qsParts.join('&amp;')  // XML-escaped
-
-            // xml-stylesheet Processing Instruction umschreiben:
-            // <?xml-stylesheet href="LOGIN.XSL"?> → <?xml-stylesheet href="/api/vpn/.../visu/LOGIN.XSL?targetIp=...&amp;..."?>
-            let patched = body.replace(
-              /(<\?xml-stylesheet\s[^?]*href\s*=\s*["'])([^"'?]+)([^"']*)(["'])/g,
-              (_m, pre, path, _existingQs, post) => {
-                const absPath = path.startsWith('/') ? path : `/${path}`
-                return `${pre}${proxyBase}${absPath}?${qsXml}${post}`
-              }
-            )
-
-            // href/src Attribute in XML-Elementen umschreiben
-            patched = patched.replace(
-              /(\b(?:src|href)\s*=\s*["'])\/(?!\/|api\/vpn)(.*?)(["'])/g,
-              (_m, pre, path, post) => `${pre}${proxyBase}/${path}${post}`
-            )
-
-            res.removeHeader('content-length')
-            res.send(patched)
-          })
-        } else if (ct.includes('text/html') && !isLanDevice) {
+        if (ct.includes('text/html')) {
           let body = ''
           proxyRes.setEncoding('utf-8')
           proxyRes.on('data', (chunk) => { body += chunk })
@@ -770,10 +851,7 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
             )
 
             // 2. <base>-Tag für restliche relative Pfade
-            const baseHref = targetIpParam
-              ? `${proxyBase}/?targetIp=${encodeURIComponent(targetIpParam)}${targetPortParam ? `&targetPort=${targetPortParam}` : ''}&access_token=${encodeURIComponent(rawToken ?? '')}`
-              : `${proxyBase}/`
-            const base = `<base href="${baseHref}">`
+            const base = `<base href="${proxyBase}/">`
             patched = patched.includes('<head>')
               ? patched.replace('<head>', `<head>${base}`)
               : `<head>${base}</head>${patched}`

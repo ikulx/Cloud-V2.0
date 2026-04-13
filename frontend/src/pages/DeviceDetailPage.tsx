@@ -620,11 +620,9 @@ export function DeviceDetailPage() {
                     {device.childDevices.map((child) => {
                       const lanUrl = (() => {
                         const token = localStorage.getItem('accessToken') ?? ''
-                        const p = new URLSearchParams({ access_token: token })
-                        if (me?.email) p.set('remoteUser', me.email)
-                        if (child.lanTargetIp) p.set('targetIp', child.lanTargetIp)
-                        if (child.lanTargetPort) p.set('targetPort', String(child.lanTargetPort))
-                        return `/api/vpn/devices/${id}/visu/?${p.toString()}`
+                        const lanIp = child.lanTargetIp ?? '0.0.0.0'
+                        const lanPort = child.lanTargetPort ?? 80
+                        return `/api/vpn/devices/${id}/lan/${lanIp}/${lanPort}/?access_token=${encodeURIComponent(token)}`
                       })()
                       return (
                         <TableRow key={child.id} hover>

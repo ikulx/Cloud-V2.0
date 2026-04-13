@@ -12,7 +12,7 @@ export function createApp() {
   // Body-Parser für alle Routen AUSSER Visu-Proxy
   // (Socket.IO Polling POST braucht den rohen Body-Stream für req.pipe())
   app.use((req, res, next) => {
-    if (req.path.match(/\/api\/vpn\/devices\/[^/]+\/visu/)) return next()
+    if (req.path.match(/\/api\/vpn\/devices\/[^/]+\/(visu|lan)\//)) return next()
     express.json()(req, res, next)
   })
 
