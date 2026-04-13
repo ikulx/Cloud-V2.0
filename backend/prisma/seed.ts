@@ -127,63 +127,66 @@ async function main() {
   })
   console.log('✓ Demo users created')
 
-  // Demo: Anlage
-  const anlage1 = await prisma.anlage.upsert({
-    where: { id: '00000000-0000-0000-0000-000000000001' },
-    update: {},
-    create: {
-      id: '00000000-0000-0000-0000-000000000001',
-      name: 'Produktionshalle A',
-      description: 'Hauptanlage im Erdgeschoss',
-      location: 'Gebäude 1, EG',
-    },
-  })
+  // Demo-Daten nur anlegen wenn noch keine Geräte existieren (frische Installation)
+  const existingDeviceCount = await prisma.device.count()
+  if (existingDeviceCount === 0) {
+    const anlage1 = await prisma.anlage.upsert({
+      where: { id: '00000000-0000-0000-0000-000000000001' },
+      update: {},
+      create: {
+        id: '00000000-0000-0000-0000-000000000001',
+        name: 'Produktionshalle A',
+        description: 'Hauptanlage im Erdgeschoss',
+        location: 'Gebäude 1, EG',
+      },
+    })
 
-  // Demo: Devices
-  const device1 = await prisma.device.upsert({
-    where: { serialNumber: 'RPI-001' },
-    update: {},
-    create: {
-      name: 'Raspberry Pi #1',
-      serialNumber: 'RPI-001',
-      status: 'ONLINE',
-      ipAddress: '192.168.1.101',
-      firmwareVersion: '1.0.0',
-      lastSeen: new Date(),
-    },
-  })
+    const device1 = await prisma.device.upsert({
+      where: { serialNumber: 'RPI-001' },
+      update: {},
+      create: {
+        name: 'Raspberry Pi #1',
+        serialNumber: 'RPI-001',
+        status: 'ONLINE',
+        ipAddress: '192.168.1.101',
+        firmwareVersion: '1.0.0',
+        lastSeen: new Date(),
+      },
+    })
 
-  await prisma.device.upsert({
-    where: { serialNumber: 'RPI-002' },
-    update: {},
-    create: {
-      name: 'Raspberry Pi #2',
-      serialNumber: 'RPI-002',
-      status: 'OFFLINE',
-      ipAddress: '192.168.1.102',
-      firmwareVersion: '1.0.0',
-      lastSeen: new Date(Date.now() - 3600000),
-    },
-  })
+    await prisma.device.upsert({
+      where: { serialNumber: 'RPI-002' },
+      update: {},
+      create: {
+        name: 'Raspberry Pi #2',
+        serialNumber: 'RPI-002',
+        status: 'OFFLINE',
+        ipAddress: '192.168.1.102',
+        firmwareVersion: '1.0.0',
+        lastSeen: new Date(Date.now() - 3600000),
+      },
+    })
 
-  await prisma.device.upsert({
-    where: { serialNumber: 'RPI-003' },
-    update: {},
-    create: {
-      name: 'Raspberry Pi #3',
-      serialNumber: 'RPI-003',
-      status: 'UNKNOWN',
-    },
-  })
+    await prisma.device.upsert({
+      where: { serialNumber: 'RPI-003' },
+      update: {},
+      create: {
+        name: 'Raspberry Pi #3',
+        serialNumber: 'RPI-003',
+        status: 'UNKNOWN',
+      },
+    })
 
-  // Link device1 to anlage1
-  await prisma.anlageDevice.upsert({
-    where: { anlageId_deviceId: { anlageId: anlage1.id, deviceId: device1.id } },
-    update: {},
-    create: { anlageId: anlage1.id, deviceId: device1.id },
-  })
+    await prisma.anlageDevice.upsert({
+      where: { anlageId_deviceId: { anlageId: anlage1.id, deviceId: device1.id } },
+      update: {},
+      create: { anlageId: anlage1.id, deviceId: device1.id },
+    })
 
-  console.log('✓ Demo Anlage and Devices created')
+    console.log('✓ Demo Anlage and Devices created')
+  } else {
+    console.log(`✓ ${existingDeviceCount} Geräte vorhanden – Demo-Daten übersprungen`)
+  }
   console.log('\nSeeding complete!')
   console.log('Login credentials:')
   console.log('  admin@ycontrol.local     / Admin1234!')
