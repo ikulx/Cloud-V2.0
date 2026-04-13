@@ -18,10 +18,15 @@ import Tooltip from '@mui/material/Tooltip'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
 import Divider from '@mui/material/Divider'
+import Collapse from '@mui/material/Collapse'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import DownloadIcon from '@mui/icons-material/Download'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import SettingsIcon from '@mui/icons-material/Settings'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import { Link } from 'react-router-dom'
 import { useDevices, useCreateDevice, useUpdateDevice, useDeleteDevice, useApproveDevice } from '../features/devices/queries'
 import { useAnlagen } from '../features/anlagen/queries'
@@ -31,6 +36,7 @@ import Chip from '@mui/material/Chip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect'
 import { usePermission } from '../hooks/usePermission'
+import { useSession } from '../context/SessionContext'
 import { apiFetch } from '../lib/api'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { useTranslation } from 'react-i18next'
@@ -45,6 +51,7 @@ export function DevicesPage() {
   const { data: allUsers } = useUsers()
   const { data: allGroups } = useGroups()
   const { t } = useTranslation()
+  const { me } = useSession()
   const canUpdate = usePermission('devices:update')
   const canDelete = usePermission('devices:delete')
 
@@ -57,6 +64,7 @@ export function DevicesPage() {
   const [assign, setAssign] = useState(EMPTY_ASSIGN)
   const [deleteTarget, setDeleteTarget] = useState<Device | null>(null)
   const [formError, setFormError] = useState('')
+  const [expandedDeviceId, setExpandedDeviceId] = useState<string | null>(null)
 
   const createMutation = useCreateDevice()
   const updateMutation = useUpdateDevice(editDevice?.id ?? '')
@@ -98,11 +106,25 @@ export function DevicesPage() {
     }
   }
 
+  const buildVisuUrl = (deviceId: string) => {
+    const token = localStorage.getItem('accessToken') ?? ''
+    const params = new URLSearchParams({ access_token: token })
+    if (me?.email) params.set('remoteUser', me.email)
+    return `/api/vpn/devices/${deviceId}/visu/?${params.toString()}`
+  }
+
+  const handleRowClick = (device: Device) => {
+    if (!device.vpnDevice) return
+    setExpandedDeviceId((prev) => (prev === device.id ? null : device.id))
+  }
+
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
 
   const anlageOptions = (allAnlagen ?? []).map((a) => ({ id: a.id, label: a.name }))
   const userOptions = (allUsers ?? []).map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName} (${u.email})` }))
   const groupOptions = (allGroups ?? []).map((g) => ({ id: g.id, label: g.name }))
+
+  const colCount = 7
 
   return (
     <Box>
@@ -137,69 +159,128 @@ export function DevicesPage() {
           <TableBody>
             {devices?.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={colCount} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">{t('devices.empty')}</Typography>
                 </TableCell>
               </TableRow>
             )}
-            {devices?.map((device) => (
-              <TableRow key={device.id} hover>
-                <TableCell>{device.name}</TableCell>
-                <TableCell><code>{device.serialNumber}</code></TableCell>
-                <TableCell>
-                  <Box display="flex" flexDirection="column" gap={0.5}>
-                    <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
-                      {/* MQTT */}
-                      <Chip
-                        label="MQTT"
-                        size="small"
-                        color={device.mqttConnected ? 'success' : 'error'}
-                        variant={device.isApproved ? 'filled' : 'outlined'}
-                        sx={{ fontSize: '0.65rem', height: 20 }}
-                      />
-                      {/* VPN */}
-                      <Chip
-                        label="VPN"
-                        size="small"
-                        color={device.vpnActive ? 'success' : device.vpnDevice ? 'warning' : 'default'}
-                        variant={device.vpnDevice ? 'filled' : 'outlined'}
-                        sx={{ fontSize: '0.65rem', height: 20 }}
-                      />
-                      {/* HTTP */}
-                      <Chip
-                        label="HTTP"
-                        size="small"
-                        color={device.httpActive ? 'success' : device.mqttConnected ? 'error' : 'default'}
-                        variant={device.mqttConnected !== undefined ? 'filled' : 'outlined'}
-                        sx={{ fontSize: '0.65rem', height: 20 }}
-                      />
-                    </Box>
-                    {canUpdate && !device.isApproved && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        color="success"
-                        sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: '0.7rem', alignSelf: 'flex-start' }}
-                        onClick={() => approveMutation.mutate({ id: device.id, isApproved: true })}
-                        disabled={approveMutation.isPending}
-                      >
-                        {t('devices.register')}
-                      </Button>
-                    )}
-                  </Box>
-                </TableCell>
-                <TableCell>{device.ipAddress ?? '—'}</TableCell>
-                <TableCell>{device.firmwareVersion ?? '—'}</TableCell>
-                <TableCell>
-                  {device.anlageDevices.map((a) => a.anlage.name).join(', ') || '—'}
-                </TableCell>
-                <TableCell align="right">
-                  <Tooltip title={t('common.details')}><IconButton component={Link} to={`/devices/${device.id}`} size="small"><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
-                  {canUpdate && <Tooltip title={t('common.edit')}><IconButton onClick={() => openEdit(device)} size="small"><EditIcon fontSize="small" /></IconButton></Tooltip>}
-                  {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(device)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
-                </TableCell>
-              </TableRow>
-            ))}
+            {devices?.map((device) => {
+              const isExpanded = expandedDeviceId === device.id
+              const hasVpn = !!device.vpnDevice
+
+              return (
+                <>
+                  <TableRow
+                    key={device.id}
+                    hover
+                    onClick={() => handleRowClick(device)}
+                    sx={{
+                      cursor: hasVpn ? 'pointer' : 'default',
+                      '& > td': isExpanded ? { borderBottom: 'none' } : undefined,
+                    }}
+                  >
+                    <TableCell>
+                      <Box display="flex" alignItems="center" gap={0.5}>
+                        {hasVpn && (
+                          isExpanded
+                            ? <KeyboardArrowUpIcon fontSize="small" color="action" />
+                            : <KeyboardArrowDownIcon fontSize="small" color="action" />
+                        )}
+                        {device.name}
+                      </Box>
+                    </TableCell>
+                    <TableCell><code>{device.serialNumber}</code></TableCell>
+                    <TableCell>
+                      <Box display="flex" flexDirection="column" gap={0.5}>
+                        <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
+                          <Chip
+                            label="MQTT"
+                            size="small"
+                            color={device.mqttConnected ? 'success' : 'error'}
+                            variant={device.isApproved ? 'filled' : 'outlined'}
+                            sx={{ fontSize: '0.65rem', height: 20 }}
+                          />
+                          <Chip
+                            label="VPN"
+                            size="small"
+                            color={device.vpnActive ? 'success' : device.vpnDevice ? 'warning' : 'default'}
+                            variant={device.vpnDevice ? 'filled' : 'outlined'}
+                            sx={{ fontSize: '0.65rem', height: 20 }}
+                          />
+                          <Chip
+                            label="HTTP"
+                            size="small"
+                            color={device.httpActive ? 'success' : device.mqttConnected ? 'error' : 'default'}
+                            variant={device.mqttConnected !== undefined ? 'filled' : 'outlined'}
+                            sx={{ fontSize: '0.65rem', height: 20 }}
+                          />
+                        </Box>
+                        {canUpdate && !device.isApproved && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="success"
+                            sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: '0.7rem', alignSelf: 'flex-start' }}
+                            onClick={(e) => { e.stopPropagation(); approveMutation.mutate({ id: device.id, isApproved: true }) }}
+                            disabled={approveMutation.isPending}
+                          >
+                            {t('devices.register')}
+                          </Button>
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>{device.ipAddress ?? '—'}</TableCell>
+                    <TableCell>{device.firmwareVersion ?? '—'}</TableCell>
+                    <TableCell>
+                      {device.anlageDevices.map((a) => a.anlage.name).join(', ') || '—'}
+                    </TableCell>
+                    <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                      <Tooltip title={t('common.details')}><IconButton component={Link} to={`/devices/${device.id}`} size="small"><SettingsIcon fontSize="small" /></IconButton></Tooltip>
+                      {canUpdate && <Tooltip title={t('common.edit')}><IconButton onClick={() => openEdit(device)} size="small"><EditIcon fontSize="small" /></IconButton></Tooltip>}
+                      {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(device)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Visu-Vorschau: aufklappbar unter der Gerätezeile */}
+                  {hasVpn && (
+                    <TableRow key={`${device.id}-visu`}>
+                      <TableCell colSpan={colCount} sx={{ p: 0, borderBottom: isExpanded ? undefined : 'none' }}>
+                        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                          <Box sx={{ p: 2, bgcolor: 'action.hover' }}>
+                            <Box display="flex" justifyContent="flex-end" mb={1}>
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                startIcon={<OpenInNewIcon />}
+                                onClick={() => window.open(buildVisuUrl(device.id), '_blank')}
+                              >
+                                {t('devices.openNewTab', 'In neuem Tab öffnen')}
+                              </Button>
+                            </Box>
+                            <Box
+                              sx={{
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                borderRadius: 1,
+                                overflow: 'hidden',
+                                height: 600,
+                                bgcolor: 'background.paper',
+                              }}
+                            >
+                              <iframe
+                                src={buildVisuUrl(device.id)}
+                                style={{ width: '100%', height: '100%', border: 'none' }}
+                                title={`Visualisierung – ${device.name}`}
+                              />
+                            </Box>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </>
+              )
+            })}
           </TableBody>
         </Table>
       </TableContainer>
