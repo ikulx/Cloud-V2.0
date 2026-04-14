@@ -589,7 +589,7 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
   queryParams.delete('access_token')
   const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : ''
 
-  const isHttps = lanPort === 443
+  const isHttps = lanPort === 443 || lanPort === 8443
   const targetProto = isHttps ? 'https' : 'http'
   const targetUrl = `${targetProto}://${piTargetIp}:${lanPort}${targetPath}${queryStr}`
 
