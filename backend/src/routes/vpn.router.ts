@@ -657,6 +657,13 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     const reqModule = isHttpsReq ? https : http
     const proxyReq = reqModule.request(reqOpts, (proxyRes) => {
       const status = proxyRes.statusCode ?? 200
+      if (status === 401) {
+        console.log(`[VPN-LAN] 401 headers:`, JSON.stringify({
+          'www-authenticate': proxyRes.headers['www-authenticate'],
+          'set-cookie': proxyRes.headers['set-cookie'],
+          'content-type': proxyRes.headers['content-type'],
+        }))
+      }
 
       // Redirects an den Browser durchreichen (LAN-Geräte brauchen Session-Cookies)
       if ([301, 302, 303, 307, 308].includes(status)) {
