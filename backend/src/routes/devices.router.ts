@@ -473,6 +473,10 @@ def run_agent():
                             print("[YControl] Freigabe erhalten – verbinde MQTT neu...")
                             client[0] = make_client()
                             break
+                elif code == 409:
+                    print("[YControl] KONFLIKT: YControl-Seriennummer ist bereits einem anderen Pi zugeordnet.", file=sys.stderr)
+                    print("[YControl] Bitte Konflikt in der Cloud-UI aufloesen oder Seriennummer aendern.", file=sys.stderr)
+                    time.sleep(120)
                 else:
                     print("[YControl] Server nicht erreichbar (code=" + str(code) + ") – Versuch " + str(attempt) + " in 30s...")
                     time.sleep(30)
@@ -503,6 +507,10 @@ def run_setup():
     # Schritt 1: Registrieren
     print("[YControl] Registriere Geraet...")
     result, code = api_post(SERVER_URL + "/api/devices/register", {"serialNumber": serial, "piSerial": pi_serial})
+    if code == 409:
+        print("[YControl] KONFLIKT: Die YControl-Seriennummer '" + serial + "' ist bereits einem anderen Pi zugeordnet.", file=sys.stderr)
+        print("[YControl] Bitte Konflikt in der Cloud-UI aufloesen oder eine andere Seriennummer verwenden.", file=sys.stderr)
+        sys.exit(2)
     if code not in (200, 201):
         print("[YControl] Registrierung fehlgeschlagen (HTTP " + str(code) + "): " + str(result), file=sys.stderr)
         sys.exit(1)
@@ -626,39 +634,98 @@ router.post('/register', async (req, res) => {
   if (!parsed.success) { res.status(400).json({ message: 'Seriennummer erforderlich' }); return }
 
   const { serialNumber, piSerial } = parsed.data
+
+  // 1. Lookup nach piSerial (Hardware-ID hat Vorrang) — nur Nicht-Konflikt-Records
+  if (piSerial) {
+    const byPi = await prisma.device.findFirst({
+      where: { piSerial, hasConflict: false },
+    })
+    if (byPi) {
+      // Pi ist bereits unter dieser Hardware-ID registriert
+      // Wenn die YControl-SN sich geändert hat, aktualisieren (User hat /etc/ycontrol.json geändert)
+      if (byPi.serialNumber !== serialNumber) {
+        // Prüfen ob die neue SN bereits anderweitig vergeben ist
+        const snTaken = await prisma.device.findUnique({ where: { serialNumber } })
+        if (snTaken && snTaken.id !== byPi.id) {
+          // Neue SN ist bereits vergeben → Konflikt anlegen statt umzubenennen
+          console.log(`[Register] SN-Wechsel-Konflikt: pi=${piSerial}, alteSN=${byPi.serialNumber}, neueSN=${serialNumber} bereits vergeben`)
+          const conflictSn = `CONFLICT-${piSerial}-${Date.now()}`
+          const conflict = await prisma.device.create({
+            data: {
+              name: `${serialNumber} (KONFLIKT)`,
+              serialNumber: conflictSn,
+              requestedSerialNumber: serialNumber,
+              hasConflict: true,
+              piSerial,
+            },
+          })
+          res.status(409).json({ deviceId: conflict.id, isApproved: false, status: 'conflict' })
+          return
+        }
+        console.log(`[Register] SN-Wechsel: pi=${piSerial}, alt=${byPi.serialNumber}, neu=${serialNumber}`)
+        await prisma.device.update({
+          where: { id: byPi.id },
+          data: { serialNumber, name: byPi.name === byPi.serialNumber ? serialNumber : byPi.name },
+        })
+      }
+      if (byPi.isApproved) {
+        const { secret, hash } = generateDeviceSecret()
+        await prisma.device.update({ where: { id: byPi.id }, data: { deviceSecret: hash } })
+        res.json({ deviceId: byPi.id, isApproved: true, status: 'existing_approved', deviceSecret: secret })
+      } else {
+        res.json({ deviceId: byPi.id, isApproved: false, status: 'existing' })
+      }
+      return
+    }
+  }
+
+  // 2. Lookup nach serialNumber (alte Logik / Fallback wenn kein piSerial gesendet wurde)
   const existing = await prisma.device.findUnique({ where: { serialNumber } })
 
-  if (existing) {
-    const sameHardware = !existing.piSerial || !piSerial || existing.piSerial === piSerial
-
-    if (!sameHardware) {
-      // Neue Hardware mit gleicher YControl-SN → Freigabe zurücksetzen
-      console.log(`[Register] Hardware-Wechsel: SN="${serialNumber}" (alt: ${existing.piSerial}, neu: ${piSerial})`)
-      const { secret, hash } = generateDeviceSecret()
-      await prisma.device.update({
-        where: { id: existing.id },
-        data: { isApproved: false, piSerial, deviceSecret: hash },
-      })
-      // Kein Secret zurückgeben – muss erst neu freigegeben werden
-      res.json({ deviceId: existing.id, isApproved: false, status: 'hardware_changed' })
+  if (existing && !existing.hasConflict) {
+    // Pi sendet keinen piSerial → bestehenden Record verwenden (Legacy)
+    if (!piSerial) {
+      if (existing.isApproved) {
+        const { secret, hash } = generateDeviceSecret()
+        await prisma.device.update({ where: { id: existing.id }, data: { deviceSecret: hash } })
+        res.json({ deviceId: existing.id, isApproved: true, status: 'existing_approved', deviceSecret: secret })
+      } else {
+        res.json({ deviceId: existing.id, isApproved: false, status: 'existing' })
+      }
       return
     }
 
-    if (existing.isApproved) {
-      // Gleiche Hardware, bereits freigegeben → neues Secret generieren und zurückgeben
-      if (piSerial && existing.piSerial !== piSerial) {
-        await prisma.device.update({ where: { id: existing.id }, data: { piSerial } })
+    // Pi sendet piSerial → bestehender Record hat noch keinen → erstmals zuordnen
+    if (!existing.piSerial) {
+      console.log(`[Register] piSerial erstmals zugeordnet: SN=${serialNumber}, pi=${piSerial}`)
+      await prisma.device.update({ where: { id: existing.id }, data: { piSerial } })
+      if (existing.isApproved) {
+        const { secret, hash } = generateDeviceSecret()
+        await prisma.device.update({ where: { id: existing.id }, data: { deviceSecret: hash } })
+        res.json({ deviceId: existing.id, isApproved: true, status: 'existing_approved', deviceSecret: secret })
+      } else {
+        res.json({ deviceId: existing.id, isApproved: false, status: 'existing' })
       }
-      const { secret, hash } = generateDeviceSecret()
-      await prisma.device.update({ where: { id: existing.id }, data: { deviceSecret: hash } })
-      res.json({ deviceId: existing.id, isApproved: true, status: 'existing_approved', deviceSecret: secret })
-    } else {
-      res.json({ deviceId: existing.id, isApproved: false, status: 'existing' })
+      return
     }
+
+    // KONFLIKT: SN ist bereits einem anderen piSerial zugeordnet
+    console.log(`[Register] KONFLIKT: SN="${serialNumber}" gehört bereits zu pi=${existing.piSerial}, neuer pi=${piSerial}`)
+    const conflictSn = `CONFLICT-${piSerial}-${Date.now()}`
+    const conflict = await prisma.device.create({
+      data: {
+        name: `${serialNumber} (KONFLIKT)`,
+        serialNumber: conflictSn,
+        requestedSerialNumber: serialNumber,
+        hasConflict: true,
+        piSerial,
+      },
+    })
+    res.status(409).json({ deviceId: conflict.id, isApproved: false, status: 'conflict' })
     return
   }
 
-  // Neues Gerät anlegen
+  // 3. Neues Gerät anlegen
   const device = await prisma.device.create({
     data: { name: serialNumber, serialNumber, piSerial: piSerial ?? null },
   })
@@ -698,11 +765,15 @@ router.post('/mqtt-auth', async (req, res) => {
   // Pi-Gerät: username = serialNumber, password = deviceSecret (Plaintext)
   const device = await prisma.device.findUnique({
     where: { serialNumber: username },
-    select: { id: true, isApproved: true, deviceSecret: true, serialNumber: true },
+    select: { id: true, isApproved: true, deviceSecret: true, serialNumber: true, hasConflict: true },
   })
 
   if (!device) {
     console.warn(`[MQTT-Auth] DENY – Gerät nicht gefunden: "${username}"`)
+    res.status(403).end(); return
+  }
+  if (device.hasConflict) {
+    console.warn(`[MQTT-Auth] DENY – Konflikt-Record: "${username}"`)
     res.status(403).end(); return
   }
   if (!device.isApproved) {

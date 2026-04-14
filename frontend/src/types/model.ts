@@ -49,6 +49,9 @@ export interface Device {
   serialNumber: string
   status: DeviceStatus
   isApproved: boolean
+  hasConflict?: boolean
+  requestedSerialNumber?: string | null
+  piSerial?: string | null
   lastSeen: string | null
   firmwareVersion: string | null
   agentVersion: string | null

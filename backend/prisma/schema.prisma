@@ -166,6 +166,11 @@ model Device {
   id              String       @id @default(uuid()) @db.Uuid
   name            String
   serialNumber    String       @unique @map("serial_number")
+  // Wenn ein zweiter Pi sich mit derselben YControl-SN registriert, wird er als
+  // Konflikt-Record angelegt. requestedSerialNumber speichert die ursprüngliche SN,
+  // serialNumber bekommt einen "CONFLICT-<piSerial>" Marker.
+  hasConflict           Boolean @default(false) @map("has_conflict")
+  requestedSerialNumber String? @map("requested_serial_number")
   status          DeviceStatus @default(UNKNOWN)
   isApproved      Boolean      @default(false) @map("is_approved")
   lastSeen        DateTime?    @map("last_seen")
@@ -198,6 +203,7 @@ model Device {
   logEntries    DeviceLogEntry[]
   vpnDevice     VpnDevice?
 
+  @@index([piSerial])
   @@map("devices")
 }
 

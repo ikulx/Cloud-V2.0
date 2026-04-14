@@ -176,6 +176,10 @@ export function DevicesPage() {
                     sx={{
                       cursor: hasVpn ? 'pointer' : 'default',
                       '& > td': isExpanded ? { borderBottom: 'none' } : undefined,
+                      ...(device.hasConflict && {
+                        backgroundColor: 'rgba(244, 67, 54, 0.08)',
+                        '& > td:first-of-type': { borderLeft: '4px solid', borderLeftColor: 'error.main' },
+                      }),
                     }}
                   >
                     <TableCell>
@@ -185,13 +189,31 @@ export function DevicesPage() {
                             ? <KeyboardArrowUpIcon fontSize="small" color="action" />
                             : <KeyboardArrowDownIcon fontSize="small" color="action" />
                         )}
-                        {device.name}
+                        <Box sx={{ color: device.hasConflict ? 'error.main' : 'inherit', fontWeight: device.hasConflict ? 600 : 'inherit' }}>
+                          {device.hasConflict ? (device.requestedSerialNumber ?? device.name) : device.name}
+                        </Box>
                       </Box>
                     </TableCell>
-                    <TableCell><code>{device.serialNumber}</code></TableCell>
+                    <TableCell>
+                      <code>{device.hasConflict ? (device.requestedSerialNumber ?? device.serialNumber) : device.serialNumber}</code>
+                      {device.piSerial && (
+                        <Box component="span" sx={{ display: 'block', fontSize: '0.65rem', color: 'text.secondary', mt: 0.25 }}>
+                          Pi: <code>{device.piSerial}</code>
+                        </Box>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Box display="flex" flexDirection="column" gap={0.5}>
                         <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
+                          {device.hasConflict && (
+                            <Chip
+                              label="KONFLIKT"
+                              size="small"
+                              color="error"
+                              variant="filled"
+                              sx={{ fontSize: '0.65rem', height: 20, fontWeight: 700 }}
+                            />
+                          )}
                           <Chip
                             label="MQTT"
                             size="small"
