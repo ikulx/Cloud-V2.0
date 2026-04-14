@@ -563,6 +563,41 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     : null
   console.log(`[VPN-LAN] Auth: query=${!!queryToken} cookie=${!!cookieToken} header=${!!headerToken} → token=${!!rawToken}`)
 
+  // Basic-Auth-Cookie: gespeicherte Credentials für Geräte mit HTTP Basic Auth
+  const baCookieName = `lanba_${deviceId.replace(/-/g, '').slice(0, 8)}_${lanIp.replace(/\./g, '')}`
+  const baCredentials = (req.headers.cookie ?? '').split(';')
+    .map(c => c.trim()).find(c => c.startsWith(`${baCookieName}=`))
+    ?.slice(baCookieName.length + 1) ?? null
+
+  // POST /_login: Basic-Auth-Credentials speichern und zurückleiten
+  if (targetPath === '/_login' && req.method === 'POST') {
+    const chunks: Buffer[] = []
+    req.on('data', (c: Buffer) => chunks.push(c))
+    req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf-8')
+      const params = new URLSearchParams(body)
+      const user = params.get('username') ?? ''
+      const pass = params.get('password') ?? ''
+      const b64 = Buffer.from(`${user}:${pass}`).toString('base64')
+      const baCookie = `${baCookieName}=${b64}; Path=${proxyBase}/; HttpOnly; SameSite=Lax; Max-Age=86400`
+      const cookies: string[] = [baCookie]
+      if (authCookie) cookies.push(authCookie)
+      res.setHeader('set-cookie', cookies)
+      res.redirect(302, `${proxyBase}/`)
+    })
+    return
+  }
+
+  // GET /_logout: Basic-Auth-Cookie löschen
+  if (targetPath === '/_logout') {
+    const baCookie = `${baCookieName}=; Path=${proxyBase}/; HttpOnly; SameSite=Lax; Max-Age=0`
+    const cookies: string[] = [baCookie]
+    if (authCookie) cookies.push(authCookie)
+    res.setHeader('set-cookie', cookies)
+    res.redirect(302, `${proxyBase}/`)
+    return
+  }
+
   // Helper: Set-Cookie vom Zielgerät rewriten (Domain entfernen, Path auf Proxy-Pfad setzen)
   function rewriteDeviceCookies(rawCookies: string | string[] | number | undefined): string[] {
     if (!rawCookies) return []
@@ -622,17 +657,17 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     const portNum = parsed.port ? parseInt(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80)
     const hostHdr = portNum === 80 ? parsed.hostname : `${parsed.hostname}:${portNum}`
 
-    // Headers weiterleiten – Cloud-Auth-Cookie herausfiltern, nur Device-Cookies senden
+    // Headers weiterleiten – Cloud-Auth-Cookie + BA-Cookie herausfiltern, nur Device-Cookies senden
     const fwdHeaders: Record<string, string | string[] | undefined> = {}
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase()
       if (lk === 'host' || lk === 'authorization' ||
           lk === 'accept-encoding' || lk === 'connection' || lk === 'upgrade') continue
       if (lk === 'cookie') {
-        // Cloud-Auth-Cookie (lan_...) entfernen, nur Device-Cookies weiterleiten
+        // Cloud-Auth-Cookie (lan_...) und BA-Cookie (lanba_...) entfernen
         const deviceCookies = String(v).split(';')
           .map(c => c.trim())
-          .filter(c => !c.startsWith(cookieName + '='))
+          .filter(c => !c.startsWith(cookieName + '=') && !c.startsWith(baCookieName + '='))
           .join('; ')
         if (deviceCookies) fwdHeaders[k] = deviceCookies
         continue
@@ -640,6 +675,10 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
       fwdHeaders[k] = v
     }
     fwdHeaders['host'] = hostHdr
+    // Basic-Auth-Credentials aus Cookie hinzufügen
+    if (baCredentials) {
+      fwdHeaders['authorization'] = `Basic ${baCredentials}`
+    }
 
     const isHttpsReq = parsed.protocol === 'https:'
     const reqOpts: https.RequestOptions = {
@@ -657,12 +696,41 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     const reqModule = isHttpsReq ? https : http
     const proxyReq = reqModule.request(reqOpts, (proxyRes) => {
       const status = proxyRes.statusCode ?? 200
-      if (status === 401) {
-        console.log(`[VPN-LAN] 401 headers:`, JSON.stringify({
-          'www-authenticate': proxyRes.headers['www-authenticate'],
-          'set-cookie': proxyRes.headers['set-cookie'],
-          'content-type': proxyRes.headers['content-type'],
-        }))
+
+      // Basic Auth 401: Login-Formular anzeigen statt Browser-Popup
+      const wwwAuth = proxyRes.headers['www-authenticate'] ?? ''
+      if (status === 401 && wwwAuth.toLowerCase().startsWith('basic')) {
+        proxyRes.resume() // Body verwerfen
+        const realm = wwwAuth.match(/realm="([^"]*)"/)?.[1] ?? ''
+        console.log(`[VPN-LAN] Basic Auth required (realm="${realm}"), showing login form`)
+        appendAuthCookie()
+        res.status(200).setHeader('content-type', 'text/html; charset=utf-8').end(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anmeldung – ${lanIp}:${lanPort}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#1e1e2e;color:#cdd6f4;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{background:#313244;border-radius:12px;padding:2rem;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,.3)}
+h2{text-align:center;margin-bottom:.5rem;font-size:1.2rem;color:#cba6f7}
+.sub{text-align:center;color:#a6adc8;font-size:.85rem;margin-bottom:1.5rem}
+label{display:block;font-size:.85rem;margin-bottom:.3rem;color:#bac2de}
+input{width:100%;padding:.6rem .8rem;border:1px solid #45475a;border-radius:8px;background:#1e1e2e;color:#cdd6f4;font-size:.95rem;margin-bottom:1rem;outline:none}
+input:focus{border-color:#cba6f7}
+button{width:100%;padding:.7rem;border:none;border-radius:8px;background:#cba6f7;color:#1e1e2e;font-size:1rem;font-weight:600;cursor:pointer}
+button:hover{background:#b4befe}
+.err{background:#f38ba8;color:#1e1e2e;padding:.5rem;border-radius:6px;text-align:center;margin-bottom:1rem;font-size:.85rem}
+</style></head><body>
+<div class="card">
+<h2>Geraete-Anmeldung</h2>
+<div class="sub">${lanIp}:${lanPort}</div>
+${baCredentials ? '<div class="err">Anmeldedaten ungueltig</div>' : ''}
+<form method="POST" action="${proxyBase}/_login">
+<label for="u">Benutzername</label><input id="u" name="username" autocomplete="username" required autofocus>
+<label for="p">Passwort</label><input id="p" name="password" type="password" autocomplete="current-password" required>
+<button type="submit">Anmelden</button>
+</form>
+</div></body></html>`)
+        return
       }
 
       // Redirects an den Browser durchreichen (LAN-Geräte brauchen Session-Cookies)
