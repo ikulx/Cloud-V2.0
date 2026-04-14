@@ -563,6 +563,28 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     : null
   console.log(`[VPN-LAN] Auth: query=${!!queryToken} cookie=${!!cookieToken} header=${!!headerToken} → token=${!!rawToken}`)
 
+  // Helper: Set-Cookie vom Zielgerät rewriten (Domain entfernen, Path auf Proxy-Pfad setzen)
+  function rewriteDeviceCookies(rawCookies: string | string[] | number | undefined): string[] {
+    if (!rawCookies) return []
+    const arr = Array.isArray(rawCookies) ? rawCookies : [String(rawCookies)]
+    return arr.map(c => {
+      let cookie = c
+        .replace(/;\s*[Dd]omain=[^;]*/g, '')                       // Domain entfernen
+        .replace(/;\s*[Ss]ame[Ss]ite=[^;]*/g, '; SameSite=Lax')    // SameSite anpassen
+      // Path auf Proxy-Pfad umschreiben
+      cookie = cookie.replace(/;\s*[Pp]ath=([^;]*)/g, (_m, p) => {
+        const origPath = p.trim()
+        if (origPath === '/') return `; Path=${proxyBase}/`
+        return `; Path=${proxyBase}${origPath.startsWith('/') ? origPath : '/' + origPath}`
+      })
+      // Falls kein Path vorhanden, explizit setzen
+      if (!/;\s*[Pp]ath=/i.test(cookie)) {
+        cookie += `; Path=${proxyBase}/`
+      }
+      return cookie
+    })
+  }
+
   // Helper: Auth-Cookie an Response anhängen (nach allen Proxy-Headern)
   function appendAuthCookie() {
     if (!authCookie) return
@@ -600,12 +622,21 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     const portNum = parsed.port ? parseInt(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80)
     const hostHdr = portNum === 80 ? parsed.hostname : `${parsed.hostname}:${portNum}`
 
-    // Headers weiterleiten – Cookies für LAN-Geräte durchlassen
+    // Headers weiterleiten – Cloud-Auth-Cookie herausfiltern, nur Device-Cookies senden
     const fwdHeaders: Record<string, string | string[] | undefined> = {}
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase()
       if (lk === 'host' || lk === 'authorization' ||
           lk === 'accept-encoding' || lk === 'connection' || lk === 'upgrade') continue
+      if (lk === 'cookie') {
+        // Cloud-Auth-Cookie (lan_...) entfernen, nur Device-Cookies weiterleiten
+        const deviceCookies = String(v).split(';')
+          .map(c => c.trim())
+          .filter(c => !c.startsWith(cookieName + '='))
+          .join('; ')
+        if (deviceCookies) fwdHeaders[k] = deviceCookies
+        continue
+      }
       fwdHeaders[k] = v
     }
     fwdHeaders['host'] = hostHdr
@@ -639,11 +670,12 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
           }
           // Location auf Proxy-Pfad umschreiben – Routing-Infos bleiben im Pfad!
           res.status(status)
-          // Alle Response-Header durchleiten (Set-Cookie etc.)
+          // Alle Response-Header durchleiten (Set-Cookie rewriten)
           for (const [key, val] of Object.entries(proxyRes.headers)) {
             const k = key.toLowerCase()
             if (k === 'location') continue
             if (k === 'content-encoding' || k === 'transfer-encoding') continue
+            if (k === 'set-cookie') { res.setHeader('set-cookie', rewriteDeviceCookies(val)); continue }
             if (val) res.setHeader(key, val as string)
           }
           res.setHeader('location', `${proxyBase}${locPath}`)
@@ -665,12 +697,13 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
       const encoding = (proxyRes.headers['content-encoding'] ?? '').toLowerCase()
       const needsPatch = ct.includes('text/html') || ct.includes('text/xml') || ct.includes('text/xsl') || ct.includes('application/xml')
 
-      // Headers weiterleiten (content-encoding + transfer-encoding entfernen wenn wir patchen)
+      // Headers weiterleiten (content-encoding + transfer-encoding entfernen wenn wir patchen, Set-Cookie rewriten)
       for (const [key, val] of Object.entries(proxyRes.headers)) {
         const k = key.toLowerCase()
         if (k === 'transfer-encoding') continue
         if (k === 'content-encoding' && needsPatch) continue  // wir senden unkomprimiert nach Patching
         if (k === 'content-security-policy' || k === 'x-frame-options') continue
+        if (k === 'set-cookie') { res.setHeader('set-cookie', rewriteDeviceCookies(val)); continue }
         if (val) res.setHeader(key, val as string)
       }
 
