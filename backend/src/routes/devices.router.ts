@@ -160,10 +160,23 @@ def get_local_ip():
         return "unknown"
 
 def get_vpn_status():
-    """Prüft ob das WireGuard-Interface wg0 aktiv ist."""
+    """Prueft ob WireGuard (wg0) einen aktuellen Handshake hat (< 180s)."""
     try:
-        r = subprocess.run(["ip", "link", "show", "wg0"], capture_output=True, text=True)
-        return r.returncode == 0 and "state UP" in r.stdout
+        r = subprocess.run(["wg", "show", "wg0", "latest-handshakes"],
+                           capture_output=True, text=True, timeout=3)
+        if r.returncode != 0:
+            return False
+        now = int(time.time())
+        for line in r.stdout.strip().splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    ts = int(parts[-1])
+                    if ts > 0 and (now - ts) < 180:
+                        return True
+                except ValueError:
+                    continue
+        return False
     except Exception:
         return False
 
