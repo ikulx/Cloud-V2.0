@@ -569,6 +569,10 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     .map(c => c.trim()).find(c => c.startsWith(`${baCookieName}=`))
     ?.slice(baCookieName.length + 1) ?? null
 
+  // Pfad nach /lan/:ip/:port weitergeben (Regex-Gruppe [3] = restlicher Pfad)
+  const rawPath = (req.params[3] as string) || '/'
+  const targetPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
+
   // POST /_login: Basic-Auth-Credentials speichern und zurückleiten
   if (targetPath === '/_login' && req.method === 'POST') {
     const chunks: Buffer[] = []
@@ -636,10 +640,6 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
   const lanLastOctet = lanIp.split('.').pop()
   const vpnLanPrefix = deriveVpnLanPrefix(vpnDevice.vpnIp)
   const piTargetIp = `${vpnLanPrefix}.${lanLastOctet}`
-
-  // Pfad nach /lan/:ip/:port weitergeben (Regex-Gruppe [3] = restlicher Pfad)
-  const rawPath = (req.params[3] as string) || '/'
-  const targetPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`
 
   // Query-String weiterleiten, access_token entfernen
   const queryParams = new URLSearchParams(req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '')
