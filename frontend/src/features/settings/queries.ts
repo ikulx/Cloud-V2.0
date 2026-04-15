@@ -3,10 +3,11 @@ import { apiGet, apiPatch } from '../../lib/api'
 
 export const settingsKeys = { all: ['settings'] as const }
 
-export function useSettings() {
+export function useSettings(enabled: boolean = true) {
   return useQuery({
     queryKey: settingsKeys.all,
     queryFn: () => apiGet<Record<string, string>>('/settings'),
+    enabled,
   })
 }
 

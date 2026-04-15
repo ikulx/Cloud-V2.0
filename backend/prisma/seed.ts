@@ -65,20 +65,34 @@ async function main() {
   })
   console.log('✓ 3 roles seeded (admin, verwalter, benutzer)')
 
-  // Benutzer-Rolle bekommt minimale Permissions
-  const benutzerPerms = ['devices:read', 'anlagen:read', 'todos:read', 'todos:create', 'todos:update', 'logbook:read', 'logbook:create']
+  // Benutzer-Rolle: minimale Permissions – sieht nur User-Dashboard mit seinen Visus
+  const benutzerPerms = ['devices:read', 'anlagen:read', 'todos:read', 'logbook:read']
   const benutzerPermIds = await prisma.permission.findMany({
     where: { key: { in: benutzerPerms } },
     select: { id: true },
   })
+  // Erst alte Zuweisungen löschen, dann neu setzen (damit Änderungen wirken)
+  await prisma.rolePermission.deleteMany({ where: { roleId: benutzerRole.id } })
   for (const perm of benutzerPermIds) {
-    await prisma.rolePermission.upsert({
-      where: { roleId_permissionId: { roleId: benutzerRole.id, permissionId: perm.id } },
-      update: {},
-      create: { roleId: benutzerRole.id, permissionId: perm.id },
+    await prisma.rolePermission.create({
+      data: { roleId: benutzerRole.id, permissionId: perm.id },
     })
   }
   console.log('✓ benutzer permissions assigned')
+
+  // Verwalter-Rolle: alles außer Rollen- und VPN-Verwaltung
+  const verwalterExcluded = ['roles:read', 'roles:create', 'roles:update', 'roles:delete']
+  const verwalterPermRecords = await prisma.permission.findMany({
+    where: { key: { notIn: verwalterExcluded } },
+    select: { id: true },
+  })
+  await prisma.rolePermission.deleteMany({ where: { roleId: verwalterRole.id } })
+  for (const perm of verwalterPermRecords) {
+    await prisma.rolePermission.create({
+      data: { roleId: verwalterRole.id, permissionId: perm.id },
+    })
+  }
+  console.log('✓ verwalter permissions assigned')
 
   // Admin user
   const adminPassword = await bcrypt.hash('Admin1234!', 12)

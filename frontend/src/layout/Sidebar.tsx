@@ -18,19 +18,26 @@ import { useSession } from '../context/SessionContext'
 import { useTranslation } from 'react-i18next'
 
 export function Sidebar() {
-  const { hasPermission } = useSession()
+  const { hasPermission, me } = useSession()
   const { t } = useTranslation()
 
-  const NAV_ITEMS = [
-    { label: t('nav.dashboard'), icon: <DashboardIcon />, to: '/', permission: null },
-    { label: t('nav.devices'), icon: <DevicesIcon />, to: '/devices', permission: 'devices:read' },
-    { label: t('nav.anlagen'), icon: <BusinessIcon />, to: '/anlagen', permission: 'anlagen:read' },
-    { label: t('nav.groups'), icon: <GroupIcon />, to: '/groups', permission: 'groups:read' },
-    { label: t('nav.users'), icon: <PersonIcon />, to: '/users', permission: 'users:read' },
-    { label: t('nav.roles'), icon: <AdminPanelSettingsIcon />, to: '/roles', permission: 'roles:read' },
-    { label: t('nav.settings'), icon: <SettingsIcon />, to: '/settings', permission: 'devices:update' },
-    { label: t('nav.vpn'),      icon: <VpnKeyIcon />,  to: '/vpn',      permission: 'vpn:manage' },
-  ]
+  const isBenutzer = me?.roleName === 'benutzer'
+
+  const NAV_ITEMS = isBenutzer
+    ? [
+        { label: 'User-Dashboard', icon: <DashboardIcon />, to: '/', permission: null },
+        { label: t('nav.settings'), icon: <SettingsIcon />, to: '/settings', permission: null },
+      ]
+    : [
+        { label: t('nav.dashboard'), icon: <DashboardIcon />, to: '/', permission: null },
+        { label: t('nav.devices'), icon: <DevicesIcon />, to: '/devices', permission: 'devices:read' },
+        { label: t('nav.anlagen'), icon: <BusinessIcon />, to: '/anlagen', permission: 'anlagen:read' },
+        { label: t('nav.groups'), icon: <GroupIcon />, to: '/groups', permission: 'groups:read' },
+        { label: t('nav.users'), icon: <PersonIcon />, to: '/users', permission: 'users:read' },
+        { label: t('nav.roles'), icon: <AdminPanelSettingsIcon />, to: '/roles', permission: 'roles:read' },
+        { label: t('nav.settings'), icon: <SettingsIcon />, to: '/settings', permission: null },
+        { label: t('nav.vpn'),      icon: <VpnKeyIcon />,  to: '/vpn',      permission: 'vpn:manage' },
+      ]
 
   const visible = NAV_ITEMS.filter((item) =>
     item.permission === null || hasPermission(item.permission)

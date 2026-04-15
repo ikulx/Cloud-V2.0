@@ -66,7 +66,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC15"  # enthaelt periodische Re-Registrierung + handshake-VPN-Status
+AGENT_VERSION = "1.0.0-RC16"  # IP-Wechsel-Detection + aggressives TCP-Keepalive
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -302,7 +302,23 @@ def run_agent():
         c.on_connect    = on_connect
         c.on_disconnect = on_disconnect
         c.on_message    = on_message
+        # Aggressives TCP-Keepalive: erkennt tote Sockets (z.B. nach DHCP-IP-Wechsel)
+        # nach ~50s statt Linux-Default von ~11 Minuten.
+        c.on_socket_open = _tcp_keepalive
         return c
+
+    def _tcp_keepalive(c, userdata, sock):
+        try:
+            import socket as _sock
+            sock.setsockopt(_sock.SOL_SOCKET, _sock.SO_KEEPALIVE, 1)
+            if hasattr(_sock, "TCP_KEEPIDLE"):
+                sock.setsockopt(_sock.IPPROTO_TCP, _sock.TCP_KEEPIDLE, 20)
+            if hasattr(_sock, "TCP_KEEPINTVL"):
+                sock.setsockopt(_sock.IPPROTO_TCP, _sock.TCP_KEEPINTVL, 10)
+            if hasattr(_sock, "TCP_KEEPCNT"):
+                sock.setsockopt(_sock.IPPROTO_TCP, _sock.TCP_KEEPCNT, 3)
+        except Exception as ex:
+            print("[YControl] TCP-Keepalive konnte nicht gesetzt werden: " + str(ex), file=sys.stderr)
 
     def on_connect(c, userdata, flags, rc):
         codes = {0:"OK",1:"Protokoll",2:"Client-ID",3:"Server",4:"Zugangsdaten",5:"Nicht autorisiert"}
@@ -463,19 +479,42 @@ def run_agent():
 
     while running[0]:
         auth_failed[0] = False
-        client[0].connect_async(mqtt_host, mqtt_port, keepalive=60)
+        client[0].connect_async(mqtt_host, mqtt_port, keepalive=30)
         client[0].loop_start()
 
         # Tele-Timer: alle 10 Minuten neu senden
         tele_tick = [0]
+        last_ip = get_local_ip()
+        ip_changed = [False]
         while running[0] and not auth_failed[0]:
             time.sleep(1)
             tele_tick[0] += 1
+
+            # IP-Wechsel erkennen (z.B. neue DHCP-Lease) – alter Socket ist dann tot
+            current_ip = get_local_ip()
+            if current_ip and last_ip and current_ip != last_ip:
+                print("[YControl] Lokale IP gewechselt: " + last_ip + " -> " + current_ip + " – reconnect MQTT")
+                last_ip = current_ip
+                ip_changed[0] = True
+                break
+            if current_ip and not last_ip:
+                last_ip = current_ip
+
             if tele_tick[0] >= TELE_INTERVAL and client[0].is_connected():
                 tele_tick[0] = 0
                 publish_tele(client[0])
 
         client[0].loop_stop()
+
+        if ip_changed[0] and running[0]:
+            # Harter Reconnect: alten Client wegwerfen, neuen bauen
+            try:
+                client[0].disconnect()
+            except Exception:
+                pass
+            client[0] = make_client()
+            time.sleep(2)
+            continue
 
         if not running[0]:
             break

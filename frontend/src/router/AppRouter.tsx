@@ -13,6 +13,7 @@ import { UsersPage } from '../pages/UsersPage'
 import { RolesPage } from '../pages/RolesPage'
 import { SettingsPage } from '../pages/SettingsPage'
 import { VpnPage } from '../pages/VpnPage'
+import { UserDashboardPage } from '../pages/UserDashboardPage'
 
 function PrivateRoutes() {
   const { me, isLoading } = useSession()
@@ -21,13 +22,20 @@ function PrivateRoutes() {
   return <AppShell />
 }
 
+function HomeRoute() {
+  const { me } = useSession()
+  // Benutzer-Rolle sieht ein eigenes, vereinfachtes Dashboard
+  if (me?.roleName === 'benutzer') return <UserDashboardPage />
+  return <DashboardPage />
+}
+
 export function AppRouter() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route element={<PrivateRoutes />}>
-          <Route path="/" element={<DashboardPage />} />
+          <Route path="/" element={<HomeRoute />} />
           <Route path="/devices" element={
             <RequirePermission permission="devices:read"><DevicesPage /></RequirePermission>
           } />
@@ -49,9 +57,7 @@ export function AppRouter() {
           <Route path="/roles" element={
             <RequirePermission permission="roles:read"><RolesPage /></RequirePermission>
           } />
-          <Route path="/settings" element={
-            <RequirePermission permission="devices:update"><SettingsPage /></RequirePermission>
-          } />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/vpn" element={
             <RequirePermission permission="vpn:manage"><VpnPage /></RequirePermission>
           } />
