@@ -93,18 +93,7 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
   if (!device) return
 
   const update: Record<string, unknown> = {}
-  if (typeof data.agentVersion === 'string') {
-    update.agentVersion = data.agentVersion
-    // Wenn der Pi eine ältere Agent-Version meldet, automatisch Update pushen
-    try {
-      const { CURRENT_AGENT_VERSION, pushAgentUpdate } = await import('../routes/devices.router')
-      if (CURRENT_AGENT_VERSION && data.agentVersion !== CURRENT_AGENT_VERSION) {
-        void pushAgentUpdate(serial)
-      }
-    } catch (err) {
-      console.error('[MQTT] Auto-Update-Check fehlgeschlagen:', err)
-    }
-  }
+  if (typeof data.agentVersion === 'string') update.agentVersion = data.agentVersion
   if (typeof data.ipAddress === 'string') update.ipAddress = data.ipAddress
   if (typeof data.firmwareVersion === 'string') update.firmwareVersion = data.firmwareVersion
   if (typeof data.anlageName === 'string' && data.anlageName.trim()) update.name = data.anlageName.trim()

@@ -11,15 +11,6 @@ import { getSetting } from './settings.router'
 
 const router = Router()
 
-// Aktuelle Agent-Version wird aus dem Template extrahiert (siehe SETUP_SCRIPT_TEMPLATE)
-// → wird beim Modul-Import einmalig gesetzt, nach SETUP_SCRIPT_TEMPLATE Definition.
-export let CURRENT_AGENT_VERSION = ''
-
-// Einfache Debounce-Map: verhindert, dass der Backend pro Tele-Nachricht erneut
-// pusht, wenn das Update gerade erst gesendet wurde.
-const recentUpdatePushes = new Map<string, number>()
-const UPDATE_PUSH_COOLDOWN_MS = 10 * 60 * 1000 // 10 Minuten
-
 const deviceSchema = z.object({
   name: z.string().min(1).max(200),
   serialNumber: z.string().min(1).max(100),
@@ -75,7 +66,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC15"
+AGENT_VERSION = "1.0.0-RC15"  # enthaelt periodische Re-Registrierung + handshake-VPN-Status
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -233,51 +224,24 @@ def api_get(url):
         return 0
 
 # ─── AGENT-MODUS ──────────────────────────────────────────────────────────────
-def self_update(cfg):
-    """Holt das aktuelle Agent-Script von der Cloud und ersetzt sich selbst, wenn sich AGENT_VERSION geaendert hat."""
-    try:
-        serial = cfg["serialNumber"]
-        secret = cfg["deviceSecret"]
-        server_url = cfg.get("serverUrl", SERVER_URL)
-        url = server_url.rstrip("/") + "/api/devices/agent-update"
-        req = urlreq.Request(url, headers={
-            "X-Device-Serial": serial,
-            "X-Device-Secret": secret,
-            "User-Agent": "YControl-Agent/" + AGENT_VERSION,
-        })
-        with urlreq.urlopen(req, timeout=10) as resp:
-            if resp.status != 200:
-                return False
-            new_script = resp.read().decode("utf-8", errors="replace")
-        # AGENT_VERSION Zeile extrahieren
-        new_version = None
-        for line in new_script.splitlines():
-            if line.startswith("AGENT_VERSION"):
-                try:
-                    new_version = line.split("=", 1)[1].strip().strip('"').strip("'")
-                except Exception:
-                    pass
-                break
-        if not new_version:
-            print("[YControl] Self-Update: keine AGENT_VERSION im Remote-Script gefunden", file=sys.stderr)
-            return False
-        if new_version == AGENT_VERSION:
-            return False  # bereits aktuell
-        print("[YControl] Self-Update: " + AGENT_VERSION + " -> " + new_version)
-        tmp_path = AGENT_PATH + ".tmp"
-        with open(tmp_path, "w") as f:
-            f.write(new_script)
-        os.chmod(tmp_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-        os.replace(tmp_path, AGENT_PATH)
-        print("[YControl] Self-Update angewendet – starte Service neu...")
-        subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
-        time.sleep(2)
-        sys.exit(0)
-    except urlerr.HTTPError as he:
-        print("[YControl] Self-Update HTTP-Fehler: " + str(he.code), file=sys.stderr)
-    except Exception as ex:
-        print("[YControl] Self-Update Fehler: " + str(ex), file=sys.stderr)
-    return False
+def periodic_reregister(cfg_path):
+    """Meldet sich periodisch bei der Cloud, damit die Cloud piSerial-Konflikte erkennen
+    und Hardware-Wechsel registrieren kann. Kein Self-Update des Scripts."""
+    while True:
+        time.sleep(1800)  # alle 30 Minuten
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+            server_url = cfg.get("serverUrl", SERVER_URL)
+            url = server_url.rstrip("/") + "/api/devices/register"
+            payload = {"serialNumber": cfg["serialNumber"], "piSerial": get_pi_serial()}
+            result, code = api_post(url, payload)
+            if code == 409:
+                print("[YControl] Re-Register: KONFLIKT – YControl-SN bereits anderem Pi zugeordnet.", file=sys.stderr)
+            elif code not in (200, 201):
+                print("[YControl] Re-Register Fehler (HTTP " + str(code) + "): " + str(result), file=sys.stderr)
+        except Exception as ex:
+            print("[YControl] Re-Register Exception: " + str(ex), file=sys.stderr)
 
 def run_agent():
     if not os.path.exists(CONFIG_PATH):
@@ -287,19 +251,8 @@ def run_agent():
     with open(CONFIG_PATH) as f:
         cfg = json.load(f)
 
-    # Beim Start und periodisch auf neues Agent-Script pruefen
-    self_update(cfg)
-
-    def periodic_update_check():
-        while True:
-            time.sleep(3600)  # einmal pro Stunde
-            try:
-                with open(CONFIG_PATH) as f:
-                    self_update(json.load(f))
-            except Exception as ex:
-                print("[YControl] Update-Check Fehler: " + str(ex), file=sys.stderr)
-
-    threading.Thread(target=periodic_update_check, daemon=True).start()
+    # Periodische Re-Registrierung im Hintergrund (fuer Konflikt-Erkennung)
+    threading.Thread(target=periodic_reregister, args=(CONFIG_PATH,), daemon=True).start()
 
     serial        = cfg["serialNumber"]
     server_url    = cfg.get("serverUrl", SERVER_URL)
@@ -704,38 +657,6 @@ if __name__ == "__main__":
     else:
         run_setup()
 `
-
-// AGENT_VERSION aus dem Template extrahieren (muss nach SETUP_SCRIPT_TEMPLATE stehen)
-{
-  const match = SETUP_SCRIPT_TEMPLATE.match(/AGENT_VERSION\s*=\s*"([^"]+)"/)
-  CURRENT_AGENT_VERSION = match ? match[1] : ''
-  console.log(`[Agent] Current template version: ${CURRENT_AGENT_VERSION}`)
-}
-
-// Helper: baut das aktuelle Agent-Script und pusht es per MQTT als Update-Befehl
-export async function pushAgentUpdate(serialNumber: string): Promise<boolean> {
-  // Debounce: nicht öfter als alle 10 Minuten pro Gerät
-  const last = recentUpdatePushes.get(serialNumber) ?? 0
-  if (Date.now() - last < UPDATE_PUSH_COOLDOWN_MS) return false
-  recentUpdatePushes.set(serialNumber, Date.now())
-
-  const [serverUrl, mqttHost, mqttPort] = await Promise.all([
-    getSetting('pi.serverUrl'),
-    getSetting('pi.mqttHost'),
-    getSetting('pi.mqttPort'),
-  ])
-  const script = SETUP_SCRIPT_TEMPLATE
-    .replace('<<SERVER_URL>>', serverUrl)
-    .replace('<<MQTT_HOST>>', mqttHost)
-    .replace('<<MQTT_PORT>>', mqttPort)
-    .replace('<<GENERATED_AT>>', new Date().toISOString())
-  const scriptB64 = Buffer.from(script).toString('base64')
-  const sent = publishCommand(serialNumber, { action: 'update', script: scriptB64 })
-  if (sent) {
-    console.log(`[Agent] Auto-Update gepusht an ${serialNumber} (→ ${CURRENT_AGENT_VERSION})`)
-  }
-  return sent
-}
 
 // ─── Pi Registration Endpoints ────────────────────────────────────────────────
 
