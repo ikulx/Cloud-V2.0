@@ -18,9 +18,14 @@ import Tooltip from '@mui/material/Tooltip'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
 import Divider from '@mui/material/Divider'
+import Chip from '@mui/material/Chip'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import ErrorIcon from '@mui/icons-material/Error'
+import WarningIcon from '@mui/icons-material/Warning'
+import AssignmentLateIcon from '@mui/icons-material/AssignmentLate'
 import { useNavigate } from 'react-router-dom'
 import { useAnlagen, useCreateAnlage, useUpdateAnlage, useDeleteAnlage } from '../features/anlagen/queries'
 import { useUsers } from '../features/users/queries'
@@ -31,10 +36,39 @@ import { SearchableMultiSelect } from '../components/SearchableMultiSelect'
 import { usePermission } from '../hooks/usePermission'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { useTranslation } from 'react-i18next'
-import type { Anlage } from '../types/model'
+import type { Anlage, Device } from '../types/model'
 
 const EMPTY_FORM = { name: '', description: '', location: '' }
 const EMPTY_ASSIGN = { deviceIds: [] as string[], userIds: [] as string[], groupIds: [] as string[] }
+
+type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'EMPTY'
+
+function computeAnlageStatus(devices: Device[]): AnlageStatus {
+  if (devices.length === 0) return 'EMPTY'
+  // Priorität: OFFLINE > ERROR > TODO > OK
+  const hasOffline = devices.some((d) => d.status !== 'ONLINE')
+  if (hasOffline) return 'OFFLINE'
+  const hasError = devices.some((d) => d.hasError === true)
+  if (hasError) return 'ERROR'
+  const hasTodos = devices.some((d) => (d._count?.todos ?? 0) > 0)
+  if (hasTodos) return 'TODO'
+  return 'OK'
+}
+
+function StatusChip({ status }: { status: AnlageStatus }) {
+  switch (status) {
+    case 'OK':
+      return <Chip icon={<CheckCircleIcon />} label="OK" color="success" size="small" sx={{ fontWeight: 600 }} />
+    case 'TODO':
+      return <Chip icon={<AssignmentLateIcon />} label="Todos offen" color="warning" size="small" sx={{ fontWeight: 600 }} />
+    case 'ERROR':
+      return <Chip icon={<WarningIcon />} label="Fehler" color="warning" size="small" sx={{ fontWeight: 600, bgcolor: 'warning.dark', color: 'common.white' }} />
+    case 'OFFLINE':
+      return <Chip icon={<ErrorIcon />} label="Offline" color="error" size="small" sx={{ fontWeight: 600 }} />
+    case 'EMPTY':
+      return <Chip label="—" size="small" variant="outlined" />
+  }
+}
 
 export function AnlagenPage() {
   const { data: anlagen, isLoading } = useAnlagen()
@@ -112,6 +146,7 @@ export function AnlagenPage() {
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell sx={{ width: 140 }}>{t('common.status')}</TableCell>
               <TableCell>{t('common.name')}</TableCell>
               <TableCell>{t('common.description')}</TableCell>
               <TableCell>{t('anlagen.location')}</TableCell>
@@ -120,24 +155,30 @@ export function AnlagenPage() {
           </TableHead>
           <TableBody>
             {anlagen?.length === 0 && (
-              <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4 }}><Typography color="text.secondary">{t('anlagen.empty')}</Typography></TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4 }}><Typography color="text.secondary">{t('anlagen.empty')}</Typography></TableCell></TableRow>
             )}
-            {anlagen?.map((anlage) => (
-              <TableRow
-                key={anlage.id}
-                hover
-                onClick={() => navigate(`/anlagen/${anlage.id}`)}
-                sx={{ cursor: 'pointer' }}
-              >
-                <TableCell>{anlage.name}</TableCell>
-                <TableCell>{anlage.description ?? '—'}</TableCell>
-                <TableCell>{anlage.location ?? '—'}</TableCell>
-                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                  {canUpdate && <Tooltip title={t('common.edit')}><IconButton onClick={() => openEdit(anlage)} size="small"><EditIcon fontSize="small" /></IconButton></Tooltip>}
-                  {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(anlage)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
-                </TableCell>
-              </TableRow>
-            ))}
+            {anlagen?.map((anlage) => {
+              const deviceIdSet = new Set(anlage.anlageDevices.map((ad) => ad.device.id))
+              const anlageDevices = (allDevices ?? []).filter((d) => deviceIdSet.has(d.id))
+              const status = computeAnlageStatus(anlageDevices)
+              return (
+                <TableRow
+                  key={anlage.id}
+                  hover
+                  onClick={() => navigate(`/anlagen/${anlage.id}`)}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  <TableCell><StatusChip status={status} /></TableCell>
+                  <TableCell>{anlage.name}</TableCell>
+                  <TableCell>{anlage.description ?? '—'}</TableCell>
+                  <TableCell>{anlage.location ?? '—'}</TableCell>
+                  <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                    {canUpdate && <Tooltip title={t('common.edit')}><IconButton onClick={() => openEdit(anlage)} size="small"><EditIcon fontSize="small" /></IconButton></Tooltip>}
+                    {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(anlage)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </TableContainer>
