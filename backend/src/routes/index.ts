@@ -9,6 +9,7 @@ import anlagenRouter from './anlagen.router'
 import devicesRouter from './devices.router'
 import settingsRouter from './settings.router'
 import vpnRouter from './vpn.router'
+import invitationsRouter from './invitations.router'
 
 const router = Router()
 
@@ -22,5 +23,6 @@ router.use('/anlagen', anlagenRouter)
 router.use('/devices', devicesRouter)
 router.use('/settings', settingsRouter)
 router.use('/vpn', vpnRouter)
+router.use('/invitations', invitationsRouter)
 
 export default router

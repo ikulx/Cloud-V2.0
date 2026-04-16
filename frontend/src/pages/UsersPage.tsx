@@ -25,7 +25,11 @@ import Divider from '@mui/material/Divider'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import MailOutlineIcon from '@mui/icons-material/MailOutline'
+import ReplayIcon from '@mui/icons-material/Replay'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../features/users/queries'
+import { useInvitations, useCreateInvitation, useResendInvitation, useDeleteInvitation } from '../features/invitations/queries'
 import { useRoles } from '../features/roles/queries'
 import { useGroups } from '../features/groups/queries'
 import { useAnlagen } from '../features/anlagen/queries'
@@ -61,6 +65,47 @@ export function UsersPage() {
   const createMutation = useCreateUser()
   const updateMutation = useUpdateUser(editUser?.id ?? '')
   const deleteMutation = useDeleteUser()
+
+  // Einladungen
+  const { data: invitations } = useInvitations()
+  const createInvite = useCreateInvitation()
+  const resendInvite = useResendInvitation()
+  const deleteInvite = useDeleteInvitation()
+  const [inviteDrawerOpen, setInviteDrawerOpen] = useState(false)
+  const [inviteForm, setInviteForm] = useState({ email: '', roleId: '' })
+  const [inviteAssign, setInviteAssign] = useState({ groupIds: [] as string[], anlageIds: [] as string[], deviceIds: [] as string[] })
+  const [inviteTab, setInviteTab] = useState(0)
+  const [inviteError, setInviteError] = useState('')
+  const [inviteSuccess, setInviteSuccess] = useState('')
+  const [deleteInviteTarget, setDeleteInviteTarget] = useState<string | null>(null)
+
+  const openInvite = () => {
+    setInviteForm({ email: '', roleId: '' })
+    setInviteAssign({ groupIds: [], anlageIds: [], deviceIds: [] })
+    setInviteError('')
+    setInviteSuccess('')
+    setInviteTab(0)
+    setInviteDrawerOpen(true)
+  }
+
+  const handleInvite = async () => {
+    setInviteError('')
+    setInviteSuccess('')
+    try {
+      const result = await createInvite.mutateAsync({
+        email: inviteForm.email,
+        roleId: inviteForm.roleId || null,
+        ...inviteAssign,
+      })
+      setInviteSuccess(`Einladung an ${result.email} gesendet.`)
+      setInviteForm({ email: '', roleId: '' })
+      setInviteAssign({ groupIds: [], anlageIds: [], deviceIds: [] })
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : 'Einladung fehlgeschlagen')
+    }
+  }
+
+  const pendingInvitations = (invitations ?? []).filter((i) => !i.usedAt)
 
   const openCreate = () => {
     setEditUser(null)
@@ -111,7 +156,10 @@ export function UsersPage() {
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h5">{t('users.title', { count: users?.length ?? 0 })}</Typography>
-        {canCreate && <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>{t('users.create')}</Button>}
+        <Box display="flex" gap={1}>
+          {canCreate && <Button variant="outlined" startIcon={<MailOutlineIcon />} onClick={openInvite}>Einladen</Button>}
+          {canCreate && <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>{t('users.create')}</Button>}
+        </Box>
       </Box>
 
       <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
@@ -210,6 +258,145 @@ export function UsersPage() {
         </Box>
       </Drawer>
 
+      {/* Offene Einladungen */}
+      {canCreate && pendingInvitations.length > 0 && (
+        <Box mt={4}>
+          <Typography variant="h6" mb={2}>Offene Einladungen ({pendingInvitations.length})</Typography>
+          <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>E-Mail</TableCell>
+                  <TableCell>Eingeladen von</TableCell>
+                  <TableCell>Gültig bis</TableCell>
+                  <TableCell>{t('common.status')}</TableCell>
+                  <TableCell align="right">{t('common.actions')}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {pendingInvitations.map((inv) => {
+                  const isExpired = new Date(inv.expiresAt) < new Date()
+                  return (
+                    <TableRow key={inv.id}>
+                      <TableCell>{inv.email}</TableCell>
+                      <TableCell>{inv.invitedBy.firstName} {inv.invitedBy.lastName}</TableCell>
+                      <TableCell>{new Date(inv.expiresAt).toLocaleDateString('de-DE')}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={isExpired ? 'Abgelaufen' : 'Ausstehend'}
+                          color={isExpired ? 'error' : 'warning'}
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="Link kopieren">
+                          <IconButton size="small" onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/invite/${inv.token}`)
+                          }}>
+                            <ContentCopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Erneut senden">
+                          <IconButton size="small" onClick={() => resendInvite.mutate(inv.id)}>
+                            <ReplayIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title={t('common.delete')}>
+                          <IconButton size="small" color="error" onClick={() => setDeleteInviteTarget(inv.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      )}
+
+      {/* Einladungs-Drawer */}
+      <Drawer anchor="right" open={inviteDrawerOpen} onClose={() => setInviteDrawerOpen(false)}>
+        <Box sx={{ width: 420, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Box sx={{ p: 3, pb: 0 }}>
+            <Typography variant="h6" gutterBottom>Benutzer einladen</Typography>
+            <Tabs value={inviteTab} onChange={(_, v) => setInviteTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+              <Tab label="E-Mail & Rolle" />
+              <Tab label={t('common.assignments')} />
+            </Tabs>
+          </Box>
+
+          <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 3 }}>
+            {inviteError && <Alert severity="error" sx={{ mb: 2 }}>{inviteError}</Alert>}
+            {inviteSuccess && <Alert severity="success" sx={{ mb: 2 }}>{inviteSuccess}</Alert>}
+
+            {inviteTab === 0 && (
+              <Box display="flex" flexDirection="column" gap={2}>
+                <TextField
+                  label="E-Mail-Adresse"
+                  type="email"
+                  value={inviteForm.email}
+                  onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                  fullWidth
+                  required
+                  helperText="Der Benutzer erhält eine E-Mail mit einem Registrierungslink."
+                />
+                <TextField
+                  select
+                  label={t('common.role')}
+                  value={inviteForm.roleId}
+                  onChange={(e) => setInviteForm({ ...inviteForm, roleId: e.target.value })}
+                  fullWidth
+                >
+                  <MenuItem value="">{t('common.noRole')}</MenuItem>
+                  {roles?.map((r) => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
+                </TextField>
+              </Box>
+            )}
+
+            {inviteTab === 1 && (
+              <Box display="flex" flexDirection="column" gap={3}>
+                <SearchableMultiSelect
+                  label={t('nav.groups')}
+                  options={groupOptions}
+                  selected={inviteAssign.groupIds}
+                  onChange={(ids) => setInviteAssign({ ...inviteAssign, groupIds: ids })}
+                />
+                <Divider />
+                <SearchableMultiSelect
+                  label={t('nav.anlagen')}
+                  options={anlageOptions}
+                  selected={inviteAssign.anlageIds}
+                  onChange={(ids) => setInviteAssign({ ...inviteAssign, anlageIds: ids })}
+                />
+                <Divider />
+                <SearchableMultiSelect
+                  label={t('nav.devices')}
+                  options={deviceOptions}
+                  selected={inviteAssign.deviceIds}
+                  onChange={(ids) => setInviteAssign({ ...inviteAssign, deviceIds: ids })}
+                />
+              </Box>
+            )}
+          </Box>
+
+          <Box sx={{ p: 3, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+            <Box display="flex" gap={1} justifyContent="flex-end">
+              <Button onClick={() => setInviteDrawerOpen(false)}>{t('common.cancel')}</Button>
+              <Button
+                variant="contained"
+                startIcon={<MailOutlineIcon />}
+                onClick={handleInvite}
+                disabled={!inviteForm.email || createInvite.isPending}
+              >
+                Einladung senden
+              </Button>
+            </Box>
+          </Box>
+        </Box>
+      </Drawer>
+
       <ConfirmDialog
         open={!!deleteTarget}
         title={t('users.deleteTitle')}
@@ -218,6 +405,16 @@ export function UsersPage() {
         onConfirm={async () => { if (deleteTarget) { await deleteMutation.mutateAsync(deleteTarget.id); setDeleteTarget(null) } }}
         onClose={() => setDeleteTarget(null)}
         loading={deleteMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={!!deleteInviteTarget}
+        title="Einladung widerrufen"
+        message="Soll diese Einladung wirklich gelöscht werden?"
+        confirmLabel={t('common.delete')}
+        onConfirm={async () => { if (deleteInviteTarget) { await deleteInvite.mutateAsync(deleteInviteTarget); setDeleteInviteTarget(null) } }}
+        onClose={() => setDeleteInviteTarget(null)}
+        loading={deleteInvite.isPending}
       />
     </Box>
   )

@@ -14,6 +14,7 @@ import { RolesPage } from '../pages/RolesPage'
 import { SettingsPage } from '../pages/SettingsPage'
 import { VpnPage } from '../pages/VpnPage'
 import { UserDashboardPage } from '../pages/UserDashboardPage'
+import { AcceptInvitePage } from '../pages/AcceptInvitePage'
 
 function PrivateRoutes() {
   const { me, isLoading } = useSession()
@@ -34,6 +35,7 @@ export function AppRouter() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/invite/:token" element={<AcceptInvitePage />} />
         <Route element={<PrivateRoutes />}>
           <Route path="/" element={<HomeRoute />} />
           <Route path="/devices" element={

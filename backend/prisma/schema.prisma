@@ -47,6 +47,7 @@ model User {
   createdAnlageLogs   AnlageLogEntry[] @relation("AnlageLogAuthor")
   createdDeviceTodos  DeviceTodo[]     @relation("DeviceTodoAuthor")
   createdDeviceLogs   DeviceLogEntry[] @relation("DeviceLogAuthor")
+  sentInvitations     Invitation[]     @relation("InvitationAuthor")
 
   @@index([roleId])
   @@map("users")
@@ -315,6 +316,28 @@ model DeviceLogEntry {
 
   @@index([deviceId])
   @@map("device_log_entries")
+}
+
+// ─── Invitations ─────────────────────────────────────────────────────────
+
+model Invitation {
+  id          String    @id @default(uuid()) @db.Uuid
+  email       String
+  token       String    @unique
+  roleId      String?   @map("role_id") @db.Uuid
+  groupIds    String[]  @map("group_ids") @db.Uuid
+  anlageIds   String[]  @map("anlage_ids") @db.Uuid
+  deviceIds   String[]  @map("device_ids") @db.Uuid
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  invitedById String    @map("invited_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  invitedBy   User      @relation("InvitationAuthor", fields: [invitedById], references: [id])
+
+  @@index([token])
+  @@index([email])
+  @@map("invitations")
 }
 
 // ─── System Settings ──────────────────────────────────────────────────────────

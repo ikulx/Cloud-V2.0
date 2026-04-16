@@ -27,4 +27,13 @@ export const env = {
     wgContainer:      process.env.VPN_WG_CONTAINER      ?? 'ycontrol_wireguard',
     wgConfigPath:     process.env.VPN_WG_CONFIG_PATH    ?? '/wireguard-config/wg0.conf',
   },
+  smtp: {
+    host:     process.env.SMTP_HOST     ?? '',
+    port:     parseInt(process.env.SMTP_PORT ?? '587', 10),
+    secure:   process.env.SMTP_SECURE   === 'true',
+    user:     process.env.SMTP_USER     ?? '',
+    password: process.env.SMTP_PASSWORD ?? '',
+    from:     process.env.SMTP_FROM     ?? 'YControl Cloud <noreply@ycontrol.local>',
+  },
+  appUrl: process.env.APP_URL ?? 'http://localhost:5173',
 }
