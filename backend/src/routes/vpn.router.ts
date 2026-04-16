@@ -162,6 +162,7 @@ router.get('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), 
     vpnIp:       vpnDevice.vpnIp,
     localPrefix: vpnDevice.localPrefix,
     visuPort:    vpnDevice.visuPort,
+    visuIp:      vpnDevice.visuIp,
     piPublicKey: vpnDevice.piPublicKey,
     createdAt:   vpnDevice.createdAt,
   })
@@ -177,6 +178,7 @@ const enableDeviceSchema = z.object({
   vpnIp:       z.string().regex(VPN_IP_RE, 'VPN-IP muss Format 10.A.0.B haben (A: 11–255, B: 1–254)'),
   localPrefix: z.string().regex(LOCAL_PREFIX_RE, 'LAN-Präfix muss drei Oktette haben, z.B. 192.168.10').optional(),
   visuPort:    z.number().int().min(1).max(65535).optional(),
+  visuIp:      z.string().ip({ version: 'v4' }).optional().nullable(),
 })
 
 router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:manage'), async (req, res) => {
@@ -202,6 +204,7 @@ router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:ma
       vpnIp: parsed.data.vpnIp,
       localPrefix: parsed.data.localPrefix ?? '192.168.10',
       visuPort:    parsed.data.visuPort    ?? 80,
+      visuIp:      parsed.data.visuIp      ?? null,
       piPublicKey,
       piPrivateKey,
     },
@@ -214,6 +217,7 @@ router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:ma
     vpnIp:       vpnDevice.vpnIp,
     localPrefix: vpnDevice.localPrefix,
     visuPort:    vpnDevice.visuPort,
+    visuIp:      vpnDevice.visuIp,
     piPublicKey: vpnDevice.piPublicKey,
     createdAt:   vpnDevice.createdAt,
   })
@@ -225,6 +229,7 @@ const updateDeviceSchema = z.object({
   vpnIp:       z.string().regex(VPN_IP_RE, 'VPN-IP muss Format 10.A.0.B haben (A: 11–255, B: 1–254)').optional(),
   localPrefix: z.string().regex(LOCAL_PREFIX_RE, 'LAN-Präfix muss drei Oktette haben, z.B. 192.168.10').optional(),
   visuPort:    z.number().int().min(1).max(65535).optional(),
+  visuIp:      z.string().ip({ version: 'v4' }).optional().nullable(),
 })
 
 router.put('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), async (req, res) => {
@@ -246,10 +251,11 @@ router.put('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), 
       vpnIp:       parsed.data.vpnIp       ?? existing.vpnIp,
       localPrefix: parsed.data.localPrefix ?? existing.localPrefix,
       visuPort:    parsed.data.visuPort    ?? existing.visuPort,
+      visuIp:      parsed.data.visuIp !== undefined ? parsed.data.visuIp : existing.visuIp,
     },
   })
 
-  res.json({ id: updated.id, deviceId, vpnIp: updated.vpnIp, localPrefix: updated.localPrefix, visuPort: updated.visuPort })
+  res.json({ id: updated.id, deviceId, vpnIp: updated.vpnIp, localPrefix: updated.localPrefix, visuPort: updated.visuPort, visuIp: updated.visuIp })
   syncAll().catch((e) => console.error('[VPN] syncAll nach device update:', e))
 })
 
@@ -505,13 +511,16 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
 
 // ─── VPN-Erreichbarkeitstest ──────────────────────────────────────────────────
 // GET /api/vpn/devices/:deviceId/ping
-// Prüft ob der Pi via VPN-IP auf dem konfigurierten visuPort erreichbar ist
+// Prüft ob das Visu-Gerät via VPN-LAN-Adresse erreichbar ist
 router.get('/devices/:deviceId/ping', authenticate, requirePermission('vpn:manage'), async (req, res) => {
   const deviceId = req.params.deviceId as string
   const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
   if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
 
-  const ip   = vpnDevice.vpnIp
+  // Visu-IP: wenn visuIp gesetzt → VPN-LAN-Adresse, sonst Fallback auf Pi's VPN-IP
+  const ip = vpnDevice.visuIp
+    ? `${deriveVpnLanPrefix(vpnDevice.vpnIp)}.${vpnDevice.visuIp.split('.').pop()}`
+    : vpnDevice.vpnIp
   const port = vpnDevice.visuPort
 
   const start = Date.now()
@@ -927,7 +936,10 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
   const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
   if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
 
-  const piVisuIp = vpnDevice.vpnIp
+  // Visu-IP: wenn visuIp gesetzt → VPN-LAN-Adresse berechnen, sonst Fallback auf Pi's VPN-IP
+  const piVisuIp = vpnDevice.visuIp
+    ? `${deriveVpnLanPrefix(vpnDevice.vpnIp)}.${vpnDevice.visuIp.split('.').pop()}`
+    : vpnDevice.vpnIp
   const piVisuPort = vpnDevice.visuPort
 
   // Pfad nach /visu weitergeben

@@ -211,6 +211,8 @@ const de = {
     localPrefixHint: 'Erste drei Oktette des realen Pi-Netzwerks (ohne Punkt am Ende)',
     visuPort: 'Visu-Port',
     visuPortHint: 'HTTP-Port des ycontrol-rt Containers (Standard: 80)',
+    visuIp: 'Visu-IP (LAN)',
+    visuIpHint: 'Lokale IP des Visu-Geräts im Anlagen-LAN, z.B. 192.168.10.31 (leer = Pi selbst)',
     piKey: 'Pi-Schlüssel',
     keyPresent: 'Schlüssel vorhanden',
     keyMissing: 'Kein Schlüssel',

@@ -397,8 +397,12 @@ model VpnDevice {
   /// Reales LAN-Präfix des Pi (erste drei Oktette), z.B. "192.168.10"
   localPrefix  String   @default("192.168.10") @map("local_prefix")
 
-  /// HTTP-Port des ycontrol-rt Containers auf dem Pi (Default: 80)
+  /// HTTP-Port der Visu auf dem Zielgerät (Default: 80)
   visuPort     Int      @default(80) @map("visu_port")
+
+  /// Lokale IP des Visu-Geräts im Anlagen-LAN, z.B. "192.168.10.31"
+  /// Wird zur VPN-LAN-Adresse umgerechnet (10.A.B.x via NETMAP)
+  visuIp       String?  @map("visu_ip")
 
   /// WireGuard-Schlüsselpaar des Pi (vom Cloud generiert)
   piPublicKey  String?  @map("pi_public_key")

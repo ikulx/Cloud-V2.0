@@ -9,6 +9,7 @@ import { env } from './config/env'
 import { prisma } from './db/prisma'
 import { verifyAccessToken } from './lib/token'
 import WebSocket, { WebSocketServer } from 'ws'
+import { deriveVpnLanPrefix } from './services/vpn.service'
 
 /** VPN-Route setzen: 10.0.0.0/8 via ycontrol_wireguard
  *  Damit kann der Backend-Container den Pi direkt über den WireGuard-Tunnel erreichen.
@@ -69,10 +70,14 @@ async function main() {
           return
         }
 
-        const piWsUrl = `ws://${vpnDevice.vpnIp}:${vpnDevice.visuPort}/socket.io${socketPath}`
+        // Visu-IP: wenn visuIp gesetzt → VPN-LAN-Adresse, sonst Fallback auf Pi's VPN-IP
+        const visuTargetIp = vpnDevice.visuIp
+          ? `${deriveVpnLanPrefix(vpnDevice.vpnIp)}.${vpnDevice.visuIp.split('.').pop()}`
+          : vpnDevice.vpnIp
+        const piWsUrl = `ws://${visuTargetIp}:${vpnDevice.visuPort}/socket.io${socketPath}`
         console.log(`[WS-Tunnel] ${deviceId} → ${piWsUrl}`)
 
-        const piWs = new WebSocket(piWsUrl, { headers: { host: `${vpnDevice.vpnIp}:${vpnDevice.visuPort}` } })
+        const piWs = new WebSocket(piWsUrl, { headers: { host: `${visuTargetIp}:${vpnDevice.visuPort}` } })
 
         piWs.once('open', () => {
           wss.handleUpgrade(req, socket, head, (clientWs) => {

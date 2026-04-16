@@ -129,9 +129,11 @@ export function DeviceDetailPage() {
   const [newVpnIp, setNewVpnIp] = useState('')
   const [newLocalPrefix, setNewLocalPrefix] = useState('192.168.10')
   const [newVisuPort, setNewVisuPort] = useState('80')
+  const [newVisuIp, setNewVisuIp] = useState('')
   const [editVpnIp, setEditVpnIp] = useState('')
   const [editLocalPrefix, setEditLocalPrefix] = useState('')
   const [editVisuPort, setEditVisuPort] = useState('80')
+  const [editVisuIp, setEditVisuIp] = useState('')
 
   // LAN-Geräte
   const createLanDevice = useCreateLanDevice(id!)
@@ -145,6 +147,7 @@ export function DeviceDetailPage() {
       setEditVpnIp(vpnConfig.vpnIp)
       setEditLocalPrefix(vpnConfig.localPrefix)
       setEditVisuPort(String(vpnConfig.visuPort ?? 80))
+      setEditVisuIp(vpnConfig.visuIp ?? '')
     }
   }, [vpnConfig])
 
@@ -311,13 +314,21 @@ export function DeviceDetailPage() {
                       inputProps={{ min: 1, max: 65535 }}
                       helperText={t('vpn.visuPortHint')}
                     />
+                    <TextField
+                      label={t('vpn.visuIp')}
+                      size="small"
+                      value={newVisuIp}
+                      onChange={(e) => setNewVisuIp(e.target.value)}
+                      placeholder="192.168.10.31"
+                      helperText={t('vpn.visuIpHint')}
+                    />
                     <Box>
                       <Button
                         variant="contained"
                         disabled={!!validateVpnIp(newVpnIp) || !!validateLocalPrefix(newLocalPrefix) || enableVpn.isPending}
                         onClick={() => enableVpn.mutate(
-                          { deviceId: id!, vpnIp: newVpnIp, localPrefix: newLocalPrefix, visuPort: parseInt(newVisuPort) || 80 },
-                          { onSuccess: () => { setNewVpnIp(''); setNewLocalPrefix('192.168.10'); setNewVisuPort('80') } }
+                          { deviceId: id!, vpnIp: newVpnIp, localPrefix: newLocalPrefix, visuPort: parseInt(newVisuPort) || 80, visuIp: newVisuIp.trim() || null },
+                          { onSuccess: () => { setNewVpnIp(''); setNewLocalPrefix('192.168.10'); setNewVisuPort('80'); setNewVisuIp('') } }
                         )}
                       >
                         {t('vpn.enableDevice')}
@@ -362,11 +373,20 @@ export function DeviceDetailPage() {
                         helperText={t('vpn.visuPortHint')}
                         sx={{ width: 120 }}
                       />
+                      <TextField
+                        label={t('vpn.visuIp')}
+                        size="small"
+                        value={editVisuIp}
+                        onChange={(e) => setEditVisuIp(e.target.value)}
+                        placeholder="192.168.10.31"
+                        helperText={t('vpn.visuIpHint')}
+                        sx={{ width: 200 }}
+                      />
                       <Button
                         variant="outlined"
                         disabled={updateVpn.isPending || !!validateVpnIp(editVpnIp) || !!validateLocalPrefix(editLocalPrefix)}
                         onClick={() => updateVpn.mutate(
-                          { deviceId: id!, vpnIp: editVpnIp, localPrefix: editLocalPrefix, visuPort: parseInt(editVisuPort) || 80 },
+                          { deviceId: id!, vpnIp: editVpnIp, localPrefix: editLocalPrefix, visuPort: parseInt(editVisuPort) || 80, visuIp: editVisuIp.trim() || null },
                           { onSuccess: () => setVpnMsg(t('vpn.saved')) }
                         )}
                       >
@@ -412,6 +432,7 @@ export function DeviceDetailPage() {
                     </Box>
                     <Typography variant="caption" color="text.secondary">
                       VPN-IP: <strong>{vpnConfig.vpnIp}</strong> · LAN: <strong>{vpnConfig.localPrefix}.0/24</strong>
+                      {vpnConfig.visuIp ? ` · Visu: ${vpnConfig.visuIp}` : ''}
                       {vpnConfig.piPublicKey ? ` · ${t('vpn.keyPresent')}` : ` · ${t('vpn.keyMissing')}`}
                     </Typography>
                   </Box>
