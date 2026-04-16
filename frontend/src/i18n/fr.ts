@@ -198,7 +198,7 @@ const fr = {
     serverPort: 'Port WireGuard',
     serverSetup: 'Installation du serveur',
     serverSetupDesc: 'Commandes uniques pour configurer le serveur WireGuard :',
-    downloadServerConfig: 'Télécharger wgyc.conf serveur',
+    downloadServerConfig: 'Télécharger wg0.conf serveur',
     ipSchema: 'Espace d\'adressage IP',
     devicesTitle: 'Appareils VPN ({{count}})',
     devicesHint: 'Le VPN est configuré directement par appareil',

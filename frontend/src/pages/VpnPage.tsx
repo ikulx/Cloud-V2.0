@@ -184,15 +184,15 @@ cat /etc/wireguard/server.pub   # → PublicKey (hier eintragen)
 # 3. IP-Weiterleitung aktivieren
 echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf && sysctl -p
 
-# 4. wgyc.conf herunterladen und anwenden
-wg-quick up wgyc
-systemctl enable wg-quick@wgyc`}
+# 4. wg0.conf herunterladen und anwenden
+wg-quick up wg0
+systemctl enable wg-quick@wg0`}
           </Box>
           <Button
             variant="outlined"
             startIcon={<DownloadIcon />}
             sx={{ mt: 2 }}
-            onClick={() => downloadBlob('/vpn/server-config', 'wgyc.conf')}
+            onClick={() => downloadBlob('/vpn/server-config', 'wg0.conf')}
           >
             {t('vpn.downloadServerConfig')}
           </Button>
@@ -205,7 +205,7 @@ systemctl enable wg-quick@wgyc`}
           <Box component="pre" sx={{ bgcolor: 'grey.900', color: 'grey.100', p: 2, borderRadius: 1, fontSize: 12, overflow: 'auto' }}>
 {`Zone A — Management (10.0.0.0/16)
   10.0.x.y     Techniker-PCs (VPN-Peers)
-  10.1.0.1     Cloud-Server (wgyc)
+  10.1.0.1     Cloud-Server (wg0)
 
 Zone B — Geräte (frei wählbar, z.B. 10.11.x.x)
   10.11.0.2    Gerät 1 (VPN-IP, /32 + LAN-Präfix.0/24)

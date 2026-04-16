@@ -198,7 +198,7 @@ const en = {
     serverPort: 'WireGuard Port',
     serverSetup: 'Server Setup',
     serverSetupDesc: 'One-time commands to set up the WireGuard server:',
-    downloadServerConfig: 'Download server wgyc.conf',
+    downloadServerConfig: 'Download server wg0.conf',
     ipSchema: 'IP Address Space',
     devicesTitle: 'VPN Devices ({{count}})',
     devicesHint: 'VPN is configured directly per device',
