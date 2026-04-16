@@ -94,6 +94,14 @@ async function syncAll(): Promise<void> {
   )
 }
 
+// ─── Initiale Synchronisation beim Backend-Start ─────────────────────────────
+// Stellt sicher, dass wg0.conf nach einem Redeploy sofort aktuell ist.
+setTimeout(() => {
+  syncAll()
+    .then(() => console.log('[VPN] Initiale wg0.conf-Synchronisation abgeschlossen'))
+    .catch((e) => console.warn('[VPN] Initiale Synchronisation fehlgeschlagen:', e.message))
+}, 5000) // 5s Verzögerung: DB + Prisma müssen bereit sein
+
 // ─── Einstellungen ────────────────────────────────────────────────────────────
 
 // GET /api/vpn/settings
