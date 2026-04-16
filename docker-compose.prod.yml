@@ -89,7 +89,7 @@ services:
       MQTT_BACKEND_PASSWORD:     ${MQTT_BACKEND_PASSWORD}
       VPN_SERVER_PRIVATE_KEY:    ${VPN_SERVER_PRIVATE_KEY:-}
       VPN_WG_CONTAINER:          ycontrol_wireguard
-      VPN_WG_CONFIG_PATH:        /wireguard-config/wg0.conf
+      VPN_WG_CONFIG_PATH:        /wireguard-config/wgyc.conf
     volumes:
       - wireguard_config:/wireguard-config
       - /var/run/docker.sock:/var/run/docker.sock

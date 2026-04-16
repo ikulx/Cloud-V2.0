@@ -121,9 +121,9 @@ export function UserDashboardPage() {
                     {anlage.name}
                   </Typography>
                 </Stack>
-                {anlage.location && (
+                {anlage.city && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                    {anlage.location}
+                    {[anlage.zip, anlage.city].filter(Boolean).join(' ')}
                   </Typography>
                 )}
                 {anlage.description && (

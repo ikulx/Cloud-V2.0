@@ -459,11 +459,20 @@ def run_agent():
                             f.write(vpn_config)
                         os.chmod(wg_conf, 0o600)
                         print("[YControl] wgyc.conf geschrieben")
-                        # 4. Altes wgyc-Interface sauber entfernen (falls vorhanden)
+                        # 4. Altes wg0-Interface entfernen (Migration wg0→wgyc)
+                        subprocess.run(["systemctl", "disable", "wg-quick@wg0"], capture_output=True)
+                        subprocess.run(["wg-quick", "down", "wg0"], capture_output=True)
+                        subprocess.run(["ip", "link", "delete", "wg0"], capture_output=True)
+                        subprocess.run(["systemctl", "reset-failed", "wg-quick@wg0"], capture_output=True)
+                        try:
+                            os.remove("/etc/wireguard/wg0.conf")
+                        except FileNotFoundError:
+                            pass
+                        # 5. Altes wgyc-Interface sauber entfernen (falls vorhanden)
                         subprocess.run(["wg-quick", "down", "wgyc"], capture_output=True)
                         subprocess.run(["ip", "link", "delete", "wgyc"], capture_output=True)
                         subprocess.run(["systemctl", "reset-failed", "wg-quick@wgyc"], capture_output=True)
-                        # 5. wg-quick direkt starten – so sehen wir den exakten Fehler
+                        # 6. wg-quick direkt starten – so sehen wir den exakten Fehler
                         test = subprocess.run(["wg-quick", "up", "wgyc"], capture_output=True, text=True)
                         if test.returncode != 0:
                             err_msg = (test.stdout + "\\n" + test.stderr).strip()

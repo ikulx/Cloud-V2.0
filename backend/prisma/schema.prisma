@@ -132,12 +132,23 @@ model UserGroupMember {
 // ─── Anlagen ──────────────────────────────────────────────────────────────────
 
 model Anlage {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String
-  description String?
-  location    String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  projectNumber   String?  @map("project_number")
+  name            String
+  description     String?
+  street          String?
+  zip             String?
+  city            String?
+  country         String?  @default("Schweiz")
+  contactName     String?  @map("contact_name")
+  contactPhone    String?  @map("contact_phone")
+  contactMobile   String?  @map("contact_mobile")
+  contactEmail    String?  @map("contact_email")
+  notes           String?
+  latitude        Float?
+  longitude       Float?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   anlageDevices AnlageDevice[]
   directUsers   UserDirectAnlage[]

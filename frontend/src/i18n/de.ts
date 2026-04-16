@@ -199,7 +199,7 @@ const de = {
     serverPort: 'WireGuard-Port',
     serverSetup: 'Server-Einrichtung',
     serverSetupDesc: 'Einmalige Befehle zur Einrichtung des WireGuard-Servers:',
-    downloadServerConfig: 'Server wg0.conf herunterladen',
+    downloadServerConfig: 'Server wgyc.conf herunterladen',
     ipSchema: 'IP-Adressraum',
     // Geräte-VPN
     devicesTitle: 'VPN-Geräte ({{count}})',

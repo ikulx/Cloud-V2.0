@@ -8,9 +8,20 @@ import { buildVisibleAnlagenWhere } from '../lib/access-filter'
 const router = Router()
 
 const anlageSchema = z.object({
+  projectNumber: z.string().max(50).optional().nullable(),
   name: z.string().min(1).max(200),
-  description: z.string().optional(),
-  location: z.string().optional(),
+  description: z.string().optional().nullable(),
+  street: z.string().max(200).optional().nullable(),
+  zip: z.string().max(20).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
+  country: z.string().max(100).optional().nullable(),
+  contactName: z.string().max(200).optional().nullable(),
+  contactPhone: z.string().max(50).optional().nullable(),
+  contactMobile: z.string().max(50).optional().nullable(),
+  contactEmail: z.string().max(200).optional().nullable(),
+  notes: z.string().optional().nullable(),
+  latitude: z.number().min(-90).max(90).optional().nullable(),
+  longitude: z.number().min(-180).max(180).optional().nullable(),
   deviceIds: z.array(z.string().uuid()).optional(),
   userIds: z.array(z.string().uuid()).optional(),
   groupIds: z.array(z.string().uuid()).optional(),

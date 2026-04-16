@@ -17,7 +17,11 @@ import { NavLink } from 'react-router-dom'
 import { useSession } from '../context/SessionContext'
 import { useTranslation } from 'react-i18next'
 
-export function Sidebar() {
+interface SidebarProps {
+  onNavClick?: () => void
+}
+
+export function Sidebar({ onNavClick }: SidebarProps) {
   const { hasPermission, me } = useSession()
   const { t } = useTranslation()
 
@@ -63,6 +67,7 @@ export function Sidebar() {
             component={NavLink}
             to={item.to}
             end={item.to === '/'}
+            onClick={onNavClick}
             sx={{
               color: 'rgba(255,255,255,0.7)',
               borderRadius: 1,

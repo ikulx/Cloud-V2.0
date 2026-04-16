@@ -151,7 +151,14 @@ async function main() {
         id: '00000000-0000-0000-0000-000000000001',
         name: 'Produktionshalle A',
         description: 'Hauptanlage im Erdgeschoss',
-        location: 'Gebäude 1, EG',
+        street: 'Industriestrasse 10',
+        zip: '8000',
+        city: 'Zürich',
+        country: 'Schweiz',
+        contactName: 'Max Muster',
+        contactPhone: '+41 44 123 45 67',
+        latitude: 47.3769,
+        longitude: 8.5417,
       },
     })
 

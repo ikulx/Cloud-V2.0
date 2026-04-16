@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-CONFIG=/etc/wireguard/wg0.conf
+CONFIG=/etc/wireguard/wgyc.conf
 
 echo "[WireGuard] Warte auf Konfiguration..."
 for i in $(seq 1 30); do
@@ -15,31 +15,37 @@ if [ ! -f "$CONFIG" ]; then
   exit 1
 fi
 
-echo "[WireGuard] Starte Interface wg0..."
-wg-quick up wg0
+# Migration: Altes wg0-Interface entfernen (falls vorhanden)
+if ip link show wg0 &>/dev/null; then
+  echo "[WireGuard] Entferne altes wg0-Interface..."
+  wg-quick down wg0 2>/dev/null || true
+fi
+
+echo "[WireGuard] Starte Interface wgyc..."
+wg-quick up wgyc
 
 # Erlaube dem Backend-Container, VPN-Traffic über diesen Container zu routen.
-# Backend sendet Pakete an 10.x.x.x → dieser Container leitet sie via wg0 weiter.
+# Backend sendet Pakete an 10.x.x.x → dieser Container leitet sie via wgyc weiter.
 echo "[WireGuard] Setze Forwarding-Regeln für Backend-Container..."
-iptables -A FORWARD -i eth0 -o wg0 -j ACCEPT
-iptables -A FORWARD -i wg0 -o eth0 -j ACCEPT
-iptables -t nat -A POSTROUTING -o wg0 -j MASQUERADE
-echo "[WireGuard] Forwarding aktiv (eth0 ↔ wg0)"
+iptables -A FORWARD -i eth0 -o wgyc -j ACCEPT
+iptables -A FORWARD -i wgyc -o eth0 -j ACCEPT
+iptables -t nat -A POSTROUTING -o wgyc -j MASQUERADE
+echo "[WireGuard] Forwarding aktiv (eth0 ↔ wgyc)"
 
 reload_wg() {
   echo "[WireGuard] Reload via SIGHUP..."
-  if wg syncconf wg0 <(wg-quick strip wg0) 2>/dev/null; then
+  if wg syncconf wgyc <(wg-quick strip wgyc) 2>/dev/null; then
     echo "[WireGuard] Reload erfolgreich"
   else
     echo "[WireGuard] syncconf fehlgeschlagen – starte Interface neu..."
-    wg-quick down wg0 2>/dev/null || true
-    wg-quick up wg0
+    wg-quick down wgyc 2>/dev/null || true
+    wg-quick up wgyc
   fi
 }
 
 cleanup() {
   echo "[WireGuard] Beende..."
-  wg-quick down wg0 2>/dev/null || true
+  wg-quick down wgyc 2>/dev/null || true
   exit 0
 }
 

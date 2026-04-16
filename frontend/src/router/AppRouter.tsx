@@ -8,6 +8,7 @@ import { DevicesPage } from '../pages/DevicesPage'
 import { DeviceDetailPage } from '../pages/DeviceDetailPage'
 import { AnlagenPage } from '../pages/AnlagenPage'
 import { AnlageDetailPage } from '../pages/AnlageDetailPage'
+import { AnlagenMapPage } from '../pages/AnlagenMapPage'
 import { GroupsPage } from '../pages/GroupsPage'
 import { UsersPage } from '../pages/UsersPage'
 import { RolesPage } from '../pages/RolesPage'
@@ -46,6 +47,9 @@ export function AppRouter() {
           } />
           <Route path="/anlagen" element={
             <RequirePermission permission="anlagen:read"><AnlagenPage /></RequirePermission>
+          } />
+          <Route path="/anlagen/map" element={
+            <RequirePermission permission="anlagen:read"><AnlagenMapPage /></RequirePermission>
           } />
           <Route path="/anlagen/:id" element={
             <RequirePermission permission="anlagen:read"><AnlageDetailPage /></RequirePermission>

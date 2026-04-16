@@ -9,19 +9,25 @@ import Avatar from '@mui/material/Avatar'
 import Box from '@mui/material/Box'
 import Divider from '@mui/material/Divider'
 import Tooltip from '@mui/material/Tooltip'
+import MenuIcon from '@mui/icons-material/Menu'
 import { useSession } from '../context/SessionContext'
 import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import i18n from '../i18n/index'
 
 const LANGUAGES = [
-  { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
-  { code: 'en', label: 'English', flag: '🇬🇧' },
-  { code: 'it', label: 'Italiano', flag: '🇮🇹' },
-  { code: 'fr', label: 'Français', flag: '🇫🇷' },
+  { code: 'de', label: 'Deutsch', flag: '\u{1F1E9}\u{1F1EA}' },
+  { code: 'en', label: 'English', flag: '\u{1F1EC}\u{1F1E7}' },
+  { code: 'it', label: 'Italiano', flag: '\u{1F1EE}\u{1F1F9}' },
+  { code: 'fr', label: 'Fran\u00e7ais', flag: '\u{1F1EB}\u{1F1F7}' },
 ]
 
-export function TopBar() {
+interface TopBarProps {
+  onMenuClick?: () => void
+  showMenuButton?: boolean
+}
+
+export function TopBar({ onMenuClick, showMenuButton }: TopBarProps) {
   const { me, logout } = useSession()
   const location = useLocation()
   const { t } = useTranslation()
@@ -50,12 +56,19 @@ export function TopBar() {
 
   return (
     <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-      <Toolbar>
-        <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600 }}>
+      <Toolbar sx={{ px: { xs: 1, sm: 2 }, minHeight: { xs: 48, sm: 56, md: 64 } }}>
+        {/* Hamburger-Button auf Mobile */}
+        {showMenuButton && (
+          <IconButton edge="start" onClick={onMenuClick} sx={{ mr: 1 }}>
+            <MenuIcon />
+          </IconButton>
+        )}
+
+        <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600, fontSize: { xs: '1rem', sm: '1.15rem', md: '1.25rem' } }} noWrap>
           {title}
         </Typography>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 } }}>
           {/* Language switcher */}
           <Tooltip title={t('topbar.language')}>
             <IconButton onClick={(e) => setLangAnchor(e.currentTarget)} size="small" sx={{ fontSize: 20 }}>
@@ -63,10 +76,17 @@ export function TopBar() {
             </IconButton>
           </Tooltip>
 
-          {/* User menu */}
-          <Typography variant="body2" color="text.secondary">
+          {/* User name — nur auf grösseren Bildschirmen */}
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            noWrap
+            sx={{ display: { xs: 'none', sm: 'block' }, maxWidth: 160 }}
+          >
             {me?.firstName} {me?.lastName}
           </Typography>
+
+          {/* User avatar + menu */}
           <IconButton onClick={(e) => setUserAnchor(e.currentTarget)} size="small">
             <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 13 }}>
               {initials}
@@ -94,7 +114,7 @@ export function TopBar() {
             <Typography variant="body2" color="text.secondary">{me?.email}</Typography>
           </MenuItem>
           <MenuItem disabled>
-            <Typography variant="body2" color="text.secondary">{t('topbar.roleLabel')}: {me?.roleName ?? '—'}</Typography>
+            <Typography variant="body2" color="text.secondary">{t('topbar.roleLabel')}: {me?.roleName ?? '\u2014'}</Typography>
           </MenuItem>
           <Divider />
           <MenuItem onClick={logout}>{t('common.logout')}</MenuItem>

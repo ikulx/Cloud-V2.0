@@ -137,7 +137,7 @@ export function GroupsPage() {
       </TableContainer>
 
       <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 420, display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box sx={{ width: { xs: '100vw', sm: 420 }, maxWidth: '100vw', display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Box sx={{ p: 3, pb: 0 }}>
             <Typography variant="h6" gutterBottom>{editGroup ? t('groups.editTitle') : t('groups.newTitle')}</Typography>
             <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>

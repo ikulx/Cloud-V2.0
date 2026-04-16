@@ -59,7 +59,7 @@ export function LoginPage() {
         bgcolor: 'background.default',
       }}
     >
-      <Card sx={{ width: 380, p: 2 }}>
+      <Card sx={{ width: { xs: '90vw', sm: 380 }, maxWidth: 380, p: 2 }}>
         <CardContent>
           <Box display="flex" justifyContent="flex-end" mb={1}>
             <Select

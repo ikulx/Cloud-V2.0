@@ -27,6 +27,10 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import InfoIcon from '@mui/icons-material/Info'
 import LinkIcon from '@mui/icons-material/Link'
+import PhoneIcon from '@mui/icons-material/Phone'
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid'
+import EmailIcon from '@mui/icons-material/Email'
+import Divider from '@mui/material/Divider'
 import { useAnlage } from '../features/anlagen/queries'
 import { useDevices } from '../features/devices/queries'
 import { useSession } from '../context/SessionContext'
@@ -71,8 +75,11 @@ export function AnlageDetailPage() {
       <Box display="flex" alignItems="center" gap={2} mb={3}>
         <IconButton onClick={() => navigate('/anlagen')}><ArrowBackIcon /></IconButton>
         <Box>
-          <Typography variant="h5">{anlage.name}</Typography>
-          {anlage.location && <Typography variant="body2" color="text.secondary">{anlage.location}</Typography>}
+          <Box display="flex" alignItems="baseline" gap={1}>
+            {anlage.projectNumber && <Typography variant="body2" color="text.secondary">{anlage.projectNumber} —</Typography>}
+            <Typography variant="h5">{anlage.name}</Typography>
+          </Box>
+          {anlage.city && <Typography variant="body2" color="text.secondary">{[anlage.zip, anlage.city].filter(Boolean).join(' ')}{anlage.country ? `, ${anlage.country}` : ''}</Typography>}
         </Box>
       </Box>
 
@@ -84,31 +91,113 @@ export function AnlageDetailPage() {
       {/* TAB 0: INFOS */}
       {tab === 0 && (
         <Box display="grid" gridTemplateColumns={{ xs: '1fr', md: '1fr 1fr' }} gap={3}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Stammdaten</Typography>
-              <Stack spacing={1.5}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">{t('common.name')}</Typography>
-                  <Typography variant="body1">{anlage.name}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">{t('common.description')}</Typography>
-                  <Typography variant="body1">{anlage.description ?? '—'}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">{t('anlagen.location')}</Typography>
-                  <Typography variant="body1">{anlage.location ?? '—'}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>
-                  <Typography variant="body1">{anlageDevices.length}</Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-
+          {/* Linke Spalte: Stammdaten + Adresse */}
           <Stack spacing={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Stammdaten</Typography>
+                <Stack spacing={1.5}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Projekt-Nr.</Typography>
+                    <Typography variant="body1">{anlage.projectNumber ?? '—'}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">{t('common.name')}</Typography>
+                    <Typography variant="body1">{anlage.name}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">{t('common.description')}</Typography>
+                    <Typography variant="body1">{anlage.description ?? '—'}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>
+                    <Typography variant="body1">{anlageDevices.length}</Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Adresse</Typography>
+                <Stack spacing={1.5}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Strasse</Typography>
+                    <Typography variant="body1">{anlage.street ?? '—'}</Typography>
+                  </Box>
+                  <Box display="flex" gap={4}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">PLZ</Typography>
+                      <Typography variant="body1">{anlage.zip ?? '—'}</Typography>
+                    </Box>
+                    <Box flex={1}>
+                      <Typography variant="caption" color="text.secondary">Ort</Typography>
+                      <Typography variant="body1">{anlage.city ?? '—'}</Typography>
+                    </Box>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Land</Typography>
+                    <Typography variant="body1">{anlage.country ?? '—'}</Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+
+            {anlage.notes && (
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>Bemerkungen</Typography>
+                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{anlage.notes}</Typography>
+                </CardContent>
+              </Card>
+            )}
+          </Stack>
+
+          {/* Rechte Spalte: Verantwortlicher + Zuweisungen */}
+          <Stack spacing={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Verantwortlicher</Typography>
+                {anlage.contactName ? (
+                  <Stack spacing={1.5}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Name</Typography>
+                      <Typography variant="body1">{anlage.contactName}</Typography>
+                    </Box>
+                    {anlage.contactPhone && (
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <PhoneIcon fontSize="small" color="action" />
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">Telefon</Typography>
+                          <Typography variant="body1">{anlage.contactPhone}</Typography>
+                        </Box>
+                      </Box>
+                    )}
+                    {anlage.contactMobile && (
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <PhoneAndroidIcon fontSize="small" color="action" />
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">Mobil</Typography>
+                          <Typography variant="body1">{anlage.contactMobile}</Typography>
+                        </Box>
+                      </Box>
+                    )}
+                    {anlage.contactEmail && (
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <EmailIcon fontSize="small" color="action" />
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">E-Mail</Typography>
+                          <Typography variant="body1">{anlage.contactEmail}</Typography>
+                        </Box>
+                      </Box>
+                    )}
+                  </Stack>
+                ) : (
+                  <Typography color="text.secondary">—</Typography>
+                )}
+              </CardContent>
+            </Card>
+
             <Card>
               <CardContent>
                 <Typography variant="h6" gutterBottom>{t('users.title', { count: anlage.directUsers.length })}</Typography>

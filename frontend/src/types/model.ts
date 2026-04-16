@@ -82,9 +82,20 @@ export interface Device {
 
 export interface Anlage {
   id: string
+  projectNumber: string | null
   name: string
   description: string | null
-  location: string | null
+  street: string | null
+  zip: string | null
+  city: string | null
+  country: string | null
+  contactName: string | null
+  contactPhone: string | null
+  contactMobile: string | null
+  contactEmail: string | null
+  notes: string | null
+  latitude: number | null
+  longitude: number | null
   anlageDevices: { device: { id: string; name: string; status: DeviceStatus; isApproved: boolean } }[]
   directUsers: { user: { id: string; firstName: string; lastName: string } }[]
   groupAnlagen: { group: { id: string; name: string } }[]

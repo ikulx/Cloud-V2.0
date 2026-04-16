@@ -20,6 +20,7 @@ import Tab from '@mui/material/Tab'
 import Divider from '@mui/material/Divider'
 import Chip from '@mui/material/Chip'
 import AddIcon from '@mui/icons-material/Add'
+import MapIcon from '@mui/icons-material/Map'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
@@ -38,7 +39,11 @@ import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { useTranslation } from 'react-i18next'
 import type { Anlage, Device } from '../types/model'
 
-const EMPTY_FORM = { name: '', description: '', location: '' }
+const EMPTY_FORM = {
+  projectNumber: '', name: '', description: '', street: '', zip: '', city: '', country: 'Schweiz',
+  contactName: '', contactPhone: '', contactMobile: '', contactEmail: '', notes: '',
+  latitude: '', longitude: '',
+}
 const EMPTY_ASSIGN = { deviceIds: [] as string[], userIds: [] as string[], groupIds: [] as string[] }
 
 type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'EMPTY'
@@ -106,7 +111,13 @@ export function AnlagenPage() {
 
   const openEdit = (a: Anlage) => {
     setEditAnlage(a)
-    setForm({ name: a.name, description: a.description ?? '', location: a.location ?? '' })
+    setForm({
+      projectNumber: a.projectNumber ?? '', name: a.name, description: a.description ?? '',
+      street: a.street ?? '', zip: a.zip ?? '', city: a.city ?? '', country: a.country ?? 'Schweiz',
+      contactName: a.contactName ?? '', contactPhone: a.contactPhone ?? '', contactMobile: a.contactMobile ?? '',
+      contactEmail: a.contactEmail ?? '', notes: a.notes ?? '',
+      latitude: a.latitude != null ? String(a.latitude) : '', longitude: a.longitude != null ? String(a.longitude) : '',
+    })
     setAssign({
       deviceIds: a.anlageDevices.map((ad) => ad.device.id),
       userIds: a.directUsers.map((du) => du.user.id),
@@ -120,7 +131,10 @@ export function AnlagenPage() {
   const handleSave = async () => {
     setFormError('')
     try {
-      const payload = { ...form, ...assign }
+      const { latitude: latStr, longitude: lngStr, ...rest } = form
+      const latitude = latStr ? parseFloat(latStr) : null
+      const longitude = lngStr ? parseFloat(lngStr) : null
+      const payload = { ...rest, latitude, longitude, ...assign }
       if (editAnlage) await updateMutation.mutateAsync(payload)
       else await createMutation.mutateAsync(payload)
       setDrawerOpen(false)
@@ -139,7 +153,10 @@ export function AnlagenPage() {
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h5">{t('anlagen.title', { count: anlagen?.length ?? 0 })}</Typography>
-        {canCreate && <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>{t('anlagen.add')}</Button>}
+        <Box display="flex" gap={1}>
+          <Button variant="outlined" startIcon={<MapIcon />} onClick={() => navigate('/anlagen/map')}>Karte</Button>
+          {canCreate && <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>{t('anlagen.add')}</Button>}
+        </Box>
       </Box>
 
       <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
@@ -147,15 +164,16 @@ export function AnlagenPage() {
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: 140 }}>{t('common.status')}</TableCell>
+              <TableCell>Projekt-Nr.</TableCell>
               <TableCell>{t('common.name')}</TableCell>
-              <TableCell>{t('common.description')}</TableCell>
-              <TableCell>{t('anlagen.location')}</TableCell>
+              <TableCell>Ort</TableCell>
               <TableCell align="right">{t('common.actions')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {anlagen?.length === 0 && (
               <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4 }}><Typography color="text.secondary">{t('anlagen.empty')}</Typography></TableCell></TableRow>
+
             )}
             {anlagen?.map((anlage) => {
               const deviceIdSet = new Set(anlage.anlageDevices.map((ad) => ad.device.id))
@@ -169,9 +187,9 @@ export function AnlagenPage() {
                   sx={{ cursor: 'pointer' }}
                 >
                   <TableCell><StatusChip status={status} /></TableCell>
+                  <TableCell>{anlage.projectNumber ?? '—'}</TableCell>
                   <TableCell>{anlage.name}</TableCell>
-                  <TableCell>{anlage.description ?? '—'}</TableCell>
-                  <TableCell>{anlage.location ?? '—'}</TableCell>
+                  <TableCell>{anlage.city ?? '—'}</TableCell>
                   <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                     {canUpdate && <Tooltip title={t('common.edit')}><IconButton onClick={() => openEdit(anlage)} size="small"><EditIcon fontSize="small" /></IconButton></Tooltip>}
                     {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(anlage)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
@@ -184,7 +202,7 @@ export function AnlagenPage() {
       </TableContainer>
 
       <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 420, display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box sx={{ width: { xs: '100vw', sm: 420 }, maxWidth: '100vw', display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Box sx={{ p: 3, pb: 0 }}>
             <Typography variant="h6" gutterBottom>{editAnlage ? t('anlagen.editTitle') : t('anlagen.newTitle')}</Typography>
             <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -198,9 +216,29 @@ export function AnlagenPage() {
 
             {tab === 0 && (
               <Box display="flex" flexDirection="column" gap={2}>
+                <TextField label="Projekt-Nr." value={form.projectNumber} onChange={(e) => setForm({ ...form, projectNumber: e.target.value })} fullWidth />
                 <TextField label={t('common.name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} fullWidth required />
                 <TextField label={t('common.description')} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} fullWidth multiline rows={2} />
-                <TextField label={t('anlagen.location')} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} fullWidth />
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="subtitle2" color="text.secondary">Adresse</Typography>
+                <TextField label="Strasse" value={form.street} onChange={(e) => setForm({ ...form, street: e.target.value })} fullWidth />
+                <Box display="flex" gap={2}>
+                  <TextField label="PLZ" value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} sx={{ width: 120 }} />
+                  <TextField label="Ort" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} fullWidth />
+                </Box>
+                <TextField label="Land" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} fullWidth />
+                <Box display="flex" gap={2}>
+                  <TextField label="Breitengrad" value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} fullWidth placeholder="z.B. 47.3769" />
+                  <TextField label="Längengrad" value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} fullWidth placeholder="z.B. 8.5417" />
+                </Box>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="subtitle2" color="text.secondary">Verantwortlicher</Typography>
+                <TextField label="Name" value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} fullWidth />
+                <TextField label="Telefon" value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} fullWidth />
+                <TextField label="Mobil" value={form.contactMobile} onChange={(e) => setForm({ ...form, contactMobile: e.target.value })} fullWidth />
+                <TextField label="E-Mail" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} fullWidth />
+                <Divider sx={{ my: 1 }} />
+                <TextField label="Bemerkungen" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} fullWidth multiline rows={3} />
               </Box>
             )}
 

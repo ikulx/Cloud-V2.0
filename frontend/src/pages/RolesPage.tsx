@@ -123,7 +123,7 @@ export function RolesPage() {
       </TableContainer>
 
       <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
-        <Box sx={{ width: 480, p: 3, overflowY: 'auto' }}>
+        <Box sx={{ width: { xs: '100vw', sm: 480 }, maxWidth: '100vw', p: 3, overflowY: 'auto' }}>
           <Typography variant="h6" gutterBottom>{editRole ? t('roles.editTitle') : t('roles.newTitle')}</Typography>
           {formError && <Alert severity="error" sx={{ mb: 2 }}>{formError}</Alert>}
           <Box display="flex" flexDirection="column" gap={2}>
