@@ -12,7 +12,7 @@
  *   GET    /api/vpn/devices/:deviceId/pi-config    – Pi-WireGuard-Config downloaden
  *   POST   /api/vpn/devices/:deviceId/deploy       – MQTT vpn_install an Gerät senden
  *   GET    /api/vpn/device-config                  – Pi-Auth: eigene wg-Config abrufen
- *   GET    /api/vpn/server-config                  – Vollständige wg0.conf downloaden
+ *   GET    /api/vpn/server-config                  – Vollständige wgyc.conf downloaden
  *   GET    /api/vpn/peers                          – Alle Techniker-Peers
  *   POST   /api/vpn/peers                          – Peer hinzufügen
  *   DELETE /api/vpn/peers/:id                      – Peer entfernen
@@ -69,7 +69,7 @@ async function nextPeerIndex(): Promise<number> {
   return (last?.peerIndex ?? 0) + 1
 }
 
-/** Liest alle aktuellen VPN-Daten und schreibt wg0.conf + löst Reload aus. */
+/** Liest alle aktuellen VPN-Daten und schreibt wgyc.conf + löst Reload aus. */
 async function syncAll(): Promise<void> {
   const [settings, vpnDevices, vpnPeers] = await Promise.all([
     getVpnSettings(),
@@ -378,7 +378,7 @@ router.get('/server-config', authenticate, requirePermission('vpn:manage'), asyn
   ])
 
   const header = `# ═══════════════════════════════════════════════════════
-# Ycontrol VPN — Server-Konfiguration (wg0.conf)
+# Ycontrol VPN — Server-Konfiguration (wgyc.conf)
 # Generiert: ${new Date().toISOString()}
 # ═══════════════════════════════════════════════════════
 
@@ -408,7 +408,7 @@ PrivateKey = <SERVER_PRIVATEN_SCHLUESSEL_HIER_EINTRAGEN>
     + (peerBlocks   ? `\n# ─── Techniker-Peers (${vpnPeers.length}) ──────────────────────────────────────\n` + peerBlocks : '')
 
   res.setHeader('Content-Type',        'text/plain; charset=utf-8')
-  res.setHeader('Content-Disposition', 'attachment; filename="wg0.conf"')
+  res.setHeader('Content-Disposition', 'attachment; filename="wgyc.conf"')
   res.send(config)
 })
 

@@ -160,9 +160,9 @@ def get_local_ip():
         return "unknown"
 
 def get_vpn_status():
-    """Prueft ob WireGuard (wg0) einen aktuellen Handshake hat (< 180s)."""
+    """Prueft ob WireGuard (wgyc) einen aktuellen Handshake hat (< 180s)."""
     try:
-        r = subprocess.run(["wg", "show", "wg0", "latest-handshakes"],
+        r = subprocess.run(["wg", "show", "wgyc", "latest-handshakes"],
                            capture_output=True, text=True, timeout=3)
         if r.returncode != 0:
             return False
@@ -454,23 +454,23 @@ def run_agent():
                         # 3. Konfiguration schreiben (aus MQTT-Payload)
                         print("[YControl] Schreibe VPN-Konfiguration...")
                         os.makedirs("/etc/wireguard", exist_ok=True)
-                        wg_conf = "/etc/wireguard/wg0.conf"
+                        wg_conf = "/etc/wireguard/wgyc.conf"
                         with open(wg_conf, "w") as f:
                             f.write(vpn_config)
                         os.chmod(wg_conf, 0o600)
-                        print("[YControl] wg0.conf geschrieben")
-                        # 4. Altes wg0-Interface sauber entfernen (falls vorhanden)
-                        subprocess.run(["wg-quick", "down", "wg0"], capture_output=True)
-                        subprocess.run(["ip", "link", "delete", "wg0"], capture_output=True)
-                        subprocess.run(["systemctl", "reset-failed", "wg-quick@wg0"], capture_output=True)
+                        print("[YControl] wgyc.conf geschrieben")
+                        # 4. Altes wgyc-Interface sauber entfernen (falls vorhanden)
+                        subprocess.run(["wg-quick", "down", "wgyc"], capture_output=True)
+                        subprocess.run(["ip", "link", "delete", "wgyc"], capture_output=True)
+                        subprocess.run(["systemctl", "reset-failed", "wg-quick@wgyc"], capture_output=True)
                         # 5. wg-quick direkt starten – so sehen wir den exakten Fehler
-                        test = subprocess.run(["wg-quick", "up", "wg0"], capture_output=True, text=True)
+                        test = subprocess.run(["wg-quick", "up", "wgyc"], capture_output=True, text=True)
                         if test.returncode != 0:
                             err_msg = (test.stdout + "\\n" + test.stderr).strip()
                             print("[YControl] wg-quick up Fehler:\\n" + err_msg, file=sys.stderr)
                             raise Exception(err_msg)
                         print("[YControl] wg-quick up OK – registriere als Service...")
-                        subprocess.run(["systemctl", "enable", "wg-quick@wg0"], capture_output=True)
+                        subprocess.run(["systemctl", "enable", "wg-quick@wgyc"], capture_output=True)
                         print("[YControl] VPN aktiv!")
                         c.publish(topic_resp, json.dumps({"action": "vpn_install", "status": "ok"}), qos=1)
                     except Exception as ex:
@@ -481,13 +481,13 @@ def run_agent():
             def do_vpn_remove(c):
                 try:
                     print("[YControl] VPN-Deinstallation gestartet...")
-                    subprocess.run(["systemctl", "disable", "wg-quick@wg0"], capture_output=True)
-                    subprocess.run(["wg-quick", "down", "wg0"], capture_output=True)
-                    subprocess.run(["ip", "link", "delete", "wg0"], capture_output=True)
-                    subprocess.run(["systemctl", "reset-failed", "wg-quick@wg0"], capture_output=True)
+                    subprocess.run(["systemctl", "disable", "wg-quick@wgyc"], capture_output=True)
+                    subprocess.run(["wg-quick", "down", "wgyc"], capture_output=True)
+                    subprocess.run(["ip", "link", "delete", "wgyc"], capture_output=True)
+                    subprocess.run(["systemctl", "reset-failed", "wg-quick@wgyc"], capture_output=True)
                     # Config löschen
                     try:
-                        os.remove("/etc/wireguard/wg0.conf")
+                        os.remove("/etc/wireguard/wgyc.conf")
                     except FileNotFoundError:
                         pass
                     print("[YControl] VPN entfernt!")

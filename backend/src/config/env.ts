@@ -25,7 +25,7 @@ export const env = {
   vpn: {
     serverPrivateKey: process.env.VPN_SERVER_PRIVATE_KEY ?? '',
     wgContainer:      process.env.VPN_WG_CONTAINER      ?? 'ycontrol_wireguard',
-    wgConfigPath:     process.env.VPN_WG_CONFIG_PATH    ?? '/wireguard-config/wg0.conf',
+    wgConfigPath:     process.env.VPN_WG_CONFIG_PATH    ?? '/wireguard-config/wgyc.conf',
   },
   smtp: {
     host:     process.env.SMTP_HOST     ?? '',

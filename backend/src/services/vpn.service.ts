@@ -3,7 +3,7 @@
  *
  * IP-Schema:
  *   Zone A (Management):  10.0.x.y   → Techniker-PCs (peerIndex)
- *   Zone A (Server):      10.1.0.1   → Cloud-Server wg0-Interface
+ *   Zone A (Server):      10.1.0.1   → Cloud-Server wgyc-Interface
  *   Zone B (Geräte):      Frei wählbare /32-IPs im 10.x.x.x-Netz
  */
 
@@ -87,7 +87,7 @@ PersistentKeepalive = 25
 
 /**
  * Erzeugt den [Peer]-Block, der auf dem Cloud-Server für einen
- * Techniker-Peer in die wg0.conf eingetragen werden muss.
+ * Techniker-Peer in die wgyc.conf eingetragen werden muss.
  */
 export function buildServerPeerBlock(opts: {
   peerIndex:  number
@@ -123,7 +123,7 @@ export function deriveVpnLanPrefix(vpnIp: string): string {
   return `${parts[0]}.${parts[1]}.${parts[3]}`
 }
 
-/** Erzeugt die wg0.conf-Konfiguration für einen Pi (mit NETMAP für LAN-Zugriff). */
+/** Erzeugt die wgyc.conf-Konfiguration für einen Pi (mit NETMAP für LAN-Zugriff). */
 export function generateDevicePiConfig(opts: {
   vpnIp:        string
   localPrefix:  string
@@ -200,7 +200,7 @@ export interface ServerConfigOpts {
 }
 
 /**
- * Schreibt die vollständige wg0.conf in den gemeinsamen Volume-Pfad
+ * Schreibt die vollständige wgyc.conf in den gemeinsamen Volume-Pfad
  * und sendet SIGHUP an den WireGuard-Container.
  * Fehler werden nur geloggt (kein Crash) – im Dev-Modus ohne Docker läuft das leer.
  */
@@ -208,7 +208,7 @@ export async function syncWireGuardConfig(opts: ServerConfigOpts, configPath: st
   const { privateKey, settings, devices, peers } = opts
 
   if (!privateKey) {
-    console.warn('[VPN] VPN_SERVER_PRIVATE_KEY nicht gesetzt – wg0.conf wird nicht geschrieben')
+    console.warn('[VPN] VPN_SERVER_PRIVATE_KEY nicht gesetzt – wgyc.conf wird nicht geschrieben')
     return
   }
 
@@ -226,7 +226,7 @@ export async function syncWireGuardConfig(opts: ServerConfigOpts, configPath: st
     .map((p) => buildServerPeerBlock({ peerIndex: p.peerIndex, peerName: p.name, publicKey: p.publicKey }))
     .join('')
 
-  const config = `# Ycontrol VPN — Server-Konfiguration (wg0.conf)
+  const config = `# Ycontrol VPN — Server-Konfiguration (wgyc.conf)
 # Automatisch generiert: ${new Date().toISOString()}
 
 [Interface]
@@ -246,10 +246,10 @@ ${peerBlocks}`
       return
     }
     fs.writeFileSync(configPath, config, { mode: 0o600 })
-    console.log(`[VPN] wg0.conf geschrieben: ${configPath}`)
+    console.log(`[VPN] wgyc.conf geschrieben: ${configPath}`)
     await reloadWireGuard(containerName)
   } catch (err) {
-    console.error('[VPN] Fehler beim Schreiben der wg0.conf:', err)
+    console.error('[VPN] Fehler beim Schreiben der wgyc.conf:', err)
   }
 }
 
