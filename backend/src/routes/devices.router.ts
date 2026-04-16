@@ -66,7 +66,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC16"  # IP-Wechsel-Detection + aggressives TCP-Keepalive
+AGENT_VERSION = "1.0.0-RC17"  # Setup ohne Warten, Agent-Service uebernimmt Registrierung
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -258,7 +258,46 @@ def run_agent():
     server_url    = cfg.get("serverUrl", SERVER_URL)
     mqtt_host     = cfg.get("mqttHost", MQTT_HOST)
     mqtt_port     = cfg.get("mqttPort", MQTT_PORT)
-    device_secret = cfg["deviceSecret"]
+    device_secret = cfg.get("deviceSecret", "")
+
+    # Kein Secret vorhanden → erst registrieren/freigeben lassen
+    if not device_secret:
+        print("[YControl] Kein Device-Secret vorhanden – starte Registrierung...")
+        while True:
+            result, code = api_post(server_url + "/api/devices/register",
+                                    {"serialNumber": serial, "piSerial": get_pi_serial()})
+            if code in (200, 201):
+                new_secret = result.get("deviceSecret")
+                device_id  = result.get("deviceId")
+                if new_secret:
+                    cfg["deviceSecret"] = new_secret
+                    if device_id:
+                        cfg["deviceId"] = device_id
+                    with open(CONFIG_PATH, "w") as f:
+                        json.dump(cfg, f, indent=2)
+                    device_secret = new_secret
+                    print("[YControl] Registrierung erfolgreich – Secret erhalten.")
+                    break
+                else:
+                    print("[YControl] Warte auf Freigabe durch Administrator...")
+                    time.sleep(30)
+                    # Token-Endpoint versuchen
+                    resp2, code2 = api_post(server_url + "/api/devices/token", {"serialNumber": serial})
+                    if code2 == 200 and "deviceSecret" in resp2:
+                        cfg["deviceSecret"] = resp2["deviceSecret"]
+                        if resp2.get("deviceId"):
+                            cfg["deviceId"] = resp2["deviceId"]
+                        with open(CONFIG_PATH, "w") as f:
+                            json.dump(cfg, f, indent=2)
+                        device_secret = resp2["deviceSecret"]
+                        print("[YControl] Freigabe erhalten!")
+                        break
+            elif code == 409:
+                print("[YControl] KONFLIKT – warte 2 min und versuche erneut...", file=sys.stderr)
+                time.sleep(120)
+            else:
+                print("[YControl] Server nicht erreichbar (HTTP " + str(code) + ") – erneuter Versuch in 30s...")
+                time.sleep(30)
 
     topic_stat = "yc/" + serial + "/stat"
     topic_tele = "yc/" + serial + "/tele"
@@ -566,68 +605,46 @@ def run_setup():
     print("[YControl] YControl-SN: " + serial)
     print("[YControl] Pi-Hardware: " + pi_serial)
 
-    # Verbindungstest
+    # Schritt 1: Registrieren (ein Versuch – der Agent-Service uebernimmt den Rest)
+    device_secret = None
+    device_id     = None
+    reg_status    = "unknown"
+
     print("[YControl] Pruefe Verbindung zu: " + SERVER_URL)
     health_code = api_get(SERVER_URL + "/health")
     if health_code == 200:
         print("[YControl] Server erreichbar (HTTP 200)")
-    elif health_code == 0:
-        print("[YControl] FEHLER: Server nicht erreichbar – Netzwerk pruefen!", file=sys.stderr)
-        print("[YControl] URL: " + SERVER_URL + "/health", file=sys.stderr)
-        sys.exit(1)
+        print("[YControl] Registriere Geraet...")
+        result, code = api_post(SERVER_URL + "/api/devices/register", {"serialNumber": serial, "piSerial": pi_serial})
+        if code == 409:
+            print("[YControl] KONFLIKT: Die YControl-Seriennummer '" + serial + "' ist bereits einem anderen Pi zugeordnet.", file=sys.stderr)
+            print("[YControl] Bitte Konflikt in der Cloud-UI aufloesen oder eine andere Seriennummer verwenden.", file=sys.stderr)
+            sys.exit(2)
+        if code in (200, 201):
+            reg_status    = result.get("status", "new")
+            device_secret = result.get("deviceSecret")
+            device_id     = result.get("deviceId")
+            print("[YControl] Registrierung erfolgreich (Status: " + reg_status + ")")
+        else:
+            print("[YControl] Registrierung fehlgeschlagen (HTTP " + str(code) + ") – der Agent-Service wird es erneut versuchen.")
     else:
-        print("[YControl] WARNUNG: Server antwortet mit HTTP " + str(health_code), file=sys.stderr)
+        if health_code == 0:
+            print("[YControl] Server nicht erreichbar – der Agent-Service wird es spaeter versuchen.")
+        else:
+            print("[YControl] Server antwortet mit HTTP " + str(health_code) + " – der Agent-Service wird es spaeter versuchen.")
 
-    # Schritt 1: Registrieren
-    print("[YControl] Registriere Geraet...")
-    result, code = api_post(SERVER_URL + "/api/devices/register", {"serialNumber": serial, "piSerial": pi_serial})
-    if code == 409:
-        print("[YControl] KONFLIKT: Die YControl-Seriennummer '" + serial + "' ist bereits einem anderen Pi zugeordnet.", file=sys.stderr)
-        print("[YControl] Bitte Konflikt in der Cloud-UI aufloesen oder eine andere Seriennummer verwenden.", file=sys.stderr)
-        sys.exit(2)
-    if code not in (200, 201):
-        print("[YControl] Registrierung fehlgeschlagen (HTTP " + str(code) + "): " + str(result), file=sys.stderr)
-        sys.exit(1)
-
-    reg_status = result.get("status", "?")
-    print("[YControl] Status: " + reg_status)
-    if reg_status == "existing_approved":
-        print("[YControl] Gleiche Hardware – Token wird direkt ausgegeben.")
-    elif reg_status == "hardware_changed":
-        print("[YControl] HINWEIS: Neue Hardware erkannt! Bitte Geraet in der Cloud-UI freigeben.")
-    elif reg_status == "existing":
-        print("[YControl] Geraet bekannt – warte auf Freigabe.")
-    else:
-        print("[YControl] Neues Geraet erstellt.")
-
-    # Schritt 2: Secret holen (sofort oder warten)
-    device_secret = result.get("deviceSecret")
-    device_id     = result.get("deviceId")
-    if not device_secret:
-        print()
-        print("[YControl] Warte auf Freigabe durch Administrator...")
-        attempt = 0
-        while not device_secret:
-            attempt += 1
-            resp, code = api_post(SERVER_URL + "/api/devices/token", {"serialNumber": serial})
-            if code == 200 and "deviceSecret" in resp:
-                device_secret = resp["deviceSecret"]
-                device_id     = resp.get("deviceId", device_id)
-                break
-            print("[YControl] Versuch " + str(attempt) + ": Noch nicht freigegeben – naechster Versuch in 30s...")
-            time.sleep(30)
-    print("[YControl] Freigegeben!")
-
-    # Schritt 3: Konfiguration speichern
+    # Schritt 2: Konfiguration speichern (auch ohne Secret – Agent holt es sich)
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     config = {
         "serialNumber": serial,
-        "deviceId":     device_id,
         "serverUrl":    SERVER_URL,
         "mqttHost":     MQTT_HOST,
         "mqttPort":     MQTT_PORT,
-        "deviceSecret": device_secret,
     }
+    if device_id:
+        config["deviceId"] = device_id
+    if device_secret:
+        config["deviceSecret"] = device_secret
     with open(CONFIG_PATH, "w") as f:
         json.dump(config, f, indent=2)
     os.chmod(CONFIG_PATH, 0o600)
@@ -682,8 +699,18 @@ WantedBy=multi-user.target
 
     print()
     print("  ✓ Einrichtung abgeschlossen!")
+    print("  Server:    " + SERVER_URL)
     print("  MQTT:      " + MQTT_HOST + ":" + str(MQTT_PORT))
-    print("  Geraet-ID: " + str(device_id))
+    if device_id:
+        print("  Geraet-ID: " + str(device_id))
+    print()
+    if device_secret:
+        print("  Status: Freigegeben – Agent verbindet sich automatisch.")
+    else:
+        print("  Status: Warte auf Freigabe in der Cloud-UI.")
+        print("  Der Agent-Service laeuft im Hintergrund und verbindet sich")
+        print("  automatisch, sobald das Geraet freigegeben wird.")
+        print("  (SSH-Verbindung kann geschlossen werden)")
     print()
     print("  Logs:   journalctl -u ycontrol-agent -f")
     print("  Status: systemctl status ycontrol-agent")
