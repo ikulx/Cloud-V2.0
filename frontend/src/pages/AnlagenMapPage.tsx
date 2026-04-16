@@ -11,7 +11,7 @@ import 'leaflet/dist/leaflet.css'
 import { useAnlagen } from '../features/anlagen/queries'
 import { useDevices } from '../features/devices/queries'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
-import type { Anlage, Device } from '../types/model'
+import type { Device } from '../types/model'
 
 // ─── Status-Berechnung (gleich wie AnlagenPage) ─────────────────────────────
 

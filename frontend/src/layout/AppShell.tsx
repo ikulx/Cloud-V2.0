@@ -3,7 +3,7 @@ import Box from '@mui/material/Box'
 import Drawer from '@mui/material/Drawer'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
@@ -13,7 +13,6 @@ export function AppShell() {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const [mobileOpen, setMobileOpen] = useState(false)
-  const location = useLocation()
 
   const handleDrawerToggle = () => setMobileOpen((prev) => !prev)
 
