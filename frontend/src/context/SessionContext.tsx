@@ -80,7 +80,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }
 
   const hasPermission = (permission: string) => {
-    return me?.permissions.includes(permission) ?? false
+    if (!me) return false
+    // Admin hat IMMER Zugriff auf alles — unabhängig vom permissions-Array
+    if (me.roleName === 'admin') return true
+    return me.permissions.includes(permission)
   }
 
   return (

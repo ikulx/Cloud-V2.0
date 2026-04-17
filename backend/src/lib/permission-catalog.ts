@@ -7,6 +7,7 @@ export const PERMISSION_CATALOG = [
   'todos:read', 'todos:create', 'todos:update',
   'logbook:read', 'logbook:create',
   'vpn:manage',
+  'activityLog:read',
 ] as const
 
 export const PRIVILEGED_ROLE_NAMES = ['admin', 'verwalter'] as const
