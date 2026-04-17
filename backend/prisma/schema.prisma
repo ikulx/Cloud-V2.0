@@ -66,6 +66,40 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+// ─── Activity Log (Audit-Trail) ────────────────────────────────────────────────
+//
+// Protokolliert alle Benutzer-Aktionen sowie relevante System-Events.
+// Wird in api-Routen via withActivityLog-Middleware / logActivity() geschrieben.
+model ActivityLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  /// Wer hat die Aktion ausgelöst (null bei Systemaktionen/Logins fehlgeschlagen)
+  userId     String?  @map("user_id") @db.Uuid
+  userEmail  String?  @map("user_email")
+  /// z.B. "anlage.create", "device.update", "user.login", "vpn.deploy"
+  action     String
+  /// Was wurde verändert (z.B. "anlage", "device", "user", "peer")
+  entityType String?  @map("entity_type")
+  /// ID der Entität
+  entityId   String?  @map("entity_id")
+  /// Zusatz-Details als JSON (z.B. geänderte Felder, Ziel-Daten)
+  details    Json?
+  /// HTTP-Methode + Pfad
+  method     String?
+  path       String?
+  /// HTTP-Status
+  statusCode Int?     @map("status_code")
+  /// Client-IP
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
 // ─── RBAC ─────────────────────────────────────────────────────────────────────
 
 model Role {

@@ -16,6 +16,7 @@ import { SettingsPage } from '../pages/SettingsPage'
 import { VpnPage } from '../pages/VpnPage'
 import { UserDashboardPage } from '../pages/UserDashboardPage'
 import { AcceptInvitePage } from '../pages/AcceptInvitePage'
+import { ActivityLogPage } from '../pages/ActivityLogPage'
 
 function PrivateRoutes() {
   const { me, isLoading } = useSession()
@@ -66,6 +67,9 @@ export function AppRouter() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/vpn" element={
             <RequirePermission permission="vpn:manage"><VpnPage /></RequirePermission>
+          } />
+          <Route path="/activity-log" element={
+            <RequirePermission permission="activityLog:read"><ActivityLogPage /></RequirePermission>
           } />
         </Route>
       </Routes>

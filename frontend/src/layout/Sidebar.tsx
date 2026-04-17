@@ -13,6 +13,7 @@ import PersonIcon from '@mui/icons-material/Person'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import SettingsIcon from '@mui/icons-material/Settings'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import HistoryIcon from '@mui/icons-material/History'
 import { NavLink } from 'react-router-dom'
 import { useSession } from '../context/SessionContext'
 import { useTranslation } from 'react-i18next'
@@ -41,6 +42,7 @@ export function Sidebar({ onNavClick }: SidebarProps) {
         { label: t('nav.roles'), icon: <AdminPanelSettingsIcon />, to: '/roles', permission: 'roles:read' },
         { label: t('nav.settings'), icon: <SettingsIcon />, to: '/settings', permission: null },
         { label: t('nav.vpn'),      icon: <VpnKeyIcon />,  to: '/vpn',      permission: 'vpn:manage' },
+        { label: t('nav.activityLog'), icon: <HistoryIcon />, to: '/activity-log', permission: 'activityLog:read' },
       ]
 
   const visible = NAV_ITEMS.filter((item) =>

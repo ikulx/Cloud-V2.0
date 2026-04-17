@@ -48,7 +48,19 @@
       "Bash(find \"/d/Entwicklung/React-Visu/Visu-v3 - Kopie/node-frontend/src\" -type f \\\\\\( -name \"*.js\" -o -name \"*.jsx\" \\\\\\) -exec grep -l \"fetch\\\\|axios\" {} \\\\;)",
       "Read(//d/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0/backend/**)",
       "Read(//d/Entwicklung/React-Visu/Visu-v3 - Kopie/node-frontend/**)",
-      "Bash(docker buildx:*)"
+      "Bash(docker buildx:*)",
+      "Bash(gh api:*)",
+      "Bash(where gh:*)",
+      "Bash(powershell -Command \"Get-Command gh -ErrorAction SilentlyContinue | Select-Object Source\")",
+      "Bash(powershell -Command \"& 'C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe' --version\")",
+      "Bash(powershell -Command \"Get-ChildItem 'C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe','C:\\\\Users\\\\lstadelmann\\\\AppData\\\\Local\\\\GitHubCLI\\\\gh.exe' -ErrorAction SilentlyContinue\")",
+      "Bash(powershell -Command \"\\(Get-Content package.json | ConvertFrom-Json\\).devDependencies | Format-List vite, '@vitejs/plugin-react'\")",
+      "Bash(docker info:*)",
+      "Bash(docker exec:*)",
+      "Bash(xxd wireguard/entrypoint.sh)",
+      "Bash(npx vite:*)",
+      "Bash(ls -d \"D:/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0\"/*/)",
+      "Bash(tasklist)"
     ]
   }
 }

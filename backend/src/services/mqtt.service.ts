@@ -131,6 +131,27 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
       }
     }
   }
+
+  // Projektnummer-Sync: Pi hat aktuelle Projektnummer via Tele gemeldet.
+  // Prüfen ob sie mit der zugewiesenen Anlage übereinstimmt, sonst korrigieren.
+  try {
+    const assignments = await prisma.anlageDevice.findMany({
+      where: { deviceId: device.id },
+      include: { anlage: { select: { projectNumber: true } } },
+      orderBy: { assignedAt: 'asc' },
+      take: 1,
+    })
+    if (assignments.length > 0) {
+      const expected = assignments[0].anlage.projectNumber ?? ''
+      const actual = typeof data.projectNumber === 'string' ? data.projectNumber : ''
+      if (expected !== actual) {
+        console.log(`[MQTT] ${serial}: Projektnummer-Mismatch ('${actual}' → '${expected}'), sende setProjectNumber`)
+        publishCommand(serial, { action: 'setProjectNumber', value: expected })
+      }
+    }
+  } catch (e) {
+    console.warn(`[MQTT] Projektnummer-Check fehlgeschlagen für ${serial}:`, (e as Error).message)
+  }
 }
 
 function handleResp(serial: string, payload: string, io: SocketServer) {

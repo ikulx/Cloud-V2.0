@@ -31,7 +31,7 @@ import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
 import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
-import { useDevice, useCreateDeviceTodo, useUpdateDeviceTodo, useCreateDeviceLog, useDeviceCommand, useCreateLanDevice, useDeleteDevice } from '../features/devices/queries'
+import { useDevice, useDeviceCommand, useCreateLanDevice, useDeleteDevice } from '../features/devices/queries'
 import {
   useDeviceVpnConfig,
   useEnableDeviceVpn,
@@ -98,20 +98,9 @@ export function DeviceDetailPage() {
   useDeviceStatus(id)
 
   const canUpdate = usePermission('devices:update')
-  const canReadTodos = usePermission('todos:read')
-  const canCreateTodo = usePermission('todos:create')
-  const canUpdateTodo = usePermission('todos:update')
-  const canReadLog = usePermission('logbook:read')
-  const canCreateLog = usePermission('logbook:create')
+  // Todos/Logs sind jetzt an der Anlage, nicht mehr am Gerät
   const canManageVpn = usePermission('vpn:manage')
 
-  const [tab, setTab] = useState(0)
-  const [todoTitle, setTodoTitle] = useState('')
-  const [logMessage, setLogMessage] = useState('')
-
-  const createTodo = useCreateDeviceTodo(id!)
-  const updateTodo = useUpdateDeviceTodo(id!)
-  const createLog = useCreateDeviceLog(id!)
   const sendCommand = useDeviceCommand(id!)
 
   // VPN
@@ -159,7 +148,6 @@ export function DeviceDetailPage() {
 
   const lastSeen = device.lastSeen ? new Date(device.lastSeen).toLocaleString() : '—'
 
-  const openTodos = device.todos?.filter((t) => t.status === 'OPEN').length ?? 0
 
   return (
     <Box>
@@ -174,13 +162,9 @@ export function DeviceDetailPage() {
         </Box>
       </Box>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label={t('detail.overview')} />
-        {canReadTodos && <Tab label={t('todos.tab', { count: openTodos })} />}
-        {canReadLog && <Tab label={t('logbook.tab')} />}
-      </Tabs>
+      {/* Tabs entfernt — Todos und Logbuch sind jetzt auf der Anlage */}
 
-      {tab === 0 && (
+      {(
         <>
         <Box display="grid" gridTemplateColumns={{ xs: '1fr', md: '1fr 1fr' }} gap={3}>
           <Card>
@@ -705,60 +689,6 @@ export function DeviceDetailPage() {
         </>
       )}
 
-      {canReadTodos && tab === (1) && (
-        <Box>
-          {canCreateTodo ? (
-            <Box display="flex" gap={1} mb={2}>
-              <TextField label={t('todos.newTodo')} value={todoTitle} onChange={(e) => setTodoTitle(e.target.value)} size="small" sx={{ flexGrow: 1 }} />
-              <Button variant="contained" onClick={() => { if (todoTitle) { createTodo.mutate({ title: todoTitle }); setTodoTitle('') } }}>{t('todos.add')}</Button>
-            </Box>
-          ) : (
-            <Alert severity="info" sx={{ mb: 2 }}>{t('detail.noPermissionTodos')}</Alert>
-          )}
-          {device.todos?.length === 0 && <Typography color="text.secondary">{t('todos.noTodos')}</Typography>}
-          <List disablePadding>
-            {device.todos?.map((todo) => (
-              <ListItem key={todo.id} disablePadding sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 1 }}>
-                <Checkbox
-                  checked={todo.status === 'DONE'}
-                  onChange={() => canUpdateTodo && updateTodo.mutate({ todoId: todo.id, status: todo.status === 'DONE' ? 'OPEN' : 'DONE' })}
-                  disabled={!canUpdateTodo}
-                  size="small"
-                />
-                <ListItemText
-                  primary={todo.title}
-                  secondary={`${todo.createdBy.firstName} ${todo.createdBy.lastName} · ${new Date(todo.createdAt).toLocaleDateString()}`}
-                  sx={{ textDecoration: todo.status === 'DONE' ? 'line-through' : 'none' }}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Box>
-      )}
-
-      {canReadLog && tab === (canReadTodos ? 2 : 1) && (
-        <Box>
-          {canCreateLog ? (
-            <Box display="flex" gap={1} mb={2}>
-              <TextField label={t('logbook.newEntry')} value={logMessage} onChange={(e) => setLogMessage(e.target.value)} size="small" sx={{ flexGrow: 1 }} />
-              <Button variant="contained" onClick={() => { if (logMessage) { createLog.mutate({ message: logMessage }); setLogMessage('') } }}>{t('logbook.add')}</Button>
-            </Box>
-          ) : (
-            <Alert severity="info" sx={{ mb: 2 }}>{t('detail.noPermissionLogbook')}</Alert>
-          )}
-          {device.logEntries?.length === 0 && <Typography color="text.secondary">{t('logbook.noEntries')}</Typography>}
-          <List disablePadding>
-            {device.logEntries?.map((log) => (
-              <ListItem key={log.id} disablePadding sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 2, py: 1 }}>
-                <ListItemText
-                  primary={log.message}
-                  secondary={`${log.createdBy.firstName} ${log.createdBy.lastName} · ${new Date(log.createdAt).toLocaleString()}`}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Box>
-      )}
     </Box>
   )
 }

@@ -30,6 +30,8 @@ const PERMISSION_CATALOG = [
   { key: 'todos:update', description: 'Todos abhaken / Status ändern' },
   { key: 'logbook:read', description: 'Logbuch anzeigen' },
   { key: 'logbook:create', description: 'Logbuch-Einträge erstellen' },
+  { key: 'activityLog:read', description: 'Server-Aktivitätslog anzeigen' },
+  { key: 'vpn:manage', description: 'VPN-Geräte konfigurieren' },
 ]
 
 async function main() {

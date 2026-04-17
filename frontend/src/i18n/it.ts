@@ -34,6 +34,7 @@ const it = {
     roles: 'Ruoli',
     settings: 'Impostazioni',
     vpn: 'VPN',
+    activityLog: 'Registro attività',
   },
   login: {
     subtitle: 'Gestione Raspberry Pi',
@@ -128,6 +129,19 @@ const it = {
     wizardSummary: 'Riepilogo',
     plantTypeRequired: 'Almeno un tipo richiesto',
     wizardDeviceAssignHint: 'Il dispositivo preselezionato sarà assegnato automaticamente.',
+  },
+  activityLog: {
+    title: 'Registro attività',
+    filterAction: 'Filtro azione (es. anlagen o anlagen.create)',
+    time: 'Ora',
+    user: 'Utente',
+    action: 'Azione',
+    entity: 'Entità',
+    status: 'Stato',
+    ip: 'IP',
+    details: 'Dettagli',
+    empty: 'Nessuna voce',
+    totalEntries: 'Totale: {{count}} voci',
   },
   groups: {
     title: 'Gruppi ({{count}})',

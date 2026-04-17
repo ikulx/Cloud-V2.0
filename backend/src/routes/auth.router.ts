@@ -6,6 +6,7 @@ import { issueAccessToken, issueRefreshToken, verifyRefreshToken } from '../lib/
 import { comparePassword } from '../lib/password'
 import { getUserAccessContext } from '../services/user-context.service'
 import { authenticate } from '../middleware/authenticate'
+import { logActivity } from '../services/activity-log.service'
 
 const router = Router()
 
@@ -44,6 +45,13 @@ router.post('/login', async (req, res) => {
   })
 
   if (!user || !(await comparePassword(password, user.passwordHash))) {
+    logActivity({
+      action: 'auth.login.failed',
+      entityType: 'user',
+      details: { email },
+      req,
+      statusCode: 401,
+    }).catch(() => {})
     res.status(401).json({ message: 'E-Mail oder Passwort falsch' })
     return
   }
@@ -61,6 +69,15 @@ router.post('/login', async (req, res) => {
   })
 
   const userContext = await getUserAccessContext(user.id)
+
+  logActivity({
+    action: 'auth.login',
+    entityType: 'user',
+    entityId: user.id,
+    details: { email: user.email },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
 
   res.json({
     accessToken,

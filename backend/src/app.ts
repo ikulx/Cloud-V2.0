@@ -3,6 +3,7 @@ import cors from 'cors'
 import helmet from 'helmet'
 import { env } from './config/env'
 import apiRouter from './routes/index'
+import { activityLogMiddleware } from './middleware/activity-log'
 
 export function createApp() {
   const app = express()
@@ -32,6 +33,11 @@ export function createApp() {
     if (req.path.match(/\/api\/vpn\/devices\/[^/]+\/(visu|lan)\//)) return next()
     express.json()(req, res, next)
   })
+
+  // Activity-Log Middleware – erfasst alle POST/PATCH/PUT/DELETE Requests.
+  // Läuft nach Auth, damit req.user verfügbar ist (Auth-Middleware wird in
+  // einzelnen Router-Handlern angewendet; finish-Listener feuert auch hier ohne Auth).
+  app.use('/api', activityLogMiddleware)
 
   app.use('/api', apiRouter)
 

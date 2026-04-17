@@ -34,13 +34,18 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import InfoIcon from '@mui/icons-material/Info'
 import LinkIcon from '@mui/icons-material/Link'
+import AssignmentIcon from '@mui/icons-material/Assignment'
+import BookIcon from '@mui/icons-material/Book'
+import List from '@mui/material/List'
+import ListItem from '@mui/material/ListItem'
+import ListItemText from '@mui/material/ListItemText'
 import PhoneIcon from '@mui/icons-material/Phone'
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid'
 import EmailIcon from '@mui/icons-material/Email'
 import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
-import { useAnlage, useUpdateAnlage } from '../features/anlagen/queries'
+import { useAnlage, useUpdateAnlage, useCreateAnlageTodo, useUpdateAnlageTodo, useCreateAnlageLog } from '../features/anlagen/queries'
 import { useDevices, useUpdateDevice } from '../features/devices/queries'
 import { useSession } from '../context/SessionContext'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
@@ -130,7 +135,15 @@ export function AnlageDetailPage() {
   const { data: allDevices } = useDevices()
   const canUpdateAnlage = usePermission('anlagen:update')
   const canUpdateDevice = usePermission('devices:update')
+  const canReadTodos = usePermission('todos:read')
+  const canCreateTodo = usePermission('todos:create')
+  const canUpdateTodo = usePermission('todos:update')
+  const canReadLog = usePermission('logbook:read')
+  const canCreateLog = usePermission('logbook:create')
   const updateAnlage = useUpdateAnlage(id ?? '')
+  const createTodo = useCreateAnlageTodo(id ?? '')
+  const updateTodo = useUpdateAnlageTodo(id ?? '')
+  const createLog = useCreateAnlageLog(id ?? '')
 
   useDeviceStatus()
 
@@ -142,6 +155,8 @@ export function AnlageDetailPage() {
   const [geocoding, setGeocoding] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [showErrors, setShowErrors] = useState(false)
+  const [todoTitle, setTodoTitle] = useState('')
+  const [logMessage, setLogMessage] = useState('')
 
   // Validierung für Edit-Modus (gleiche Pflichtfelder wie im Wizard)
   const basicsValid = infoForm.projectNumber.trim().length > 0
@@ -284,6 +299,20 @@ export function AnlageDetailPage() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab icon={<InfoIcon fontSize="small" />} iconPosition="start" label="Infos" />
         <Tab icon={<LinkIcon fontSize="small" />} iconPosition="start" label={`Fernzugriff (${anlageDevices.length})`} />
+        {canReadTodos && (
+          <Tab
+            icon={<AssignmentIcon fontSize="small" />}
+            iconPosition="start"
+            label={t('todos.tab', { count: anlage.todos?.filter((tt) => tt.status === 'OPEN').length ?? 0 })}
+          />
+        )}
+        {canReadLog && (
+          <Tab
+            icon={<BookIcon fontSize="small" />}
+            iconPosition="start"
+            label={t('logbook.tab')}
+          />
+        )}
       </Tabs>
 
       {/* TAB 0: INFOS */}
@@ -676,6 +705,109 @@ export function AnlageDetailPage() {
             </TableBody>
           </Table>
         </TableContainer>
+      )}
+
+      {/* TAB 2: TODOS */}
+      {canReadTodos && tab === 2 && (
+        <Box>
+          {canCreateTodo ? (
+            <Box display="flex" gap={1} mb={2}>
+              <TextField
+                label={t('todos.newTodo')}
+                value={todoTitle}
+                onChange={(e) => setTodoTitle(e.target.value)}
+                size="small"
+                sx={{ flexGrow: 1 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && todoTitle.trim()) {
+                    createTodo.mutate({ title: todoTitle.trim() })
+                    setTodoTitle('')
+                  }
+                }}
+              />
+              <Button
+                variant="contained"
+                disabled={!todoTitle.trim() || createTodo.isPending}
+                onClick={() => {
+                  if (todoTitle.trim()) {
+                    createTodo.mutate({ title: todoTitle.trim() })
+                    setTodoTitle('')
+                  }
+                }}
+              >
+                {t('todos.add')}
+              </Button>
+            </Box>
+          ) : (
+            <Alert severity="info" sx={{ mb: 2 }}>{t('detail.noPermissionTodos')}</Alert>
+          )}
+          {(!anlage.todos || anlage.todos.length === 0) && (
+            <Typography color="text.secondary">{t('todos.noTodos')}</Typography>
+          )}
+          <List disablePadding>
+            {anlage.todos?.map((todo) => (
+              <ListItem key={todo.id} disablePadding sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 1 }}>
+                <Checkbox
+                  checked={todo.status === 'DONE'}
+                  onChange={() => canUpdateTodo && updateTodo.mutate({ todoId: todo.id, status: todo.status === 'DONE' ? 'OPEN' : 'DONE' })}
+                  disabled={!canUpdateTodo}
+                  size="small"
+                />
+                <ListItemText
+                  primary={todo.title}
+                  secondary={`${todo.createdBy.firstName} ${todo.createdBy.lastName} · ${new Date(todo.createdAt).toLocaleDateString()}`}
+                  sx={{ textDecoration: todo.status === 'DONE' ? 'line-through' : 'none' }}
+                />
+              </ListItem>
+            ))}
+          </List>
+        </Box>
+      )}
+
+      {/* TAB 3: LOGBUCH */}
+      {canReadLog && tab === (canReadTodos ? 3 : 2) && (
+        <Box>
+          {canCreateLog ? (
+            <Box display="flex" gap={1} mb={2}>
+              <TextField
+                label={t('logbook.newEntry')}
+                value={logMessage}
+                onChange={(e) => setLogMessage(e.target.value)}
+                size="small"
+                sx={{ flexGrow: 1 }}
+                multiline
+                maxRows={4}
+              />
+              <Button
+                variant="contained"
+                disabled={!logMessage.trim() || createLog.isPending}
+                onClick={() => {
+                  if (logMessage.trim()) {
+                    createLog.mutate({ message: logMessage.trim() })
+                    setLogMessage('')
+                  }
+                }}
+              >
+                {t('logbook.add')}
+              </Button>
+            </Box>
+          ) : (
+            <Alert severity="info" sx={{ mb: 2 }}>{t('detail.noPermissionLogbook')}</Alert>
+          )}
+          {(!anlage.logEntries || anlage.logEntries.length === 0) && (
+            <Typography color="text.secondary">{t('logbook.noEntries')}</Typography>
+          )}
+          <List disablePadding>
+            {anlage.logEntries?.map((log) => (
+              <ListItem key={log.id} disablePadding sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 2, py: 1 }}>
+                <ListItemText
+                  primary={<Typography sx={{ whiteSpace: 'pre-wrap' }}>{log.message}</Typography>}
+                  secondary={`${log.createdBy.firstName} ${log.createdBy.lastName} · ${new Date(log.createdAt).toLocaleString()}`}
+                />
+              </ListItem>
+            ))}
+          </List>
+        </Box>
       )}
 
       <Snackbar

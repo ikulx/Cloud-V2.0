@@ -34,6 +34,7 @@ const de = {
     roles: 'Rollen',
     settings: 'Einstellungen',
     vpn: 'VPN',
+    activityLog: 'Aktivitätslog',
   },
   login: {
     subtitle: 'Raspberry Pi Management',
@@ -128,6 +129,19 @@ const de = {
     wizardSummary: 'Zusammenfassung',
     plantTypeRequired: 'Mindestens ein Typ erforderlich',
     wizardDeviceAssignHint: 'Das vorausgewählte Gerät wird automatisch zugewiesen.',
+  },
+  activityLog: {
+    title: 'Aktivitätslog',
+    filterAction: 'Action-Filter (z.B. anlagen oder anlagen.create)',
+    time: 'Zeitpunkt',
+    user: 'Benutzer',
+    action: 'Aktion',
+    entity: 'Entität',
+    status: 'Status',
+    ip: 'IP',
+    details: 'Details',
+    empty: 'Keine Einträge',
+    totalEntries: 'Gesamt: {{count}} Einträge',
   },
   groups: {
     title: 'Gruppen ({{count}})',
