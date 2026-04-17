@@ -956,6 +956,8 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
   const queryParams = new URLSearchParams(req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '')
   queryParams.delete('access_token')
   queryParams.delete('remoteUser')
+  queryParams.delete('targetIp')
+  queryParams.delete('targetPort')
   const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : ''
   const targetUrl = `http://${piVisuIp}:${piVisuPort}${targetPath}${queryStr}`
 
