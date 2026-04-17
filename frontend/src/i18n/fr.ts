@@ -126,6 +126,8 @@ const fr = {
     wizardBack: 'Retour',
     wizardFinish: 'Créer',
     wizardSummary: 'Résumé',
+    plantTypeRequired: 'Au moins un type requis',
+    wizardDeviceAssignHint: 'L\'appareil pré-sélectionné sera assigné automatiquement.',
   },
   groups: {
     title: 'Groupes ({{count}})',

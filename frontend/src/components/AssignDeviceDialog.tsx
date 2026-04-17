@@ -18,9 +18,7 @@ import Checkbox from '@mui/material/Checkbox'
 import AddIcon from '@mui/icons-material/Add'
 import WarningIcon from '@mui/icons-material/Warning'
 import { useTranslation } from 'react-i18next'
-import { useUpdateDevice, useApproveDevice, useDevices } from '../features/devices/queries'
-import { useUsers } from '../features/users/queries'
-import { useGroups } from '../features/groups/queries'
+import { useUpdateDevice, useApproveDevice } from '../features/devices/queries'
 import { AnlageCreateWizard } from './AnlageCreateWizard'
 import type { Anlage, Device } from '../types/model'
 
@@ -40,10 +38,6 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
   const [error, setError] = useState('')
   const [wizardOpen, setWizardOpen] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-
-  const { data: allDevices } = useDevices()
-  const { data: allUsers } = useUsers()
-  const { data: allGroups } = useGroups()
 
   const updateDevice = useUpdateDevice(device?.id ?? '')
   const approveDevice = useApproveDevice()
@@ -88,10 +82,6 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
   }
 
   if (!device) return null
-
-  const deviceOptions = (allDevices ?? []).map((d) => ({ id: d.id, label: `${d.name || d.serialNumber} (${d.serialNumber})` }))
-  const userOptions = (allUsers ?? []).map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName} (${u.email})` }))
-  const groupOptions = (allGroups ?? []).map((g) => ({ id: g.id, label: g.name }))
 
   return (
     <>
@@ -193,9 +183,6 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
       <AnlageCreateWizard
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
-        deviceOptions={deviceOptions}
-        userOptions={userOptions}
-        groupOptions={groupOptions}
         initialDeviceIds={[device.id]}
         onCreated={handleWizardCreated}
       />

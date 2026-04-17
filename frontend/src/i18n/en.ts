@@ -126,6 +126,8 @@ const en = {
     wizardBack: 'Back',
     wizardFinish: 'Create',
     wizardSummary: 'Summary',
+    plantTypeRequired: 'At least one type required',
+    wizardDeviceAssignHint: 'The pre-selected device will be assigned automatically.',
   },
   groups: {
     title: 'Groups ({{count}})',

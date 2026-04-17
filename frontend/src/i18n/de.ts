@@ -126,6 +126,8 @@ const de = {
     wizardBack: 'Zurück',
     wizardFinish: 'Erstellen',
     wizardSummary: 'Zusammenfassung',
+    plantTypeRequired: 'Mindestens ein Typ erforderlich',
+    wizardDeviceAssignHint: 'Das vorausgewählte Gerät wird automatisch zugewiesen.',
   },
   groups: {
     title: 'Gruppen ({{count}})',

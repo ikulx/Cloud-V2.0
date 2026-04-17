@@ -80,9 +80,9 @@ export function AnlagenPage() {
 
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
 
-  const deviceOptions = (allDevices ?? []).map((d) => ({ id: d.id, label: `${d.name || d.serialNumber} (${d.serialNumber})` }))
-  const userOptions = (allUsers ?? []).map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName} (${u.email})` }))
-  const groupOptions = (allGroups ?? []).map((g) => ({ id: g.id, label: g.name }))
+  // allDevices, allUsers, allGroups werden hier nicht mehr benötigt (Wizard ohne Assignments-Step)
+  // aber die Hooks bleiben für die Tabellen-Anzeige (Status-Berechnung)
+  void allUsers; void allGroups
 
   return (
     <Box>
@@ -138,9 +138,6 @@ export function AnlagenPage() {
       <AnlageCreateWizard
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
-        deviceOptions={deviceOptions}
-        userOptions={userOptions}
-        groupOptions={groupOptions}
       />
 
       <ConfirmDialog

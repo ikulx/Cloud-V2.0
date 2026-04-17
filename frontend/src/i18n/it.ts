@@ -126,6 +126,8 @@ const it = {
     wizardBack: 'Indietro',
     wizardFinish: 'Crea',
     wizardSummary: 'Riepilogo',
+    plantTypeRequired: 'Almeno un tipo richiesto',
+    wizardDeviceAssignHint: 'Il dispositivo preselezionato sarà assegnato automaticamente.',
   },
   groups: {
     title: 'Gruppi ({{count}})',

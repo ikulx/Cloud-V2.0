@@ -21,23 +21,22 @@ import Chip from '@mui/material/Chip'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
 import { useTranslation } from 'react-i18next'
 import { useCreateAnlage } from '../features/anlagen/queries'
-import { SearchableMultiSelect } from './SearchableMultiSelect'
 import { geocodeAddress } from '../lib/geocode'
-
-interface Option { id: string; label: string }
 
 interface Props {
   open: boolean
   onClose: () => void
-  deviceOptions: Option[]
-  userOptions: Option[]
-  groupOptions: Option[]
   /** Vorab zugewiesene Geräte (z.B. wenn Wizard vom Geräte-Zuweisen-Dialog geöffnet wird) */
   initialDeviceIds?: string[]
   /** Callback nach erfolgreicher Erstellung – z.B. um Gerät zusätzlich zu registrieren */
   onCreated?: (anlageId: string) => Promise<void> | void
   /** Überschriebener Titel */
   title?: string
+  /** Diese Props werden nicht mehr im Wizard angezeigt, aber (für Backward-Kompatibilität)
+   *  noch als ungenutzte optional-Props akzeptiert */
+  deviceOptions?: unknown
+  userOptions?: unknown
+  groupOptions?: unknown
 }
 
 const EMPTY = {
@@ -49,10 +48,9 @@ const EMPTY = {
   contactName: '', contactPhone: '', contactMobile: '', contactEmail: '',
   notes: '',
 }
-const EMPTY_ASSIGN = { deviceIds: [] as string[], userIds: [] as string[], groupIds: [] as string[] }
 
 export function AnlageCreateWizard({
-  open, onClose, deviceOptions, userOptions, groupOptions,
+  open, onClose,
   initialDeviceIds, onCreated, title,
 }: Props) {
   const { t } = useTranslation()
@@ -60,45 +58,41 @@ export function AnlageCreateWizard({
 
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(EMPTY)
-  const [assign, setAssign] = useState<typeof EMPTY_ASSIGN>({
-    ...EMPTY_ASSIGN,
-    deviceIds: initialDeviceIds ?? [],
-  })
   const [error, setError] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
-  // Bei Öffnen: Initial-Werte setzen (falls z.B. initialDeviceIds sich ändern)
   useEffect(() => {
     if (open) {
       setStep(0)
       setForm(EMPTY)
-      setAssign({ ...EMPTY_ASSIGN, deviceIds: initialDeviceIds ?? [] })
       setError('')
     }
-  }, [open, initialDeviceIds])
+  }, [open])
 
   const steps = [
     t('anlagen.wizardStepBasics'),
     t('anlagen.wizardStepAddress'),
     t('anlagen.wizardStepContact'),
-    t('anlagen.wizardStepAssignments'),
     t('anlagen.wizardStepReview'),
   ]
 
-  const reset = () => {
-    setStep(0); setForm(EMPTY); setAssign(EMPTY_ASSIGN); setError('')
-  }
-
   const handleClose = () => {
     if (createMutation.isPending) return
-    reset()
     onClose()
   }
 
-  const canGoNext = () => {
-    // Step 0 erfordert mindestens einen Namen
-    if (step === 0) return form.name.trim().length > 0
+  // Validierung pro Schritt
+  const step0Valid = form.projectNumber.trim().length > 0
+                     && form.name.trim().length > 0
+                     && (form.hasHeatPump || form.hasBoiler)
+  const step1Valid = form.street.trim().length > 0
+                     && form.zip.trim().length > 0
+                     && form.city.trim().length > 0
+
+  const canGoNext = (): boolean => {
+    if (step === 0) return step0Valid
+    if (step === 1) return step1Valid
     return true
   }
 
@@ -131,7 +125,12 @@ export function AnlageCreateWizard({
       const { latitude: latStr, longitude: lngStr, ...rest } = form
       const latitude = latStr ? parseFloat(latStr) : null
       const longitude = lngStr ? parseFloat(lngStr) : null
-      const created = await createMutation.mutateAsync({ ...rest, latitude, longitude, ...assign })
+      const created = await createMutation.mutateAsync({
+        ...rest,
+        latitude,
+        longitude,
+        deviceIds: initialDeviceIds ?? [],
+      })
       const createdId = (created as { id?: string })?.id
       if (onCreated && createdId) {
         await onCreated(createdId)
@@ -155,11 +154,30 @@ export function AnlageCreateWizard({
         {/* Step 0: Stammdaten */}
         {step === 0 && (
           <Stack spacing={2}>
-            <TextField label="Projekt-Nr." value={form.projectNumber} onChange={(e) => setForm({ ...form, projectNumber: e.target.value })} fullWidth />
-            <TextField label={t('common.name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} fullWidth required autoFocus />
+            <TextField
+              label="Projekt-Nr. *"
+              value={form.projectNumber}
+              onChange={(e) => setForm({ ...form, projectNumber: e.target.value })}
+              fullWidth
+              required
+              error={!form.projectNumber.trim()}
+              helperText={!form.projectNumber.trim() ? t('common.fieldRequired') : ''}
+              autoFocus
+            />
+            <TextField
+              label={t('common.name') + ' *'}
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              fullWidth
+              required
+              error={!form.name.trim()}
+              helperText={!form.name.trim() ? t('common.fieldRequired') : ''}
+            />
             <TextField label={t('common.description')} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} fullWidth multiline rows={2} />
             <Box>
-              <Typography variant="subtitle2" color="text.secondary" mb={0.5}>{t('anlagen.plantType')}</Typography>
+              <Typography variant="subtitle2" color={!form.hasHeatPump && !form.hasBoiler ? 'error' : 'text.secondary'} mb={0.5}>
+                {t('anlagen.plantType')} *
+              </Typography>
               <FormGroup row>
                 <FormControlLabel
                   control={<Checkbox checked={form.hasHeatPump} onChange={(e) => setForm({ ...form, hasHeatPump: e.target.checked })} />}
@@ -170,6 +188,9 @@ export function AnlageCreateWizard({
                   label={t('anlagen.plantTypeBoiler')}
                 />
               </FormGroup>
+              {!form.hasHeatPump && !form.hasBoiler && (
+                <Typography variant="caption" color="error">{t('anlagen.plantTypeRequired', 'Mindestens ein Typ erforderlich')}</Typography>
+              )}
             </Box>
           </Stack>
         )}
@@ -177,10 +198,33 @@ export function AnlageCreateWizard({
         {/* Step 1: Adresse */}
         {step === 1 && (
           <Stack spacing={2}>
-            <TextField label="Strasse" value={form.street} onChange={(e) => setForm({ ...form, street: e.target.value })} fullWidth />
+            <TextField
+              label="Strasse *"
+              value={form.street}
+              onChange={(e) => setForm({ ...form, street: e.target.value })}
+              fullWidth
+              required
+              error={!form.street.trim()}
+              helperText={!form.street.trim() ? t('common.fieldRequired') : ''}
+              autoFocus
+            />
             <Box display="flex" gap={2}>
-              <TextField label="PLZ" value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} sx={{ width: 140 }} />
-              <TextField label="Ort" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} fullWidth />
+              <TextField
+                label="PLZ *"
+                value={form.zip}
+                onChange={(e) => setForm({ ...form, zip: e.target.value })}
+                sx={{ width: 140 }}
+                required
+                error={!form.zip.trim()}
+              />
+              <TextField
+                label="Ort *"
+                value={form.city}
+                onChange={(e) => setForm({ ...form, city: e.target.value })}
+                fullWidth
+                required
+                error={!form.city.trim()}
+              />
             </Box>
             <TextField label="Land" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} fullWidth />
             <Button
@@ -188,7 +232,7 @@ export function AnlageCreateWizard({
               size="small"
               startIcon={<MyLocationIcon />}
               onClick={handleGeocode}
-              disabled={geocoding || (!form.street && !form.city && !form.zip)}
+              disabled={geocoding || !step1Valid}
               sx={{ alignSelf: 'flex-start' }}
             >
               {geocoding ? '…' : t('anlagen.geocode')}
@@ -200,60 +244,33 @@ export function AnlageCreateWizard({
           </Stack>
         )}
 
-        {/* Step 2: Verantwortlicher */}
+        {/* Step 2: Verantwortlicher + Bemerkungen */}
         {step === 2 && (
           <Stack spacing={2}>
             <TextField label="Name" value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} fullWidth />
             <TextField label="Telefon" value={form.contactPhone} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} fullWidth />
             <TextField label="Mobil" value={form.contactMobile} onChange={(e) => setForm({ ...form, contactMobile: e.target.value })} fullWidth />
             <TextField label="E-Mail" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} fullWidth type="email" />
-          </Stack>
-        )}
-
-        {/* Step 3: Zuweisungen + Notizen */}
-        {step === 3 && (
-          <Stack spacing={3}>
-            <SearchableMultiSelect
-              label={t('nav.devices')}
-              options={deviceOptions}
-              selected={assign.deviceIds}
-              onChange={(ids) => setAssign({ ...assign, deviceIds: ids })}
-            />
-            <Divider />
-            <SearchableMultiSelect
-              label={t('nav.users')}
-              options={userOptions}
-              selected={assign.userIds}
-              onChange={(ids) => setAssign({ ...assign, userIds: ids })}
-            />
-            <Divider />
-            <SearchableMultiSelect
-              label={t('nav.groups')}
-              options={groupOptions}
-              selected={assign.groupIds}
-              onChange={(ids) => setAssign({ ...assign, groupIds: ids })}
-            />
-            <Divider />
+            <Divider sx={{ my: 1 }} />
             <TextField label="Bemerkungen" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} fullWidth multiline rows={3} />
           </Stack>
         )}
 
-        {/* Step 4: Review */}
-        {step === 4 && (
+        {/* Step 3: Review */}
+        {step === 3 && (
           <Stack spacing={2}>
             <Typography variant="h6">{t('anlagen.wizardSummary')}</Typography>
 
             <Box>
               <Typography variant="subtitle2" color="text.secondary">{t('anlagen.wizardStepBasics')}</Typography>
               <Stack spacing={0.5} mt={0.5}>
-                {form.projectNumber && <Typography variant="body2"><strong>Projekt-Nr.:</strong> {form.projectNumber}</Typography>}
+                <Typography variant="body2"><strong>Projekt-Nr.:</strong> {form.projectNumber}</Typography>
                 <Typography variant="body2"><strong>{t('common.name')}:</strong> {form.name}</Typography>
                 {form.description && <Typography variant="body2"><strong>{t('common.description')}:</strong> {form.description}</Typography>}
                 <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
                   <Typography variant="body2"><strong>{t('anlagen.plantType')}:</strong></Typography>
                   {form.hasHeatPump && <Chip size="small" label={t('anlagen.plantTypeHeatPump')} color="primary" />}
                   {form.hasBoiler && <Chip size="small" label={t('anlagen.plantTypeBoiler')} color="primary" />}
-                  {!form.hasHeatPump && !form.hasBoiler && <Typography variant="body2" color="text.secondary">—</Typography>}
                 </Box>
               </Stack>
             </Box>
@@ -263,7 +280,7 @@ export function AnlageCreateWizard({
             <Box>
               <Typography variant="subtitle2" color="text.secondary">{t('anlagen.wizardStepAddress')}</Typography>
               <Typography variant="body2" mt={0.5}>
-                {[form.street, [form.zip, form.city].filter(Boolean).join(' '), form.country].filter(Boolean).join(', ') || '—'}
+                {[form.street, [form.zip, form.city].filter(Boolean).join(' '), form.country].filter(Boolean).join(', ')}
               </Typography>
               {(form.latitude || form.longitude) && (
                 <Typography variant="caption" color="text.secondary">
@@ -284,17 +301,6 @@ export function AnlageCreateWizard({
               </Stack>
             </Box>
 
-            <Divider />
-
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary">{t('anlagen.wizardStepAssignments')}</Typography>
-              <Stack spacing={0.5} mt={0.5}>
-                <Typography variant="body2">{t('nav.devices')}: {assign.deviceIds.length}</Typography>
-                <Typography variant="body2">{t('nav.users')}: {assign.userIds.length}</Typography>
-                <Typography variant="body2">{t('nav.groups')}: {assign.groupIds.length}</Typography>
-              </Stack>
-            </Box>
-
             {form.notes && (
               <>
                 <Divider />
@@ -302,6 +308,15 @@ export function AnlageCreateWizard({
                   <Typography variant="subtitle2" color="text.secondary">Bemerkungen</Typography>
                   <Typography variant="body2" mt={0.5} sx={{ whiteSpace: 'pre-wrap' }}>{form.notes}</Typography>
                 </Box>
+              </>
+            )}
+
+            {initialDeviceIds && initialDeviceIds.length > 0 && (
+              <>
+                <Divider />
+                <Alert severity="info">
+                  {t('anlagen.wizardDeviceAssignHint', 'Das vorausgewählte Gerät wird automatisch zugewiesen.')}
+                </Alert>
               </>
             )}
 
