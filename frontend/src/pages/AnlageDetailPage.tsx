@@ -22,6 +22,9 @@ import Collapse from '@mui/material/Collapse'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Alert from '@mui/material/Alert'
+import MenuItem from '@mui/material/MenuItem'
+import Snackbar from '@mui/material/Snackbar'
+import MyLocationIcon from '@mui/icons-material/MyLocation'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import SettingsIcon from '@mui/icons-material/Settings'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
@@ -40,6 +43,7 @@ import { useDevices, useUpdateDevice } from '../features/devices/queries'
 import { useSession } from '../context/SessionContext'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { usePermission } from '../hooks/usePermission'
+import { geocodeAddress } from '../lib/geocode'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../types/model'
 
@@ -47,6 +51,7 @@ const EMPTY_INFO_FORM = {
   projectNumber: '', name: '', description: '',
   street: '', zip: '', city: '', country: 'Schweiz',
   latitude: '', longitude: '',
+  plantType: '' as '' | 'HEAT_PUMP' | 'BOILER',
   contactName: '', contactPhone: '', contactMobile: '', contactEmail: '',
   notes: '',
 }
@@ -131,6 +136,8 @@ export function AnlageDetailPage() {
   const [editingInfo, setEditingInfo] = useState(false)
   const [infoForm, setInfoForm] = useState(EMPTY_INFO_FORM)
   const [saveError, setSaveError] = useState('')
+  const [geocoding, setGeocoding] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
     if (anlage) {
@@ -144,6 +151,7 @@ export function AnlageDetailPage() {
         country: anlage.country ?? 'Schweiz',
         latitude: anlage.latitude != null ? String(anlage.latitude) : '',
         longitude: anlage.longitude != null ? String(anlage.longitude) : '',
+        plantType: anlage.plantType ?? '',
         contactName: anlage.contactName ?? '',
         contactPhone: anlage.contactPhone ?? '',
         contactMobile: anlage.contactMobile ?? '',
@@ -168,13 +176,41 @@ export function AnlageDetailPage() {
   const handleSaveInfo = async () => {
     setSaveError('')
     try {
-      const { latitude: latStr, longitude: lngStr, ...rest } = infoForm
+      const { latitude: latStr, longitude: lngStr, plantType, ...rest } = infoForm
       const latitude = latStr ? parseFloat(latStr) : null
       const longitude = lngStr ? parseFloat(lngStr) : null
-      await updateAnlage.mutateAsync({ ...rest, latitude, longitude })
+      await updateAnlage.mutateAsync({
+        ...rest,
+        latitude,
+        longitude,
+        plantType: plantType || null,
+      })
       setEditingInfo(false)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : t('common.errorSaving'))
+    }
+  }
+
+  const handleGeocode = async () => {
+    setGeocoding(true)
+    try {
+      const result = await geocodeAddress({
+        street: infoForm.street,
+        zip: infoForm.zip,
+        city: infoForm.city,
+        country: infoForm.country,
+      })
+      if (result) {
+        setInfoForm({
+          ...infoForm,
+          latitude: result.latitude.toFixed(6),
+          longitude: result.longitude.toFixed(6),
+        })
+      } else {
+        setToast(t('anlagen.geocodeNotFound'))
+      }
+    } finally {
+      setGeocoding(false)
     }
   }
 
@@ -190,6 +226,7 @@ export function AnlageDetailPage() {
         country: anlage.country ?? 'Schweiz',
         latitude: anlage.latitude != null ? String(anlage.latitude) : '',
         longitude: anlage.longitude != null ? String(anlage.longitude) : '',
+        plantType: anlage.plantType ?? '',
         contactName: anlage.contactName ?? '',
         contactPhone: anlage.contactPhone ?? '',
         contactMobile: anlage.contactMobile ?? '',
@@ -199,6 +236,12 @@ export function AnlageDetailPage() {
     }
     setSaveError('')
     setEditingInfo(false)
+  }
+
+  const plantTypeLabel = (pt: 'HEAT_PUMP' | 'BOILER' | null): string => {
+    if (pt === 'HEAT_PUMP') return t('anlagen.plantTypeHeatPump')
+    if (pt === 'BOILER') return t('anlagen.plantTypeBoiler')
+    return '—'
   }
 
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
@@ -265,6 +308,18 @@ export function AnlageDetailPage() {
                       <TextField label="Projekt-Nr." size="small" value={infoForm.projectNumber} onChange={(e) => setInfoForm({ ...infoForm, projectNumber: e.target.value })} fullWidth />
                       <TextField label={t('common.name')} size="small" value={infoForm.name} onChange={(e) => setInfoForm({ ...infoForm, name: e.target.value })} fullWidth required />
                       <TextField label={t('common.description')} size="small" value={infoForm.description} onChange={(e) => setInfoForm({ ...infoForm, description: e.target.value })} fullWidth multiline rows={2} />
+                      <TextField
+                        label={t('anlagen.plantType')}
+                        size="small"
+                        select
+                        value={infoForm.plantType}
+                        onChange={(e) => setInfoForm({ ...infoForm, plantType: e.target.value as '' | 'HEAT_PUMP' | 'BOILER' })}
+                        fullWidth
+                      >
+                        <MenuItem value="">—</MenuItem>
+                        <MenuItem value="HEAT_PUMP">{t('anlagen.plantTypeHeatPump')}</MenuItem>
+                        <MenuItem value="BOILER">{t('anlagen.plantTypeBoiler')}</MenuItem>
+                      </TextField>
                     </Stack>
                   ) : (
                     <Stack spacing={1.5}>
@@ -279,6 +334,10 @@ export function AnlageDetailPage() {
                       <Box>
                         <Typography variant="caption" color="text.secondary">{t('common.description')}</Typography>
                         <Typography variant="body1">{anlage.description ?? '—'}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">{t('anlagen.plantType')}</Typography>
+                        <Typography variant="body1">{plantTypeLabel(anlage.plantType)}</Typography>
                       </Box>
                       <Box>
                         <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>
@@ -300,6 +359,16 @@ export function AnlageDetailPage() {
                         <TextField label="Ort" size="small" value={infoForm.city} onChange={(e) => setInfoForm({ ...infoForm, city: e.target.value })} fullWidth />
                       </Box>
                       <TextField label="Land" size="small" value={infoForm.country} onChange={(e) => setInfoForm({ ...infoForm, country: e.target.value })} fullWidth />
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<MyLocationIcon />}
+                        onClick={handleGeocode}
+                        disabled={geocoding || (!infoForm.street && !infoForm.city && !infoForm.zip)}
+                        sx={{ alignSelf: 'flex-start' }}
+                      >
+                        {geocoding ? '…' : t('anlagen.geocode')}
+                      </Button>
                       <Box display="flex" gap={2}>
                         <TextField label="Breitengrad" size="small" value={infoForm.latitude} onChange={(e) => setInfoForm({ ...infoForm, latitude: e.target.value })} fullWidth placeholder="z.B. 47.3769" />
                         <TextField label="Längengrad" size="small" value={infoForm.longitude} onChange={(e) => setInfoForm({ ...infoForm, longitude: e.target.value })} fullWidth placeholder="z.B. 8.5417" />
@@ -543,6 +612,13 @@ export function AnlageDetailPage() {
           </Table>
         </TableContainer>
       )}
+
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={3500}
+        onClose={() => setToast(null)}
+        message={toast}
+      />
     </Box>
   )
 }

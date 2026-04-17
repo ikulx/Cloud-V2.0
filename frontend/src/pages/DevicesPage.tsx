@@ -24,15 +24,17 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import DownloadIcon from '@mui/icons-material/Download'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import SettingsIcon from '@mui/icons-material/Settings'
+import AddLinkIcon from '@mui/icons-material/AddLink'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import { Link } from 'react-router-dom'
-import { useDevices, useCreateDevice, useUpdateDevice, useDeleteDevice, useApproveDevice } from '../features/devices/queries'
+import { useDevices, useCreateDevice, useUpdateDevice, useDeleteDevice } from '../features/devices/queries'
 import { useAnlagen } from '../features/anlagen/queries'
 import { useUsers } from '../features/users/queries'
 import { useGroups } from '../features/groups/queries'
 import Chip from '@mui/material/Chip'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { AssignDeviceDialog } from '../components/AssignDeviceDialog'
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect'
 import { usePermission } from '../hooks/usePermission'
 import { useSession } from '../context/SessionContext'
@@ -64,11 +66,17 @@ export function DevicesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Device | null>(null)
   const [formError, setFormError] = useState('')
   const [expandedDeviceId, setExpandedDeviceId] = useState<string | null>(null)
+  const [assignDialogDevice, setAssignDialogDevice] = useState<Device | null>(null)
+  const [assignAlsoRegister, setAssignAlsoRegister] = useState(false)
 
   const createMutation = useCreateDevice()
   const updateMutation = useUpdateDevice(editDevice?.id ?? '')
   const deleteMutation = useDeleteDevice()
-  const approveMutation = useApproveDevice()
+
+  const openAssignDialog = (device: Device, alsoRegister: boolean) => {
+    setAssignDialogDevice(device)
+    setAssignAlsoRegister(alsoRegister)
+  }
 
 
   const openEdit = (device: Device) => {
@@ -125,6 +133,166 @@ export function DevicesPage() {
 
   const colCount = 6
 
+  // Gruppierung in 3 Kategorien
+  const devicesList = devices ?? []
+  const unregistered = devicesList.filter((d) => !d.isApproved)
+  const unassigned = devicesList.filter((d) => d.isApproved && d.anlageDevices.length === 0)
+  const assigned = devicesList.filter((d) => d.isApproved && d.anlageDevices.length > 0)
+
+  const renderDeviceRow = (device: Device, section: 'unregistered' | 'unassigned' | 'assigned') => {
+    const isExpanded = expandedDeviceId === device.id
+    const hasVpn = !!device.vpnDevice
+
+    return (
+      <>
+        <TableRow
+          key={device.id}
+          hover
+          onClick={() => handleRowClick(device)}
+          sx={{
+            cursor: hasVpn ? 'pointer' : 'default',
+            '& > td': isExpanded ? { borderBottom: 'none' } : undefined,
+            ...(device.hasConflict && {
+              backgroundColor: 'rgba(244, 67, 54, 0.08)',
+              '& > td:first-of-type': { borderLeft: '4px solid', borderLeftColor: 'error.main' },
+            }),
+          }}
+        >
+          <TableCell>
+            <Box display="flex" alignItems="center" gap={0.5}>
+              {hasVpn && (
+                isExpanded
+                  ? <KeyboardArrowUpIcon fontSize="small" color="action" />
+                  : <KeyboardArrowDownIcon fontSize="small" color="action" />
+              )}
+              <Box sx={{ color: device.hasConflict ? 'error.main' : 'inherit', fontWeight: device.hasConflict ? 600 : 'inherit' }}>
+                <code>{device.hasConflict ? (device.requestedSerialNumber ?? device.serialNumber) : device.serialNumber}</code>
+              </Box>
+            </Box>
+            {device.piSerial && (
+              <Box component="span" sx={{ display: 'block', fontSize: '0.65rem', color: 'text.secondary', mt: 0.25, ml: hasVpn ? 3 : 0 }}>
+                Pi: <code>{device.piSerial}</code>
+              </Box>
+            )}
+          </TableCell>
+          <TableCell>
+            <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
+              {device.hasConflict && (
+                <Chip label="KONFLIKT" size="small" color="error" variant="filled"
+                  sx={{ fontSize: '0.65rem', height: 20, fontWeight: 700 }} />
+              )}
+              <Chip label="MQTT" size="small"
+                color={device.isApproved ? (device.mqttConnected ? 'success' : 'error') : 'default'}
+                variant={device.isApproved ? 'filled' : 'outlined'}
+                sx={{ fontSize: '0.65rem', height: 20 }} />
+              <Chip label="VPN" size="small"
+                color={device.vpnDevice ? (device.vpnActive ? 'success' : 'error') : 'default'}
+                variant={device.vpnDevice ? 'filled' : 'outlined'}
+                sx={{ fontSize: '0.65rem', height: 20 }} />
+              <Chip label="HTTP" size="small"
+                color={device.vpnDevice ? (device.httpActive ? 'success' : 'error') : 'default'}
+                variant={device.vpnDevice ? 'filled' : 'outlined'}
+                sx={{ fontSize: '0.65rem', height: 20 }} />
+            </Box>
+          </TableCell>
+          <TableCell>{device.ipAddress ?? '—'}</TableCell>
+          <TableCell>{device.firmwareVersion ?? '—'}</TableCell>
+          <TableCell>
+            {device.anlageDevices.map((a) => a.anlage.name).join(', ') || '—'}
+          </TableCell>
+          <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+            {(section === 'unregistered' || section === 'unassigned') && canUpdate && (
+              <Tooltip title={t('anlagen.assignDevice')}>
+                <IconButton
+                  onClick={() => openAssignDialog(device, section === 'unregistered')}
+                  size="small"
+                  color="primary"
+                >
+                  <AddLinkIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Tooltip title={t('common.details')}>
+              <IconButton component={Link} to={`/devices/${device.id}`} size="small">
+                <SettingsIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {canUpdate && <Tooltip title={t('common.edit')}><IconButton onClick={() => openEdit(device)} size="small"><EditIcon fontSize="small" /></IconButton></Tooltip>}
+            {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(device)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
+          </TableCell>
+        </TableRow>
+
+        {/* Visu-Vorschau: aufklappbar unter der Gerätezeile */}
+        {hasVpn && (
+          <TableRow key={`${device.id}-visu`}>
+            <TableCell colSpan={colCount} sx={{ p: 0, borderBottom: isExpanded ? undefined : 'none' }}>
+              <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                <Box sx={{ p: 2, bgcolor: 'action.hover' }}>
+                  <Box display="flex" justifyContent="flex-end" mb={1}>
+                    <Button variant="outlined" size="small" startIcon={<OpenInNewIcon />}
+                      onClick={() => window.open(buildVisuUrl(device.id), '_blank')}>
+                      {t('devices.openNewTab', 'In neuem Tab öffnen')}
+                    </Button>
+                  </Box>
+                  {device.visuVersion ? (
+                    <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1,
+                      overflow: 'hidden', height: 600, bgcolor: 'background.paper' }}>
+                      <iframe src={buildVisuUrl(device.id)}
+                        style={{ width: '100%', height: '100%', border: 'none' }}
+                        title={`Visualisierung – ${device.name}`} />
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                      {t('devices.noVisuPreview', 'Keine Visu-Vorschau verfügbar – bitte im neuen Tab öffnen.')}
+                    </Typography>
+                  )}
+                </Box>
+              </Collapse>
+            </TableCell>
+          </TableRow>
+        )}
+      </>
+    )
+  }
+
+  const renderSection = (
+    title: string,
+    items: Device[],
+    section: 'unregistered' | 'unassigned' | 'assigned',
+    severity?: 'warning' | 'info',
+  ) => {
+    if (items.length === 0) return null
+    return (
+      <Box mb={3}>
+        <Box display="flex" alignItems="center" gap={1} mb={1}>
+          <Typography variant="h6" sx={{
+            color: severity === 'warning' ? 'warning.main' : severity === 'info' ? 'info.main' : 'text.primary',
+          }}>
+            {title}
+          </Typography>
+          <Chip label={items.length} size="small" />
+        </Box>
+        <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>{t('devices.serialNumber')}</TableCell>
+                <TableCell>{t('common.status')}</TableCell>
+                <TableCell>{t('devices.ipAddress')}</TableCell>
+                <TableCell>{t('devices.firmware')}</TableCell>
+                <TableCell>{t('devices.anlagen')}</TableCell>
+                <TableCell align="right">{t('common.actions')}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {items.map((device) => renderDeviceRow(device, section))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+    )
+  }
+
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
@@ -142,171 +310,15 @@ export function DevicesPage() {
         </Button>
       </Box>
 
-      <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>{t('devices.serialNumber')}</TableCell>
-              <TableCell>{t('common.status')}</TableCell>
-              <TableCell>{t('devices.ipAddress')}</TableCell>
-              <TableCell>{t('devices.firmware')}</TableCell>
-              <TableCell>{t('devices.anlagen')}</TableCell>
-              <TableCell align="right">{t('common.actions')}</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {devices?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={colCount} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">{t('devices.empty')}</Typography>
-                </TableCell>
-              </TableRow>
-            )}
-            {devices?.map((device) => {
-              const isExpanded = expandedDeviceId === device.id
-              const hasVpn = !!device.vpnDevice
+      {devicesList.length === 0 && (
+        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', py: 4, textAlign: 'center' }}>
+          <Typography color="text.secondary">{t('devices.empty')}</Typography>
+        </Paper>
+      )}
 
-              return (
-                <>
-                  <TableRow
-                    key={device.id}
-                    hover
-                    onClick={() => handleRowClick(device)}
-                    sx={{
-                      cursor: hasVpn ? 'pointer' : 'default',
-                      '& > td': isExpanded ? { borderBottom: 'none' } : undefined,
-                      ...(device.hasConflict && {
-                        backgroundColor: 'rgba(244, 67, 54, 0.08)',
-                        '& > td:first-of-type': { borderLeft: '4px solid', borderLeftColor: 'error.main' },
-                      }),
-                    }}
-                  >
-                    <TableCell>
-                      <Box display="flex" alignItems="center" gap={0.5}>
-                        {hasVpn && (
-                          isExpanded
-                            ? <KeyboardArrowUpIcon fontSize="small" color="action" />
-                            : <KeyboardArrowDownIcon fontSize="small" color="action" />
-                        )}
-                        <Box sx={{ color: device.hasConflict ? 'error.main' : 'inherit', fontWeight: device.hasConflict ? 600 : 'inherit' }}>
-                          <code>{device.hasConflict ? (device.requestedSerialNumber ?? device.serialNumber) : device.serialNumber}</code>
-                        </Box>
-                      </Box>
-                      {device.piSerial && (
-                        <Box component="span" sx={{ display: 'block', fontSize: '0.65rem', color: 'text.secondary', mt: 0.25, ml: hasVpn ? 3 : 0 }}>
-                          Pi: <code>{device.piSerial}</code>
-                        </Box>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Box display="flex" flexDirection="column" gap={0.5}>
-                        <Box display="flex" alignItems="center" gap={0.5} flexWrap="wrap">
-                          {device.hasConflict && (
-                            <Chip
-                              label="KONFLIKT"
-                              size="small"
-                              color="error"
-                              variant="filled"
-                              sx={{ fontSize: '0.65rem', height: 20, fontWeight: 700 }}
-                            />
-                          )}
-                          <Chip
-                            label="MQTT"
-                            size="small"
-                            color={device.isApproved ? (device.mqttConnected ? 'success' : 'error') : 'default'}
-                            variant={device.isApproved ? 'filled' : 'outlined'}
-                            sx={{ fontSize: '0.65rem', height: 20 }}
-                          />
-                          <Chip
-                            label="VPN"
-                            size="small"
-                            color={device.vpnDevice ? (device.vpnActive ? 'success' : 'error') : 'default'}
-                            variant={device.vpnDevice ? 'filled' : 'outlined'}
-                            sx={{ fontSize: '0.65rem', height: 20 }}
-                          />
-                          <Chip
-                            label="HTTP"
-                            size="small"
-                            color={device.vpnDevice ? (device.httpActive ? 'success' : 'error') : 'default'}
-                            variant={device.vpnDevice ? 'filled' : 'outlined'}
-                            sx={{ fontSize: '0.65rem', height: 20 }}
-                          />
-                        </Box>
-                        {canUpdate && !device.isApproved && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="success"
-                            sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: '0.7rem', alignSelf: 'flex-start' }}
-                            onClick={(e) => { e.stopPropagation(); approveMutation.mutate({ id: device.id, isApproved: true }) }}
-                            disabled={approveMutation.isPending}
-                          >
-                            {t('devices.register')}
-                          </Button>
-                        )}
-                      </Box>
-                    </TableCell>
-                    <TableCell>{device.ipAddress ?? '—'}</TableCell>
-                    <TableCell>{device.firmwareVersion ?? '—'}</TableCell>
-                    <TableCell>
-                      {device.anlageDevices.map((a) => a.anlage.name).join(', ') || '—'}
-                    </TableCell>
-                    <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                      <Tooltip title={t('common.details')}><IconButton component={Link} to={`/devices/${device.id}`} size="small"><SettingsIcon fontSize="small" /></IconButton></Tooltip>
-                      {canUpdate && <Tooltip title={t('common.edit')}><IconButton onClick={() => openEdit(device)} size="small"><EditIcon fontSize="small" /></IconButton></Tooltip>}
-                      {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(device)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
-                    </TableCell>
-                  </TableRow>
-
-                  {/* Visu-Vorschau: aufklappbar unter der Gerätezeile */}
-                  {hasVpn && (
-                    <TableRow key={`${device.id}-visu`}>
-                      <TableCell colSpan={colCount} sx={{ p: 0, borderBottom: isExpanded ? undefined : 'none' }}>
-                        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                          <Box sx={{ p: 2, bgcolor: 'action.hover' }}>
-                            <Box display="flex" justifyContent="flex-end" mb={1}>
-                              <Button
-                                variant="outlined"
-                                size="small"
-                                startIcon={<OpenInNewIcon />}
-                                onClick={() => window.open(buildVisuUrl(device.id), '_blank')}
-                              >
-                                {t('devices.openNewTab', 'In neuem Tab öffnen')}
-                              </Button>
-                            </Box>
-                            {device.visuVersion ? (
-                              <Box
-                                sx={{
-                                  border: '1px solid',
-                                  borderColor: 'divider',
-                                  borderRadius: 1,
-                                  overflow: 'hidden',
-                                  height: 600,
-                                  bgcolor: 'background.paper',
-                                }}
-                              >
-                                <iframe
-                                  src={buildVisuUrl(device.id)}
-                                  style={{ width: '100%', height: '100%', border: 'none' }}
-                                  title={`Visualisierung – ${device.name}`}
-                                />
-                              </Box>
-                            ) : (
-                              <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-                                {t('devices.noVisuPreview', 'Keine Visu-Vorschau verfügbar – bitte im neuen Tab öffnen.')}
-                              </Typography>
-                            )}
-                          </Box>
-                        </Collapse>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      {renderSection(t('devices.sectionUnregistered'), unregistered, 'unregistered', 'warning')}
+      {renderSection(t('devices.sectionUnassigned'), unassigned, 'unassigned', 'info')}
+      {renderSection(t('devices.sectionAssigned'), assigned, 'assigned')}
 
       <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <Box sx={{ width: { xs: '100vw', sm: 420 }, maxWidth: '100vw', display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -379,6 +391,14 @@ export function DevicesPage() {
         }}
         onClose={() => setDeleteTarget(null)}
         loading={deleteMutation.isPending}
+      />
+
+      <AssignDeviceDialog
+        open={!!assignDialogDevice}
+        onClose={() => setAssignDialogDevice(null)}
+        device={assignDialogDevice}
+        anlagen={allAnlagen ?? []}
+        alsoRegister={assignAlsoRegister}
       />
     </Box>
   )

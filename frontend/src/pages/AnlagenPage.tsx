@@ -19,8 +19,11 @@ import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
 import Divider from '@mui/material/Divider'
 import Chip from '@mui/material/Chip'
+import MenuItem from '@mui/material/MenuItem'
+import Snackbar from '@mui/material/Snackbar'
 import AddIcon from '@mui/icons-material/Add'
 import MapIcon from '@mui/icons-material/Map'
+import MyLocationIcon from '@mui/icons-material/MyLocation'
 import DeleteIcon from '@mui/icons-material/Delete'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
@@ -35,6 +38,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SearchableMultiSelect } from '../components/SearchableMultiSelect'
 import { usePermission } from '../hooks/usePermission'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
+import { geocodeAddress } from '../lib/geocode'
 import { useTranslation } from 'react-i18next'
 import type { Anlage, Device } from '../types/model'
 
@@ -42,6 +46,7 @@ const EMPTY_FORM = {
   projectNumber: '', name: '', description: '', street: '', zip: '', city: '', country: 'Schweiz',
   contactName: '', contactPhone: '', contactMobile: '', contactEmail: '', notes: '',
   latitude: '', longitude: '',
+  plantType: '' as '' | 'HEAT_PUMP' | 'BOILER',
 }
 const EMPTY_ASSIGN = { deviceIds: [] as string[], userIds: [] as string[], groupIds: [] as string[] }
 
@@ -92,6 +97,8 @@ export function AnlagenPage() {
   const [assign, setAssign] = useState(EMPTY_ASSIGN)
   const [deleteTarget, setDeleteTarget] = useState<Anlage | null>(null)
   const [formError, setFormError] = useState('')
+  const [geocoding, setGeocoding] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   const createMutation = useCreateAnlage()
   const deleteMutation = useDeleteAnlage()
@@ -107,14 +114,34 @@ export function AnlagenPage() {
   const handleSave = async () => {
     setFormError('')
     try {
-      const { latitude: latStr, longitude: lngStr, ...rest } = form
+      const { latitude: latStr, longitude: lngStr, plantType, ...rest } = form
       const latitude = latStr ? parseFloat(latStr) : null
       const longitude = lngStr ? parseFloat(lngStr) : null
-      const payload = { ...rest, latitude, longitude, ...assign }
+      const payload = { ...rest, latitude, longitude, plantType: plantType || null, ...assign }
       await createMutation.mutateAsync(payload)
       setDrawerOpen(false)
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t('common.errorSaving'))
+    }
+  }
+
+  const handleGeocode = async () => {
+    setGeocoding(true)
+    try {
+      const result = await geocodeAddress({
+        street: form.street, zip: form.zip, city: form.city, country: form.country,
+      })
+      if (result) {
+        setForm({
+          ...form,
+          latitude: result.latitude.toFixed(6),
+          longitude: result.longitude.toFixed(6),
+        })
+      } else {
+        setToast(t('anlagen.geocodeNotFound'))
+      }
+    } finally {
+      setGeocoding(false)
     }
   }
 
@@ -193,6 +220,17 @@ export function AnlagenPage() {
                 <TextField label="Projekt-Nr." value={form.projectNumber} onChange={(e) => setForm({ ...form, projectNumber: e.target.value })} fullWidth />
                 <TextField label={t('common.name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} fullWidth required />
                 <TextField label={t('common.description')} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} fullWidth multiline rows={2} />
+                <TextField
+                  label={t('anlagen.plantType')}
+                  select
+                  value={form.plantType}
+                  onChange={(e) => setForm({ ...form, plantType: e.target.value as '' | 'HEAT_PUMP' | 'BOILER' })}
+                  fullWidth
+                >
+                  <MenuItem value="">—</MenuItem>
+                  <MenuItem value="HEAT_PUMP">{t('anlagen.plantTypeHeatPump')}</MenuItem>
+                  <MenuItem value="BOILER">{t('anlagen.plantTypeBoiler')}</MenuItem>
+                </TextField>
                 <Divider sx={{ my: 1 }} />
                 <Typography variant="subtitle2" color="text.secondary">Adresse</Typography>
                 <TextField label="Strasse" value={form.street} onChange={(e) => setForm({ ...form, street: e.target.value })} fullWidth />
@@ -201,6 +239,16 @@ export function AnlagenPage() {
                   <TextField label="Ort" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} fullWidth />
                 </Box>
                 <TextField label="Land" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} fullWidth />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<MyLocationIcon />}
+                  onClick={handleGeocode}
+                  disabled={geocoding || (!form.street && !form.city && !form.zip)}
+                  sx={{ alignSelf: 'flex-start' }}
+                >
+                  {geocoding ? '…' : t('anlagen.geocode')}
+                </Button>
                 <Box display="flex" gap={2}>
                   <TextField label="Breitengrad" value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} fullWidth placeholder="z.B. 47.3769" />
                   <TextField label="Längengrad" value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} fullWidth placeholder="z.B. 8.5417" />
@@ -259,6 +307,13 @@ export function AnlagenPage() {
         onConfirm={async () => { if (deleteTarget) { await deleteMutation.mutateAsync(deleteTarget.id); setDeleteTarget(null) } }}
         onClose={() => setDeleteTarget(null)}
         loading={deleteMutation.isPending}
+      />
+
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={3500}
+        onClose={() => setToast(null)}
+        message={toast}
       />
     </Box>
   )

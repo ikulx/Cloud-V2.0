@@ -22,6 +22,7 @@ const anlageSchema = z.object({
   notes: z.string().optional().nullable(),
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
+  plantType: z.enum(['HEAT_PUMP', 'BOILER']).optional().nullable(),
   deviceIds: z.array(z.string().uuid()).optional(),
   userIds: z.array(z.string().uuid()).optional(),
   groupIds: z.array(z.string().uuid()).optional(),
