@@ -86,6 +86,8 @@ const de = {
     cmdUpdate: 'Agent updaten',
     cmdSent: 'Befehl gesendet',
     cmdError: 'Befehl konnte nicht gesendet werden',
+    defaultName: 'Heizzentrale',
+    editName: 'Name bearbeiten',
   },
   anlagen: {
     title: 'Anlagen ({{count}})',

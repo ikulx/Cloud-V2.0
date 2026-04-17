@@ -86,6 +86,8 @@ const fr = {
     cmdUpdate: 'Mettre à jour l\'agent',
     cmdSent: 'Commande envoyée',
     cmdError: 'Échec de l\'envoi de la commande',
+    defaultName: 'Centrale de chauffage',
+    editName: 'Modifier le nom',
   },
   anlagen: {
     title: 'Installations ({{count}})',

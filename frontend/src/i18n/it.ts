@@ -86,6 +86,8 @@ const it = {
     cmdUpdate: 'Aggiorna agente',
     cmdSent: 'Comando inviato',
     cmdError: 'Invio comando fallito',
+    defaultName: 'Centrale termica',
+    editName: 'Modifica nome',
   },
   anlagen: {
     title: 'Impianti ({{count}})',

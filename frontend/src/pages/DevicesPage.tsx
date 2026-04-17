@@ -123,7 +123,7 @@ export function DevicesPage() {
   const userOptions = (allUsers ?? []).map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName} (${u.email})` }))
   const groupOptions = (allGroups ?? []).map((g) => ({ id: g.id, label: g.name }))
 
-  const colCount = 7
+  const colCount = 6
 
   return (
     <Box>
@@ -146,7 +146,6 @@ export function DevicesPage() {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>{t('common.name')}</TableCell>
               <TableCell>{t('devices.serialNumber')}</TableCell>
               <TableCell>{t('common.status')}</TableCell>
               <TableCell>{t('devices.ipAddress')}</TableCell>
@@ -190,14 +189,11 @@ export function DevicesPage() {
                             : <KeyboardArrowDownIcon fontSize="small" color="action" />
                         )}
                         <Box sx={{ color: device.hasConflict ? 'error.main' : 'inherit', fontWeight: device.hasConflict ? 600 : 'inherit' }}>
-                          {device.hasConflict ? (device.requestedSerialNumber ?? device.name) : device.name}
+                          <code>{device.hasConflict ? (device.requestedSerialNumber ?? device.serialNumber) : device.serialNumber}</code>
                         </Box>
                       </Box>
-                    </TableCell>
-                    <TableCell>
-                      <code>{device.hasConflict ? (device.requestedSerialNumber ?? device.serialNumber) : device.serialNumber}</code>
                       {device.piSerial && (
-                        <Box component="span" sx={{ display: 'block', fontSize: '0.65rem', color: 'text.secondary', mt: 0.25 }}>
+                        <Box component="span" sx={{ display: 'block', fontSize: '0.65rem', color: 'text.secondary', mt: 0.25, ml: hasVpn ? 3 : 0 }}>
                           Pi: <code>{device.piSerial}</code>
                         </Box>
                       )}
@@ -327,7 +323,6 @@ export function DevicesPage() {
 
             {tab === 0 && (
               <Box display="flex" flexDirection="column" gap={2}>
-                <TextField label={t('common.name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} fullWidth required />
                 <TextField label={t('devices.serialNumber')} value={form.serialNumber} onChange={(e) => setForm({ ...form, serialNumber: e.target.value })} fullWidth required disabled={!!editDevice} />
                 <TextField label={t('devices.ipAddress')} value={form.ipAddress} onChange={(e) => setForm({ ...form, ipAddress: e.target.value })} fullWidth />
                 <TextField label={t('devices.firmwareVersion')} value={form.firmwareVersion} onChange={(e) => setForm({ ...form, firmwareVersion: e.target.value })} fullWidth />
@@ -374,7 +369,7 @@ export function DevicesPage() {
       <ConfirmDialog
         open={!!deleteTarget}
         title={t('devices.deleteTitle')}
-        message={t('devices.deleteMessage', { name: deleteTarget?.name })}
+        message={t('devices.deleteMessage', { name: deleteTarget?.serialNumber ?? '' })}
         confirmLabel={t('common.delete')}
         onConfirm={async () => {
           if (deleteTarget) {

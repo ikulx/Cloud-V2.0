@@ -86,6 +86,8 @@ const en = {
     cmdUpdate: 'Update agent',
     cmdSent: 'Command sent',
     cmdError: 'Failed to send command',
+    defaultName: 'Heating Plant',
+    editName: 'Edit name',
   },
   anlagen: {
     title: 'Installations ({{count}})',

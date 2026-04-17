@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
@@ -20,6 +20,8 @@ import Paper from '@mui/material/Paper'
 import Tooltip from '@mui/material/Tooltip'
 import Collapse from '@mui/material/Collapse'
 import Stack from '@mui/material/Stack'
+import TextField from '@mui/material/TextField'
+import Alert from '@mui/material/Alert'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import SettingsIcon from '@mui/icons-material/Settings'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
@@ -30,12 +32,86 @@ import LinkIcon from '@mui/icons-material/Link'
 import PhoneIcon from '@mui/icons-material/Phone'
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid'
 import EmailIcon from '@mui/icons-material/Email'
-import { useAnlage } from '../features/anlagen/queries'
-import { useDevices } from '../features/devices/queries'
+import EditIcon from '@mui/icons-material/Edit'
+import CheckIcon from '@mui/icons-material/Check'
+import CloseIcon from '@mui/icons-material/Close'
+import { useAnlage, useUpdateAnlage } from '../features/anlagen/queries'
+import { useDevices, useUpdateDevice } from '../features/devices/queries'
 import { useSession } from '../context/SessionContext'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
+import { usePermission } from '../hooks/usePermission'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../types/model'
+
+const EMPTY_INFO_FORM = {
+  projectNumber: '', name: '', description: '',
+  street: '', zip: '', city: '', country: 'Schweiz',
+  latitude: '', longitude: '',
+  contactName: '', contactPhone: '', contactMobile: '', contactEmail: '',
+  notes: '',
+}
+
+// Device-Name-Wrapper mit Update-Mutation (Hook pro Row erforderlich)
+function DeviceNameCell({
+  device, defaultName, canEdit,
+}: { device: Device; defaultName: string; canEdit: boolean }) {
+  const { t } = useTranslation()
+  const updateDevice = useUpdateDevice(device.id)
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(device.name || '')
+
+  useEffect(() => { setValue(device.name || '') }, [device.name])
+
+  const displayName = device.name?.trim() || defaultName
+
+  if (editing) {
+    const save = async () => {
+      await updateDevice.mutateAsync({ name: value.trim() })
+      setEditing(false)
+    }
+    return (
+      <Box display="flex" alignItems="center" gap={0.5} onClick={(e) => e.stopPropagation()}>
+        <TextField
+          size="small"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={defaultName}
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save()
+            if (e.key === 'Escape') { setValue(device.name || ''); setEditing(false) }
+          }}
+          sx={{ '& .MuiInputBase-input': { py: 0.5 } }}
+        />
+        <IconButton size="small" onClick={save} disabled={updateDevice.isPending} color="primary">
+          <CheckIcon fontSize="small" />
+        </IconButton>
+        <IconButton size="small" onClick={() => { setValue(device.name || ''); setEditing(false) }}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Box>
+    )
+  }
+
+  return (
+    <Box display="flex" alignItems="center" gap={0.5}>
+      <Box sx={{ color: device.name?.trim() ? 'inherit' : 'text.secondary', fontStyle: device.name?.trim() ? 'normal' : 'italic' }}>
+        {displayName}
+      </Box>
+      {canEdit && (
+        <Tooltip title={t('devices.editName')}>
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); setEditing(true) }}
+            sx={{ opacity: 0.4, '&:hover': { opacity: 1 } }}
+          >
+            <EditIcon sx={{ fontSize: '0.9rem' }} />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Box>
+  )
+}
 
 export function AnlageDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -44,11 +120,38 @@ export function AnlageDetailPage() {
   const { me } = useSession()
   const { data: anlage, isLoading } = useAnlage(id!)
   const { data: allDevices } = useDevices()
+  const canUpdateAnlage = usePermission('anlagen:update')
+  const canUpdateDevice = usePermission('devices:update')
+  const updateAnlage = useUpdateAnlage(id ?? '')
 
   useDeviceStatus()
 
   const [tab, setTab] = useState(0)
   const [expandedVisuDeviceId, setExpandedVisuDeviceId] = useState<string | null>(null)
+  const [editingInfo, setEditingInfo] = useState(false)
+  const [infoForm, setInfoForm] = useState(EMPTY_INFO_FORM)
+  const [saveError, setSaveError] = useState('')
+
+  useEffect(() => {
+    if (anlage) {
+      setInfoForm({
+        projectNumber: anlage.projectNumber ?? '',
+        name: anlage.name,
+        description: anlage.description ?? '',
+        street: anlage.street ?? '',
+        zip: anlage.zip ?? '',
+        city: anlage.city ?? '',
+        country: anlage.country ?? 'Schweiz',
+        latitude: anlage.latitude != null ? String(anlage.latitude) : '',
+        longitude: anlage.longitude != null ? String(anlage.longitude) : '',
+        contactName: anlage.contactName ?? '',
+        contactPhone: anlage.contactPhone ?? '',
+        contactMobile: anlage.contactMobile ?? '',
+        contactEmail: anlage.contactEmail ?? '',
+        notes: anlage.notes ?? '',
+      })
+    }
+  }, [anlage])
 
   const buildVisuUrl = (deviceId: string) => {
     const token = localStorage.getItem('accessToken') ?? ''
@@ -62,12 +165,49 @@ export function AnlageDetailPage() {
     setExpandedVisuDeviceId((prev) => (prev === device.id ? null : device.id))
   }
 
+  const handleSaveInfo = async () => {
+    setSaveError('')
+    try {
+      const { latitude: latStr, longitude: lngStr, ...rest } = infoForm
+      const latitude = latStr ? parseFloat(latStr) : null
+      const longitude = lngStr ? parseFloat(lngStr) : null
+      await updateAnlage.mutateAsync({ ...rest, latitude, longitude })
+      setEditingInfo(false)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : t('common.errorSaving'))
+    }
+  }
+
+  const handleCancelInfo = () => {
+    if (anlage) {
+      setInfoForm({
+        projectNumber: anlage.projectNumber ?? '',
+        name: anlage.name,
+        description: anlage.description ?? '',
+        street: anlage.street ?? '',
+        zip: anlage.zip ?? '',
+        city: anlage.city ?? '',
+        country: anlage.country ?? 'Schweiz',
+        latitude: anlage.latitude != null ? String(anlage.latitude) : '',
+        longitude: anlage.longitude != null ? String(anlage.longitude) : '',
+        contactName: anlage.contactName ?? '',
+        contactPhone: anlage.contactPhone ?? '',
+        contactMobile: anlage.contactMobile ?? '',
+        contactEmail: anlage.contactEmail ?? '',
+        notes: anlage.notes ?? '',
+      })
+    }
+    setSaveError('')
+    setEditingInfo(false)
+  }
+
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
   if (!anlage) return <Typography>{t('detail.notFound')}</Typography>
 
   // Vollständige Device-Objekte aus allDevices holen (mit vpnDevice, Status, etc.)
   const deviceIds = new Set(anlage.anlageDevices.map((ad) => ad.device.id))
   const anlageDevices = (allDevices ?? []).filter((d) => deviceIds.has(d.id))
+  const defaultDeviceName = t('devices.defaultName')
 
   return (
     <Box>
@@ -89,132 +229,192 @@ export function AnlageDetailPage() {
 
       {/* TAB 0: INFOS */}
       {tab === 0 && (
-        <Box display="grid" gridTemplateColumns={{ xs: '1fr', md: '1fr 1fr' }} gap={3}>
-          {/* Linke Spalte: Stammdaten + Adresse */}
-          <Stack spacing={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>Stammdaten</Typography>
-                <Stack spacing={1.5}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Projekt-Nr.</Typography>
-                    <Typography variant="body1">{anlage.projectNumber ?? '—'}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">{t('common.name')}</Typography>
-                    <Typography variant="body1">{anlage.name}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">{t('common.description')}</Typography>
-                    <Typography variant="body1">{anlage.description ?? '—'}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>
-                    <Typography variant="body1">{anlageDevices.length}</Typography>
-                  </Box>
-                </Stack>
-              </CardContent>
-            </Card>
+        <>
+          {/* Edit-Aktionsleiste */}
+          <Box display="flex" justifyContent="flex-end" alignItems="center" gap={1} mb={2}>
+            {editingInfo ? (
+              <>
+                <Button onClick={handleCancelInfo} disabled={updateAnlage.isPending}>
+                  {t('common.cancel')}
+                </Button>
+                <Button variant="contained" onClick={handleSaveInfo} disabled={updateAnlage.isPending}>
+                  {t('common.save')}
+                </Button>
+              </>
+            ) : (
+              canUpdateAnlage && (
+                <Tooltip title={t('common.edit')}>
+                  <IconButton onClick={() => setEditingInfo(true)}>
+                    <EditIcon />
+                  </IconButton>
+                </Tooltip>
+              )
+            )}
+          </Box>
 
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>Adresse</Typography>
-                <Stack spacing={1.5}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Strasse</Typography>
-                    <Typography variant="body1">{anlage.street ?? '—'}</Typography>
-                  </Box>
-                  <Box display="flex" gap={4}>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">PLZ</Typography>
-                      <Typography variant="body1">{anlage.zip ?? '—'}</Typography>
-                    </Box>
-                    <Box flex={1}>
-                      <Typography variant="caption" color="text.secondary">Ort</Typography>
-                      <Typography variant="body1">{anlage.city ?? '—'}</Typography>
-                    </Box>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Land</Typography>
-                    <Typography variant="body1">{anlage.country ?? '—'}</Typography>
-                  </Box>
-                </Stack>
-              </CardContent>
-            </Card>
+          {saveError && <Alert severity="error" sx={{ mb: 2 }}>{saveError}</Alert>}
 
-            {anlage.notes && (
+          <Box display="grid" gridTemplateColumns={{ xs: '1fr', md: '1fr 1fr' }} gap={3}>
+            {/* Linke Spalte: Stammdaten + Adresse */}
+            <Stack spacing={3}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom>Bemerkungen</Typography>
-                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{anlage.notes}</Typography>
+                  <Typography variant="h6" gutterBottom>Stammdaten</Typography>
+                  {editingInfo ? (
+                    <Stack spacing={2}>
+                      <TextField label="Projekt-Nr." size="small" value={infoForm.projectNumber} onChange={(e) => setInfoForm({ ...infoForm, projectNumber: e.target.value })} fullWidth />
+                      <TextField label={t('common.name')} size="small" value={infoForm.name} onChange={(e) => setInfoForm({ ...infoForm, name: e.target.value })} fullWidth required />
+                      <TextField label={t('common.description')} size="small" value={infoForm.description} onChange={(e) => setInfoForm({ ...infoForm, description: e.target.value })} fullWidth multiline rows={2} />
+                    </Stack>
+                  ) : (
+                    <Stack spacing={1.5}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Projekt-Nr.</Typography>
+                        <Typography variant="body1">{anlage.projectNumber ?? '—'}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">{t('common.name')}</Typography>
+                        <Typography variant="body1">{anlage.name}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">{t('common.description')}</Typography>
+                        <Typography variant="body1">{anlage.description ?? '—'}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>
+                        <Typography variant="body1">{anlageDevices.length}</Typography>
+                      </Box>
+                    </Stack>
+                  )}
                 </CardContent>
               </Card>
-            )}
-          </Stack>
 
-          {/* Rechte Spalte: Verantwortlicher + Zuweisungen */}
-          <Stack spacing={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>Verantwortlicher</Typography>
-                {anlage.contactName ? (
-                  <Stack spacing={1.5}>
-                    <Box>
-                      <Typography variant="caption" color="text.secondary">Name</Typography>
-                      <Typography variant="body1">{anlage.contactName}</Typography>
-                    </Box>
-                    {anlage.contactPhone && (
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <PhoneIcon fontSize="small" color="action" />
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>Adresse</Typography>
+                  {editingInfo ? (
+                    <Stack spacing={2}>
+                      <TextField label="Strasse" size="small" value={infoForm.street} onChange={(e) => setInfoForm({ ...infoForm, street: e.target.value })} fullWidth />
+                      <Box display="flex" gap={2}>
+                        <TextField label="PLZ" size="small" value={infoForm.zip} onChange={(e) => setInfoForm({ ...infoForm, zip: e.target.value })} sx={{ width: 120 }} />
+                        <TextField label="Ort" size="small" value={infoForm.city} onChange={(e) => setInfoForm({ ...infoForm, city: e.target.value })} fullWidth />
+                      </Box>
+                      <TextField label="Land" size="small" value={infoForm.country} onChange={(e) => setInfoForm({ ...infoForm, country: e.target.value })} fullWidth />
+                      <Box display="flex" gap={2}>
+                        <TextField label="Breitengrad" size="small" value={infoForm.latitude} onChange={(e) => setInfoForm({ ...infoForm, latitude: e.target.value })} fullWidth placeholder="z.B. 47.3769" />
+                        <TextField label="Längengrad" size="small" value={infoForm.longitude} onChange={(e) => setInfoForm({ ...infoForm, longitude: e.target.value })} fullWidth placeholder="z.B. 8.5417" />
+                      </Box>
+                    </Stack>
+                  ) : (
+                    <Stack spacing={1.5}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Strasse</Typography>
+                        <Typography variant="body1">{anlage.street ?? '—'}</Typography>
+                      </Box>
+                      <Box display="flex" gap={4}>
                         <Box>
-                          <Typography variant="caption" color="text.secondary">Telefon</Typography>
-                          <Typography variant="body1">{anlage.contactPhone}</Typography>
+                          <Typography variant="caption" color="text.secondary">PLZ</Typography>
+                          <Typography variant="body1">{anlage.zip ?? '—'}</Typography>
+                        </Box>
+                        <Box flex={1}>
+                          <Typography variant="caption" color="text.secondary">Ort</Typography>
+                          <Typography variant="body1">{anlage.city ?? '—'}</Typography>
                         </Box>
                       </Box>
-                    )}
-                    {anlage.contactMobile && (
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <PhoneAndroidIcon fontSize="small" color="action" />
-                        <Box>
-                          <Typography variant="caption" color="text.secondary">Mobil</Typography>
-                          <Typography variant="body1">{anlage.contactMobile}</Typography>
-                        </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Land</Typography>
+                        <Typography variant="body1">{anlage.country ?? '—'}</Typography>
                       </Box>
-                    )}
-                    {anlage.contactEmail && (
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <EmailIcon fontSize="small" color="action" />
-                        <Box>
-                          <Typography variant="caption" color="text.secondary">E-Mail</Typography>
-                          <Typography variant="body1">{anlage.contactEmail}</Typography>
-                        </Box>
-                      </Box>
-                    )}
-                  </Stack>
-                ) : (
-                  <Typography color="text.secondary">—</Typography>
-                )}
-              </CardContent>
-            </Card>
+                    </Stack>
+                  )}
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>{t('users.title', { count: anlage.directUsers.length })}</Typography>
-                {anlage.directUsers.length === 0
-                  ? <Typography color="text.secondary">—</Typography>
-                  : anlage.directUsers.map((du) => <Chip key={du.user.id} label={`${du.user.firstName} ${du.user.lastName}`} size="small" sx={{ mr: 0.5, mb: 0.5 }} />)}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>{t('groups.title', { count: anlage.groupAnlagen.length })}</Typography>
-                {anlage.groupAnlagen.length === 0
-                  ? <Typography color="text.secondary">—</Typography>
-                  : anlage.groupAnlagen.map((ga) => <Chip key={ga.group.id} label={ga.group.name} size="small" sx={{ mr: 0.5, mb: 0.5 }} />)}
-              </CardContent>
-            </Card>
-          </Stack>
-        </Box>
+              {(editingInfo || anlage.notes) && (
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>Bemerkungen</Typography>
+                    {editingInfo ? (
+                      <TextField size="small" value={infoForm.notes} onChange={(e) => setInfoForm({ ...infoForm, notes: e.target.value })} fullWidth multiline rows={3} />
+                    ) : (
+                      <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>{anlage.notes}</Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </Stack>
+
+            {/* Rechte Spalte: Verantwortlicher + Zuweisungen */}
+            <Stack spacing={3}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>Verantwortlicher</Typography>
+                  {editingInfo ? (
+                    <Stack spacing={2}>
+                      <TextField label="Name" size="small" value={infoForm.contactName} onChange={(e) => setInfoForm({ ...infoForm, contactName: e.target.value })} fullWidth />
+                      <TextField label="Telefon" size="small" value={infoForm.contactPhone} onChange={(e) => setInfoForm({ ...infoForm, contactPhone: e.target.value })} fullWidth />
+                      <TextField label="Mobil" size="small" value={infoForm.contactMobile} onChange={(e) => setInfoForm({ ...infoForm, contactMobile: e.target.value })} fullWidth />
+                      <TextField label="E-Mail" size="small" value={infoForm.contactEmail} onChange={(e) => setInfoForm({ ...infoForm, contactEmail: e.target.value })} fullWidth />
+                    </Stack>
+                  ) : anlage.contactName ? (
+                    <Stack spacing={1.5}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Name</Typography>
+                        <Typography variant="body1">{anlage.contactName}</Typography>
+                      </Box>
+                      {anlage.contactPhone && (
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <PhoneIcon fontSize="small" color="action" />
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Telefon</Typography>
+                            <Typography variant="body1">{anlage.contactPhone}</Typography>
+                          </Box>
+                        </Box>
+                      )}
+                      {anlage.contactMobile && (
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <PhoneAndroidIcon fontSize="small" color="action" />
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Mobil</Typography>
+                            <Typography variant="body1">{anlage.contactMobile}</Typography>
+                          </Box>
+                        </Box>
+                      )}
+                      {anlage.contactEmail && (
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <EmailIcon fontSize="small" color="action" />
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">E-Mail</Typography>
+                            <Typography variant="body1">{anlage.contactEmail}</Typography>
+                          </Box>
+                        </Box>
+                      )}
+                    </Stack>
+                  ) : (
+                    <Typography color="text.secondary">—</Typography>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>{t('users.title', { count: anlage.directUsers.length })}</Typography>
+                  {anlage.directUsers.length === 0
+                    ? <Typography color="text.secondary">—</Typography>
+                    : anlage.directUsers.map((du) => <Chip key={du.user.id} label={`${du.user.firstName} ${du.user.lastName}`} size="small" sx={{ mr: 0.5, mb: 0.5 }} />)}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>{t('groups.title', { count: anlage.groupAnlagen.length })}</Typography>
+                  {anlage.groupAnlagen.length === 0
+                    ? <Typography color="text.secondary">—</Typography>
+                    : anlage.groupAnlagen.map((ga) => <Chip key={ga.group.id} label={ga.group.name} size="small" sx={{ mr: 0.5, mb: 0.5 }} />)}
+                </CardContent>
+              </Card>
+            </Stack>
+          </Box>
+        </>
       )}
 
       {/* TAB 1: FERNZUGRIFF */}
@@ -259,7 +459,7 @@ export function AnlageDetailPage() {
                               ? <KeyboardArrowUpIcon fontSize="small" color="action" />
                               : <KeyboardArrowDownIcon fontSize="small" color="action" />
                           )}
-                          {device.name}
+                          <DeviceNameCell device={device} defaultName={defaultDeviceName} canEdit={canUpdateDevice} />
                         </Box>
                       </TableCell>
                       <TableCell><code>{device.serialNumber}</code></TableCell>
@@ -323,7 +523,7 @@ export function AnlageDetailPage() {
                                   <iframe
                                     src={buildVisuUrl(device.id)}
                                     style={{ width: '100%', height: '100%', border: 'none' }}
-                                    title={`Visualisierung – ${device.name}`}
+                                    title={`Visualisierung – ${device.name || defaultDeviceName}`}
                                   />
                                 </Box>
                               ) : (

@@ -21,14 +21,13 @@ import Divider from '@mui/material/Divider'
 import Chip from '@mui/material/Chip'
 import AddIcon from '@mui/icons-material/Add'
 import MapIcon from '@mui/icons-material/Map'
-import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
 import WarningIcon from '@mui/icons-material/Warning'
 import AssignmentLateIcon from '@mui/icons-material/AssignmentLate'
 import { useNavigate } from 'react-router-dom'
-import { useAnlagen, useCreateAnlage, useUpdateAnlage, useDeleteAnlage } from '../features/anlagen/queries'
+import { useAnlagen, useCreateAnlage, useDeleteAnlage } from '../features/anlagen/queries'
 import { useUsers } from '../features/users/queries'
 import { useGroups } from '../features/groups/queries'
 import { useDevices } from '../features/devices/queries'
@@ -83,46 +82,23 @@ export function AnlagenPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const canCreate = usePermission('anlagen:create')
-  const canUpdate = usePermission('anlagen:update')
   const canDelete = usePermission('anlagen:delete')
 
   useDeviceStatus()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [tab, setTab] = useState(0)
-  const [editAnlage, setEditAnlage] = useState<Anlage | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [assign, setAssign] = useState(EMPTY_ASSIGN)
   const [deleteTarget, setDeleteTarget] = useState<Anlage | null>(null)
   const [formError, setFormError] = useState('')
 
   const createMutation = useCreateAnlage()
-  const updateMutation = useUpdateAnlage(editAnlage?.id ?? '')
   const deleteMutation = useDeleteAnlage()
 
   const openCreate = () => {
-    setEditAnlage(null)
     setForm(EMPTY_FORM)
     setAssign(EMPTY_ASSIGN)
-    setFormError('')
-    setTab(0)
-    setDrawerOpen(true)
-  }
-
-  const openEdit = (a: Anlage) => {
-    setEditAnlage(a)
-    setForm({
-      projectNumber: a.projectNumber ?? '', name: a.name, description: a.description ?? '',
-      street: a.street ?? '', zip: a.zip ?? '', city: a.city ?? '', country: a.country ?? 'Schweiz',
-      contactName: a.contactName ?? '', contactPhone: a.contactPhone ?? '', contactMobile: a.contactMobile ?? '',
-      contactEmail: a.contactEmail ?? '', notes: a.notes ?? '',
-      latitude: a.latitude != null ? String(a.latitude) : '', longitude: a.longitude != null ? String(a.longitude) : '',
-    })
-    setAssign({
-      deviceIds: a.anlageDevices.map((ad) => ad.device.id),
-      userIds: a.directUsers.map((du) => du.user.id),
-      groupIds: a.groupAnlagen.map((ga) => ga.group.id),
-    })
     setFormError('')
     setTab(0)
     setDrawerOpen(true)
@@ -135,8 +111,7 @@ export function AnlagenPage() {
       const latitude = latStr ? parseFloat(latStr) : null
       const longitude = lngStr ? parseFloat(lngStr) : null
       const payload = { ...rest, latitude, longitude, ...assign }
-      if (editAnlage) await updateMutation.mutateAsync(payload)
-      else await createMutation.mutateAsync(payload)
+      await createMutation.mutateAsync(payload)
       setDrawerOpen(false)
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t('common.errorSaving'))
@@ -191,7 +166,6 @@ export function AnlagenPage() {
                   <TableCell>{anlage.name}</TableCell>
                   <TableCell>{anlage.city ?? '—'}</TableCell>
                   <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    {canUpdate && <Tooltip title={t('common.edit')}><IconButton onClick={() => openEdit(anlage)} size="small"><EditIcon fontSize="small" /></IconButton></Tooltip>}
                     {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(anlage)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
                   </TableCell>
                 </TableRow>
@@ -204,7 +178,7 @@ export function AnlagenPage() {
       <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <Box sx={{ width: { xs: '100vw', sm: 420 }, maxWidth: '100vw', display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Box sx={{ p: 3, pb: 0 }}>
-            <Typography variant="h6" gutterBottom>{editAnlage ? t('anlagen.editTitle') : t('anlagen.newTitle')}</Typography>
+            <Typography variant="h6" gutterBottom>{t('anlagen.newTitle')}</Typography>
             <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
               <Tab label={t('common.basicData')} />
               <Tab label={t('common.assignments')} />
@@ -271,7 +245,7 @@ export function AnlagenPage() {
           <Box sx={{ p: 3, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
             <Box display="flex" gap={1} justifyContent="flex-end">
               <Button onClick={() => setDrawerOpen(false)}>{t('common.cancel')}</Button>
-              <Button variant="contained" onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending}>{t('common.save')}</Button>
+              <Button variant="contained" onClick={handleSave} disabled={createMutation.isPending}>{t('common.save')}</Button>
             </Box>
           </Box>
         </Box>
