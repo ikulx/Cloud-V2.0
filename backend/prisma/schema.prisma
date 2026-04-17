@@ -400,9 +400,14 @@ model VpnDevice {
   /// HTTP-Port der Visu auf dem Zielgerät (Default: 80)
   visuPort     Int      @default(80) @map("visu_port")
 
-  /// Lokale IP des Visu-Geräts im Anlagen-LAN, z.B. "192.168.10.31"
-  /// Wird zur VPN-LAN-Adresse umgerechnet (10.A.B.x via NETMAP)
+  /// LAN-IP des Pi (bei Router-Software), z.B. "192.168.10.31"
+  /// Wird zur VPN-LAN-Adresse umgerechnet (10.A.B.x via NETMAP) für Visu-Proxy
+  /// Leer = Pi ohne Router (Visu direkt über VPN-IP erreichbar)
   visuIp       String?  @map("visu_ip")
+
+  /// WAN-IP des Pi (bei Router-Software), z.B. "192.168.1.100"
+  /// Informativer Wert – das Netzwerk in dem der Pi per WAN angeschlossen ist
+  wanIp        String?  @map("wan_ip")
 
   /// WireGuard-Schlüsselpaar des Pi (vom Cloud generiert)
   piPublicKey  String?  @map("pi_public_key")

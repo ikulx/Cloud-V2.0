@@ -163,6 +163,7 @@ router.get('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), 
     localPrefix: vpnDevice.localPrefix,
     visuPort:    vpnDevice.visuPort,
     visuIp:      vpnDevice.visuIp,
+    wanIp:       vpnDevice.wanIp,
     piPublicKey: vpnDevice.piPublicKey,
     createdAt:   vpnDevice.createdAt,
   })
@@ -179,6 +180,7 @@ const enableDeviceSchema = z.object({
   localPrefix: z.string().regex(LOCAL_PREFIX_RE, 'LAN-Präfix muss drei Oktette haben, z.B. 192.168.10').optional(),
   visuPort:    z.number().int().min(1).max(65535).optional(),
   visuIp:      z.string().ip({ version: 'v4' }).optional().nullable(),
+  wanIp:       z.string().ip({ version: 'v4' }).optional().nullable(),
 })
 
 router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:manage'), async (req, res) => {
@@ -205,6 +207,7 @@ router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:ma
       localPrefix: parsed.data.localPrefix ?? '192.168.10',
       visuPort:    parsed.data.visuPort    ?? 80,
       visuIp:      parsed.data.visuIp      ?? null,
+      wanIp:       parsed.data.wanIp       ?? null,
       piPublicKey,
       piPrivateKey,
     },
@@ -218,6 +221,7 @@ router.post('/devices/:deviceId/enable', authenticate, requirePermission('vpn:ma
     localPrefix: vpnDevice.localPrefix,
     visuPort:    vpnDevice.visuPort,
     visuIp:      vpnDevice.visuIp,
+    wanIp:       vpnDevice.wanIp,
     piPublicKey: vpnDevice.piPublicKey,
     createdAt:   vpnDevice.createdAt,
   })
@@ -230,6 +234,7 @@ const updateDeviceSchema = z.object({
   localPrefix: z.string().regex(LOCAL_PREFIX_RE, 'LAN-Präfix muss drei Oktette haben, z.B. 192.168.10').optional(),
   visuPort:    z.number().int().min(1).max(65535).optional(),
   visuIp:      z.string().ip({ version: 'v4' }).optional().nullable(),
+  wanIp:       z.string().ip({ version: 'v4' }).optional().nullable(),
 })
 
 router.put('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), async (req, res) => {
@@ -252,10 +257,11 @@ router.put('/devices/:deviceId', authenticate, requirePermission('vpn:manage'), 
       localPrefix: parsed.data.localPrefix ?? existing.localPrefix,
       visuPort:    parsed.data.visuPort    ?? existing.visuPort,
       visuIp:      parsed.data.visuIp !== undefined ? parsed.data.visuIp : existing.visuIp,
+      wanIp:       parsed.data.wanIp  !== undefined ? parsed.data.wanIp  : existing.wanIp,
     },
   })
 
-  res.json({ id: updated.id, deviceId, vpnIp: updated.vpnIp, localPrefix: updated.localPrefix, visuPort: updated.visuPort, visuIp: updated.visuIp })
+  res.json({ id: updated.id, deviceId, vpnIp: updated.vpnIp, localPrefix: updated.localPrefix, visuPort: updated.visuPort, visuIp: updated.visuIp, wanIp: updated.wanIp })
   syncAll().catch((e) => console.error('[VPN] syncAll nach device update:', e))
 })
 

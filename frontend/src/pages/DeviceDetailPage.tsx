@@ -130,10 +130,12 @@ export function DeviceDetailPage() {
   const [newLocalPrefix, setNewLocalPrefix] = useState('192.168.10')
   const [newVisuPort, setNewVisuPort] = useState('80')
   const [newVisuIp, setNewVisuIp] = useState('')
+  const [newWanIp, setNewWanIp] = useState('')
   const [editVpnIp, setEditVpnIp] = useState('')
   const [editLocalPrefix, setEditLocalPrefix] = useState('')
   const [editVisuPort, setEditVisuPort] = useState('80')
   const [editVisuIp, setEditVisuIp] = useState('')
+  const [editWanIp, setEditWanIp] = useState('')
 
   // LAN-Geräte
   const createLanDevice = useCreateLanDevice(id!)
@@ -148,6 +150,7 @@ export function DeviceDetailPage() {
       setEditLocalPrefix(vpnConfig.localPrefix)
       setEditVisuPort(String(vpnConfig.visuPort ?? 80))
       setEditVisuIp(vpnConfig.visuIp ?? '')
+      setEditWanIp(vpnConfig.wanIp ?? '')
     }
   }, [vpnConfig])
 
@@ -319,16 +322,24 @@ export function DeviceDetailPage() {
                       size="small"
                       value={newVisuIp}
                       onChange={(e) => setNewVisuIp(e.target.value)}
-                      placeholder="192.168.10.31"
+                      placeholder="192.168.10.1"
                       helperText={t('vpn.visuIpHint')}
+                    />
+                    <TextField
+                      label={t('vpn.wanIp')}
+                      size="small"
+                      value={newWanIp}
+                      onChange={(e) => setNewWanIp(e.target.value)}
+                      placeholder="192.168.1.100"
+                      helperText={t('vpn.wanIpHint')}
                     />
                     <Box>
                       <Button
                         variant="contained"
                         disabled={!!validateVpnIp(newVpnIp) || !!validateLocalPrefix(newLocalPrefix) || enableVpn.isPending}
                         onClick={() => enableVpn.mutate(
-                          { deviceId: id!, vpnIp: newVpnIp, localPrefix: newLocalPrefix, visuPort: parseInt(newVisuPort) || 80, visuIp: newVisuIp.trim() || null },
-                          { onSuccess: () => { setNewVpnIp(''); setNewLocalPrefix('192.168.10'); setNewVisuPort('80'); setNewVisuIp('') } }
+                          { deviceId: id!, vpnIp: newVpnIp, localPrefix: newLocalPrefix, visuPort: parseInt(newVisuPort) || 80, visuIp: newVisuIp.trim() || null, wanIp: newWanIp.trim() || null },
+                          { onSuccess: () => { setNewVpnIp(''); setNewLocalPrefix('192.168.10'); setNewVisuPort('80'); setNewVisuIp(''); setNewWanIp('') } }
                         )}
                       >
                         {t('vpn.enableDevice')}
@@ -378,15 +389,24 @@ export function DeviceDetailPage() {
                         size="small"
                         value={editVisuIp}
                         onChange={(e) => setEditVisuIp(e.target.value)}
-                        placeholder="192.168.10.31"
+                        placeholder="192.168.10.1"
                         helperText={t('vpn.visuIpHint')}
+                        sx={{ width: 200 }}
+                      />
+                      <TextField
+                        label={t('vpn.wanIp')}
+                        size="small"
+                        value={editWanIp}
+                        onChange={(e) => setEditWanIp(e.target.value)}
+                        placeholder="192.168.1.100"
+                        helperText={t('vpn.wanIpHint')}
                         sx={{ width: 200 }}
                       />
                       <Button
                         variant="outlined"
                         disabled={updateVpn.isPending || !!validateVpnIp(editVpnIp) || !!validateLocalPrefix(editLocalPrefix)}
                         onClick={() => updateVpn.mutate(
-                          { deviceId: id!, vpnIp: editVpnIp, localPrefix: editLocalPrefix, visuPort: parseInt(editVisuPort) || 80, visuIp: editVisuIp.trim() || null },
+                          { deviceId: id!, vpnIp: editVpnIp, localPrefix: editLocalPrefix, visuPort: parseInt(editVisuPort) || 80, visuIp: editVisuIp.trim() || null, wanIp: editWanIp.trim() || null },
                           { onSuccess: () => setVpnMsg(t('vpn.saved')) }
                         )}
                       >
@@ -432,7 +452,8 @@ export function DeviceDetailPage() {
                     </Box>
                     <Typography variant="caption" color="text.secondary">
                       VPN-IP: <strong>{vpnConfig.vpnIp}</strong> · LAN: <strong>{vpnConfig.localPrefix}.0/24</strong>
-                      {vpnConfig.visuIp ? ` · Visu: ${vpnConfig.visuIp}` : ''}
+                      {vpnConfig.visuIp ? ` · Pi-LAN: ${vpnConfig.visuIp}` : ''}
+                      {vpnConfig.wanIp ? ` · WAN: ${vpnConfig.wanIp}` : ''}
                       {vpnConfig.piPublicKey ? ` · ${t('vpn.keyPresent')}` : ` · ${t('vpn.keyMissing')}`}
                     </Typography>
                   </Box>

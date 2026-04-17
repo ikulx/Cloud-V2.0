@@ -27,6 +27,7 @@ export interface DeviceVpnConfig {
   localPrefix: string
   visuPort:    number
   visuIp:      string | null
+  wanIp:       string | null
   piPublicKey: string | null
   createdAt:   string
 }
@@ -81,8 +82,8 @@ export function useDeviceVpnConfig(deviceId: string | undefined) {
 export function useEnableDeviceVpn() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ deviceId, vpnIp, localPrefix, visuPort, visuIp }: { deviceId: string; vpnIp: string; localPrefix: string; visuPort?: number; visuIp?: string | null }) =>
-      apiPost<DeviceVpnConfig>(`/vpn/devices/${deviceId}/enable`, { vpnIp, localPrefix, visuPort, visuIp }),
+    mutationFn: ({ deviceId, vpnIp, localPrefix, visuPort, visuIp, wanIp }: { deviceId: string; vpnIp: string; localPrefix: string; visuPort?: number; visuIp?: string | null; wanIp?: string | null }) =>
+      apiPost<DeviceVpnConfig>(`/vpn/devices/${deviceId}/enable`, { vpnIp, localPrefix, visuPort, visuIp, wanIp }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['vpn', 'device', vars.deviceId] })
       qc.invalidateQueries({ queryKey: ['vpn', 'devices'] })
@@ -93,8 +94,8 @@ export function useEnableDeviceVpn() {
 export function useUpdateDeviceVpn() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ deviceId, vpnIp, localPrefix, visuPort, visuIp }: { deviceId: string; vpnIp?: string; localPrefix?: string; visuPort?: number; visuIp?: string | null }) =>
-      apiPut(`/vpn/devices/${deviceId}`, { vpnIp, localPrefix, visuPort, visuIp }),
+    mutationFn: ({ deviceId, vpnIp, localPrefix, visuPort, visuIp, wanIp }: { deviceId: string; vpnIp?: string; localPrefix?: string; visuPort?: number; visuIp?: string | null; wanIp?: string | null }) =>
+      apiPut(`/vpn/devices/${deviceId}`, { vpnIp, localPrefix, visuPort, visuIp, wanIp }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['vpn', 'device', vars.deviceId] })
       qc.invalidateQueries({ queryKey: ['vpn', 'devices'] })
