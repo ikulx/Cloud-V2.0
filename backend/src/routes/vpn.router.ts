@@ -1029,6 +1029,12 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
         // HTML: Visu-Interceptor injizieren
         const ct = (proxyRes.headers['content-type'] ?? '').toLowerCase()
         if (ct.includes('text/html')) {
+          // Cache-Control: HTML mit injiziertem Interceptor NIEMALS cachen
+          // (sonst kriegen Clients alte Interceptor-Scripts nach Code-Updates)
+          res.setHeader('cache-control', 'no-store, no-cache, must-revalidate, max-age=0')
+          res.setHeader('pragma', 'no-cache')
+          res.setHeader('expires', '0')
+
           let body = ''
           proxyRes.setEncoding('utf-8')
           proxyRes.on('data', (chunk) => { body += chunk })
@@ -1040,15 +1046,21 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
               `$1${proxyBase}/`
             )
 
+            // Robustes <head>-Replace: matcht <head>, <head lang="en">, <HEAD> etc.
+            // Fügt den Content DIREKT nach dem <head...> Open-Tag ein.
+            const headRe = /<head(\s[^>]*)?>/i
+            const injectAfterHead = (html: string, content: string): string => {
+              if (headRe.test(html)) return html.replace(headRe, (m) => m + content)
+              return `<head>${content}</head>${html}`
+            }
+
             // 2. <base>-Tag für restliche relative Pfade
             const base = `<base href="${proxyBase}/">`
-            patched = patched.includes('<head>')
-              ? patched.replace('<head>', `<head>${base}`)
-              : `<head>${base}</head>${patched}`
+            patched = injectAfterHead(patched, base)
 
             // 3. CSP nochmal explizit als Meta-Tag setzen (überschreibt HTTP-Header im Dokument)
             const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">`
-            patched = patched.replace('<head>', `<head>${cspMeta}`)
+            patched = injectAfterHead(patched, cspMeta)
 
             // 4. Umfassender URL-Interceptor für Cloud-Proxy:
             //    CRA setzt __webpack_require__.p intern auf "/" – window.__webpack_public_path__ hilft nicht.
@@ -1084,10 +1096,14 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
               '  else if(i instanceof Request){try{var x=new URL(i.url);if(x.origin===location.origin&&nr(x.pathname))i=new Request(x.origin+B+x.pathname+x.search,i)}catch(e){}}',
               '  return fe.call(this,i,o)',
               '};',
-              // 3. XMLHttpRequest.open()
+              // 3. XMLHttpRequest.open() – patcht auch nach io() Aufrufen
               'var xo=XMLHttpRequest.prototype.open;',
               'XMLHttpRequest.prototype.open=function(){',
-              '  if(typeof arguments[1]==="string")arguments[1]=rw(arguments[1]);',
+              '  if(typeof arguments[1]==="string"){',
+              '    var orig=arguments[1],rewr=rw(orig);',
+              '    if(rewr!==orig)console.log("[VisuProxy] XHR rewrite:",orig,"→",rewr);',
+              '    arguments[1]=rewr;',
+              '  }',
               '  return xo.apply(this,arguments)',
               '};',
               // 4. WebSocket: socket.io WebSocket-Transport URL umschreiben
@@ -1110,7 +1126,7 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
               '})();',
               '</script>',
             ].join('\n')
-            patched = patched.replace('<head>', `<head>${proxyScript}`)
+            patched = injectAfterHead(patched, proxyScript)
 
             res.removeHeader('content-length')
             res.send(patched)
