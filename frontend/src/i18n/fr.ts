@@ -97,6 +97,7 @@ const fr = {
     confirmAssign: 'Est-ce vraiment le bon appareil ? Il sera assigné à l\'installation sélectionnée.',
     wizardHintRegister: 'L\'appareil sera enregistré et assigné à la nouvelle installation après sa création.',
     wizardHintAssign: 'L\'appareil sera assigné à la nouvelle installation.',
+    confirmCheckbox: 'Je confirme : c\'est le bon appareil',
   },
   anlagen: {
     title: 'Installations ({{count}})',

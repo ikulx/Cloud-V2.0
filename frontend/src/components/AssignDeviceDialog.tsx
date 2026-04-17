@@ -6,13 +6,17 @@ import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Alert from '@mui/material/Alert'
+import AlertTitle from '@mui/material/AlertTitle'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
 import Box from '@mui/material/Box'
 import Autocomplete from '@mui/material/Autocomplete'
 import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Checkbox from '@mui/material/Checkbox'
 import AddIcon from '@mui/icons-material/Add'
+import WarningIcon from '@mui/icons-material/Warning'
 import { useTranslation } from 'react-i18next'
 import { useUpdateDevice, useApproveDevice, useDevices } from '../features/devices/queries'
 import { useUsers } from '../features/users/queries'
@@ -35,6 +39,7 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
   const [existingAnlage, setExistingAnlage] = useState<Anlage | null>(null)
   const [error, setError] = useState('')
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
 
   const { data: allDevices } = useDevices()
   const { data: allUsers } = useUsers()
@@ -46,7 +51,7 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
   const pending = updateDevice.isPending || approveDevice.isPending
 
   const reset = () => {
-    setTab(0); setExistingAnlage(null); setError('')
+    setTab(0); setExistingAnlage(null); setError(''); setConfirmed(false)
   }
 
   const handleClose = () => {
@@ -93,22 +98,39 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
       <Dialog open={open && !wizardOpen} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>{t('anlagen.assignDevice')}</DialogTitle>
         <DialogContent dividers>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            <Typography variant="body2" gutterBottom>
+          <Alert severity="error" icon={<WarningIcon />} sx={{ mb: 2 }}>
+            <AlertTitle sx={{ fontWeight: 700 }}>
               {alsoRegister
                 ? t('devices.confirmRegisterAssign', 'Ist das wirklich das richtige Gerät? Es wird registriert und zugewiesen.')
                 : t('devices.confirmAssign', 'Ist das wirklich das richtige Gerät? Es wird zugewiesen.')}
-            </Typography>
+            </AlertTitle>
             <Box display="flex" alignItems="center" gap={1} mt={1}>
-              <Typography variant="caption" color="text.secondary">{t('devices.serialNumber')}:</Typography>
-              <Chip label={device.serialNumber} size="small" sx={{ fontFamily: 'monospace', fontWeight: 600 }} />
+              <Typography variant="caption">{t('devices.serialNumber')}:</Typography>
+              <Chip label={device.serialNumber} size="small" color="error"
+                sx={{ fontFamily: 'monospace', fontWeight: 700 }} />
             </Box>
             {device.piSerial && (
               <Box display="flex" alignItems="center" gap={1} mt={0.5}>
-                <Typography variant="caption" color="text.secondary">Pi-Serial:</Typography>
-                <Chip label={device.piSerial} size="small" sx={{ fontFamily: 'monospace' }} variant="outlined" />
+                <Typography variant="caption">Pi-Serial:</Typography>
+                <Chip label={device.piSerial} size="small" color="error" variant="outlined"
+                  sx={{ fontFamily: 'monospace' }} />
               </Box>
             )}
+            <FormControlLabel
+              sx={{ mt: 1.5, display: 'flex' }}
+              control={
+                <Checkbox
+                  checked={confirmed}
+                  onChange={(e) => setConfirmed(e.target.checked)}
+                  color="error"
+                />
+              }
+              label={
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {t('devices.confirmCheckbox', 'Ich bestätige: Das ist das richtige Gerät')}
+                </Typography>
+              }
+            />
           </Alert>
 
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
@@ -125,6 +147,7 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
                 variant="contained"
                 startIcon={<AddIcon />}
                 onClick={() => setWizardOpen(true)}
+                disabled={!confirmed}
               >
                 {t('anlagen.wizardTitle')}
               </Button>
@@ -156,8 +179,9 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
           {tab === 1 && (
             <Button
               variant="contained"
+              color="error"
               onClick={handleAssignExisting}
-              disabled={pending || !existingAnlage}
+              disabled={pending || !existingAnlage || !confirmed}
             >
               {alsoRegister ? t('devices.register') : t('common.confirm')}
             </Button>

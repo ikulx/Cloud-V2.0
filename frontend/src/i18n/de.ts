@@ -97,6 +97,7 @@ const de = {
     confirmAssign: 'Ist das wirklich das richtige Gerät? Es wird der gewählten Anlage zugewiesen.',
     wizardHintRegister: 'Das Gerät wird nach der Erstellung registriert und der neuen Anlage zugewiesen.',
     wizardHintAssign: 'Das Gerät wird der neuen Anlage zugewiesen.',
+    confirmCheckbox: 'Ich bestätige: Das ist das richtige Gerät',
   },
   anlagen: {
     title: 'Anlagen ({{count}})',

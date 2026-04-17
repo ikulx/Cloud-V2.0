@@ -97,6 +97,7 @@ const it = {
     confirmAssign: 'È davvero il dispositivo giusto? Sarà assegnato all\'impianto selezionato.',
     wizardHintRegister: 'Il dispositivo sarà registrato e assegnato al nuovo impianto dopo la creazione.',
     wizardHintAssign: 'Il dispositivo sarà assegnato al nuovo impianto.',
+    confirmCheckbox: 'Confermo: è il dispositivo giusto',
   },
   anlagen: {
     title: 'Impianti ({{count}})',

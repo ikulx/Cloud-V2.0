@@ -97,6 +97,7 @@ const en = {
     confirmAssign: 'Is this really the right device? It will be assigned to the selected installation.',
     wizardHintRegister: 'The device will be registered and assigned to the new installation after creation.',
     wizardHintAssign: 'The device will be assigned to the new installation.',
+    confirmCheckbox: 'I confirm: This is the right device',
   },
   anlagen: {
     title: 'Installations ({{count}})',
