@@ -2,12 +2,33 @@ import type { Request, Response, NextFunction } from 'express'
 import { logActivity } from '../services/activity-log.service'
 
 /**
+ * Bekannte Top-Level Entitäten. Nur diese werden als entityType akzeptiert.
+ * Verhindert dass UUIDs oder andere Path-Segmente als Entity-Name landen.
+ */
+const KNOWN_ENTITIES = new Set([
+  'anlagen', 'devices', 'users', 'groups', 'roles', 'permissions',
+  'vpn', 'settings', 'invitations', 'auth', 'activity-log', 'me',
+])
+
+/**
+ * Bekannte Sub-Ressourcen (für z.B. anlagen/<id>/todos).
+ * Wenn ein Segment hier steht, wird es an entityType angehängt.
+ */
+const KNOWN_SUBRESOURCES = new Set([
+  'todos', 'logs', 'peers', 'lan-devices', 'lan-device',
+  'todo', 'log', 'deploy', 'approve', 'command', 'enable', 'disable',
+  'pi-config', 'server-config', 'device-config', 'visu', 'ping',
+  'setup-script', 'invite', 'accept', 'register', 'refresh',
+])
+
+const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+
+/**
  * Logt alle mutierenden HTTP-Requests (POST/PATCH/PUT/DELETE) in die ActivityLog-Tabelle.
- * Liest die Entity-Info aus dem URL-Pfad ab (z.B. /api/anlagen/:id → entityType=anlagen, entityId=:id).
- * GET-Requests werden nicht geloggt (zu viel Noise).
- *
- * Der Eintrag wird nach Response-Ende asynchron geschrieben, sodass ein Audit-Fehler
- * die Antwort nicht beeinflussen kann.
+ * - entityType wird nur aus KNOWN_ENTITIES gesetzt (nie UUIDs).
+ * - entityId ist die letzte UUID im Pfad (oft die Sub-Entity bei verschachtelten Routen).
+ * - Für Sub-Ressourcen wird ".subresource" angehängt.
+ * - GET-Requests werden nicht geloggt (zu viel Noise).
  */
 export function activityLogMiddleware(req: Request, res: Response, next: NextFunction) {
   const method = req.method.toUpperCase()
@@ -15,29 +36,45 @@ export function activityLogMiddleware(req: Request, res: Response, next: NextFun
     return next()
   }
 
-  // Pfad-Segmente extrahieren: /api/<entityType>[/<id>][/subresource[/<id2>]]
   res.on('finish', () => {
-    // Nur erfolgreiche/relevante Requests loggen (2xx, 3xx, 4xx – 5xx ist schon in console)
     const statusCode = res.statusCode
     if (statusCode >= 500) return
 
-    const pathParts = (req.path || '').split('/').filter(Boolean)
-    // pathParts z.B. ['api', 'anlagen', '<uuid>'] oder ['api', 'anlagen', '<uuid>', 'todos']
-    const apiIdx = pathParts.indexOf('api')
-    const relevant = apiIdx >= 0 ? pathParts.slice(apiIdx + 1) : pathParts
+    // originalUrl verwenden (z.B. /api/anlagen/<uuid>/todos) – unabhängig vom Mount-Point.
+    const fullPath = (req.originalUrl || '').split('?')[0]
+    const parts = fullPath.split('/').filter(Boolean)
+    // "api"-Prefix entfernen falls vorhanden
+    const relevant = parts[0] === 'api' ? parts.slice(1) : parts
 
-    let entityType: string | null = relevant[0] ?? null
+    let entityType: string | null = null
     let entityId: string | null = null
-    if (relevant.length >= 2 && /^[0-9a-f-]{8,}/i.test(relevant[1])) {
-      entityId = relevant[1]
-    }
-    // Bei Sub-Ressourcen wie /anlagen/:id/todos/:todoId
-    // entityType wird zu z.B. "anlagen.todos"
-    if (relevant.length >= 3 && !/^[0-9a-f-]{8,}/i.test(relevant[2])) {
-      entityType = `${relevant[0]}.${relevant[2]}`
-      if (relevant.length >= 4 && /^[0-9a-f-]{8,}/i.test(relevant[3])) {
-        entityId = relevant[3]
+
+    // Erstes bekanntes Entity-Segment suchen
+    for (let i = 0; i < relevant.length; i++) {
+      const seg = relevant[i]
+      if (KNOWN_ENTITIES.has(seg)) {
+        entityType = seg
+        // Nächstes Segment UUID? → entityId
+        if (relevant[i + 1] && isUuid(relevant[i + 1])) {
+          entityId = relevant[i + 1]
+        }
+        // Gibt es danach eine bekannte Sub-Ressource? → anhängen
+        const afterId = relevant[i + 1] && isUuid(relevant[i + 1]) ? i + 2 : i + 1
+        if (relevant[afterId] && KNOWN_SUBRESOURCES.has(relevant[afterId])) {
+          entityType = `${entityType}.${relevant[afterId]}`
+          // Danach evtl. Sub-Entity UUID?
+          if (relevant[afterId + 1] && isUuid(relevant[afterId + 1])) {
+            entityId = relevant[afterId + 1]
+          }
+        }
+        break
       }
+    }
+
+    // Fallback: wenn nichts Bekanntes gefunden, den ersten Pfad-Teil nehmen (ohne UUIDs)
+    if (!entityType && relevant.length > 0) {
+      const firstNonUuid = relevant.find((s) => !isUuid(s))
+      if (firstNonUuid) entityType = firstNonUuid
     }
 
     const actionVerb = method === 'POST' ? 'create'
@@ -54,7 +91,9 @@ export function activityLogMiddleware(req: Request, res: Response, next: NextFun
       sanitized[k] = v
     }
 
-    // fire-and-forget
+    // Doppellog für auth.login / auth.login.failed vermeiden (werden im auth.router explizit geloggt)
+    if (entityType === 'auth' || action.startsWith('auth.')) return
+
     logActivity({
       action,
       entityType,

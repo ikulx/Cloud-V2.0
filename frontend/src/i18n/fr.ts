@@ -143,6 +143,8 @@ const fr = {
     details: 'Détails',
     empty: 'Aucune entrée',
     system: 'Système',
+    contextPrefix: 'dans',
+    itemCount: '{{count}} éléments',
     totalEntries: 'Total : {{count}} entrées',
     moreAvailable: '… {{count}} entrées supplémentaires – voir le journal global',
     verb: {
@@ -167,6 +169,14 @@ const fr = {
       permission: 'Permission',
       todo: 'Tâche',
       log: 'Entrée de journal',
+      peer: 'Pair VPN',
+      lanDevice: 'Appareil LAN',
+      command: 'Commande',
+      deploy: 'Déploiement VPN',
+      approve: 'Enregistrement',
+      enable: 'VPN activé',
+      disable: 'VPN désactivé',
+      visu: 'Visu',
     },
   },
   groups: {

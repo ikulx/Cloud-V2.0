@@ -143,6 +143,8 @@ const it = {
     details: 'Dettagli',
     empty: 'Nessuna voce',
     system: 'Sistema',
+    contextPrefix: 'in',
+    itemCount: '{{count}} voci',
     totalEntries: 'Totale: {{count}} voci',
     moreAvailable: '… altre {{count}} voci – vedi registro globale',
     verb: {
@@ -167,6 +169,14 @@ const it = {
       permission: 'Permesso',
       todo: 'Todo',
       log: 'Voce di log',
+      peer: 'Peer VPN',
+      lanDevice: 'Dispositivo LAN',
+      command: 'Comando',
+      deploy: 'Deploy VPN',
+      approve: 'Registrazione',
+      enable: 'VPN attivato',
+      disable: 'VPN disattivato',
+      visu: 'Visu',
     },
   },
   groups: {

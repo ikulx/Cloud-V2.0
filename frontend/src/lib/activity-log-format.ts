@@ -1,80 +1,110 @@
 import type { TFunction } from 'i18next'
 import type { ActivityLogEntry } from '../features/activity-log/queries'
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Menschenlesbare Bezeichnung für einen Entity-Typ (z.B. "anlagen" → "Anlage") */
+function entityLabel(key: string, t: TFunction): string {
+  const map: Record<string, string> = {
+    anlagen:     t('activityLog.entity.anlage', 'Anlage'),
+    devices:     t('activityLog.entity.device', 'Gerät'),
+    users:       t('activityLog.entity.user', 'Benutzer'),
+    groups:      t('activityLog.entity.group', 'Gruppe'),
+    roles:       t('activityLog.entity.role', 'Rolle'),
+    permissions: t('activityLog.entity.permission', 'Permission'),
+    vpn:         t('activityLog.entity.vpn', 'VPN'),
+    settings:    t('activityLog.entity.settings', 'Einstellungen'),
+    invitations: t('activityLog.entity.invitation', 'Einladung'),
+    'activity-log': t('activityLog.title', 'Aktivitätslog'),
+    me:          t('activityLog.entity.user', 'Benutzer'),
+    todos:       t('activityLog.entity.todo', 'Todo'),
+    todo:        t('activityLog.entity.todo', 'Todo'),
+    logs:        t('activityLog.entity.log', 'Logbuch-Eintrag'),
+    log:         t('activityLog.entity.log', 'Logbuch-Eintrag'),
+    peers:       t('activityLog.entity.peer', 'VPN-Peer'),
+    'lan-devices': t('activityLog.entity.lanDevice', 'LAN-Gerät'),
+    'lan-device':  t('activityLog.entity.lanDevice', 'LAN-Gerät'),
+    command:     t('activityLog.entity.command', 'Befehl'),
+    deploy:      t('activityLog.entity.deploy', 'VPN-Deploy'),
+    approve:     t('activityLog.entity.approve', 'Registrierung'),
+    enable:      t('activityLog.entity.enable', 'VPN aktiviert'),
+    disable:     t('activityLog.entity.disable', 'VPN deaktiviert'),
+    visu:        t('activityLog.entity.visu', 'Visu'),
+  }
+  return map[key] ?? key
+}
+
+function verbLabel(verb: string, t: TFunction): string {
+  switch (verb) {
+    case 'create': return t('activityLog.verb.create', 'erstellt')
+    case 'update': return t('activityLog.verb.update', 'bearbeitet')
+    case 'delete': return t('activityLog.verb.delete', 'gelöscht')
+    default: return verb
+  }
+}
+
 /**
  * Wandelt eine rohe Activity-Action in einen lesbaren Titel um.
- * Fallback: Action-String wie "anlagen.create" wird als ist angezeigt.
+ * Zusätzlich wird das "Hauptentität" im Titel gezeigt wenn eine Sub-Ressource
+ * modifiziert wurde (z.B. "Todo bearbeitet · in Anlage").
  */
 export function formatActionTitle(entry: ActivityLogEntry, t: TFunction): string {
-  const a = entry.action
-  // Auth-Events
+  const a = entry.action ?? ''
+
+  // Spezialfälle Auth-Events
   if (a === 'auth.login')        return t('activityLog.action.login', 'Anmeldung')
   if (a === 'auth.login.failed') return t('activityLog.action.loginFailed', 'Fehlgeschlagene Anmeldung')
   if (a === 'auth.logout')       return t('activityLog.action.logout', 'Abmeldung')
 
-  // Generische Entity-Actions
-  const [entity, verb, subverb] = a.split('.')
-  const verbText = verb === 'create' ? t('activityLog.verb.create', 'erstellt')
-                 : verb === 'update' ? t('activityLog.verb.update', 'bearbeitet')
-                 : verb === 'delete' ? t('activityLog.verb.delete', 'gelöscht')
-                 : verb ?? ''
-  const entityLabel = entityLabelFor(entity, t)
+  const segments = a.split('.')
+  const verb = segments[segments.length - 1]
+  const entityParts = segments.slice(0, -1).filter((p) => !UUID_RE.test(p))
 
-  if (subverb) {
-    // Sub-Resources wie anlagen.todos.create
-    const subEntity = verb
-    const actualVerb = subverb
-    const subVerbText = actualVerb === 'create' ? t('activityLog.verb.create', 'erstellt')
-                     : actualVerb === 'update' ? t('activityLog.verb.update', 'bearbeitet')
-                     : actualVerb === 'delete' ? t('activityLog.verb.delete', 'gelöscht')
-                     : actualVerb
-    const subLabel = subEntityLabelFor(subEntity, t)
-    return `${subLabel} ${subVerbText} (${entityLabelFor(entity, t)})`
+  if (entityParts.length === 0) {
+    return `? ${verbLabel(verb, t)}`
   }
 
-  return `${entityLabel} ${verbText}`
-}
-
-function entityLabelFor(entity: string, t: TFunction): string {
-  switch (entity) {
-    case 'anlagen':       return t('activityLog.entity.anlage', 'Anlage')
-    case 'devices':       return t('activityLog.entity.device', 'Gerät')
-    case 'users':         return t('activityLog.entity.user', 'Benutzer')
-    case 'groups':        return t('activityLog.entity.group', 'Gruppe')
-    case 'roles':         return t('activityLog.entity.role', 'Rolle')
-    case 'vpn':           return t('activityLog.entity.vpn', 'VPN')
-    case 'settings':      return t('activityLog.entity.settings', 'Einstellungen')
-    case 'invitations':   return t('activityLog.entity.invitation', 'Einladung')
-    case 'permissions':   return t('activityLog.entity.permission', 'Permission')
-    default:              return entity
+  if (entityParts.length === 1) {
+    return `${entityLabel(entityParts[0], t)} ${verbLabel(verb, t)}`
   }
-}
 
-function subEntityLabelFor(sub: string, t: TFunction): string {
-  switch (sub) {
-    case 'todos':         return t('activityLog.entity.todo', 'Todo')
-    case 'logs':          return t('activityLog.entity.log', 'Logbuch-Eintrag')
-    default:              return sub
-  }
+  // Sub-Ressource: z.B. "anlagen.todos.create" → "Todo erstellt · in Anlage"
+  const parent = entityParts[0]
+  const sub = entityParts[entityParts.length - 1]
+  const parentLabel = entityLabel(parent, t)
+  const subLabel = entityLabel(sub, t)
+  const contextLabel = t('activityLog.contextPrefix', 'in')
+  return `${subLabel} ${verbLabel(verb, t)} · ${contextLabel} ${parentLabel}`
 }
 
 /**
- * Formatiert die Details als Key-Value-Liste. Gibt ein Array zurück, damit
- * die UI sie sinnvoll rendern kann.
+ * Formatiert die Details als lesbare Liste. UUIDs werden als kompakte Kurzform angezeigt.
  */
 export function formatDetails(entry: ActivityLogEntry, t: TFunction): Array<{ label: string; value: string }> {
   if (!entry.details) return []
   const result: Array<{ label: string; value: string }> = []
   for (const [key, val] of Object.entries(entry.details)) {
     if (val === null || val === undefined || val === '') continue
-    // Arrays kürzen
+    const label = labelForField(key, t)
     if (Array.isArray(val)) {
       if (val.length === 0) continue
-      result.push({ label: labelForField(key, t), value: `${val.length}× ${formatValue(val[0])}${val.length > 1 ? ` …` : ''}` })
+      // ID-Arrays zusammenfassen, ohne UUIDs im Detail
+      if (val.every((v) => typeof v === 'string' && UUID_RE.test(v))) {
+        result.push({ label, value: t('activityLog.itemCount', '{{count}} Einträge', { count: val.length }) })
+      } else {
+        result.push({ label, value: val.map((v) => formatValue(v)).join(', ') })
+      }
     } else if (typeof val === 'object') {
-      result.push({ label: labelForField(key, t), value: JSON.stringify(val) })
+      // Objekte überspringen (zu komplex für eine Zeile)
+      continue
     } else {
-      result.push({ label: labelForField(key, t), value: formatValue(val) })
+      const strVal = formatValue(val)
+      // UUIDs als Wert abkürzen
+      if (typeof val === 'string' && UUID_RE.test(val)) {
+        result.push({ label, value: strVal.slice(0, 8) + '…' })
+      } else {
+        result.push({ label, value: strVal })
+      }
     }
   }
   return result
@@ -82,6 +112,7 @@ export function formatDetails(entry: ActivityLogEntry, t: TFunction): Array<{ la
 
 function formatValue(v: unknown): string {
   if (typeof v === 'boolean') return v ? '✓' : '✗'
+  if (v === null || v === undefined) return '—'
   return String(v)
 }
 
@@ -113,6 +144,11 @@ function labelForField(key: string, t: TFunction): string {
     case 'status':        return t('common.status')
     case 'title':         return 'Titel'
     case 'message':       return 'Nachricht'
+    case 'action':        return 'Befehl'
+    case 'firstName':     return 'Vorname'
+    case 'lastName':      return 'Nachname'
+    case 'roleId':        return t('common.role', 'Rolle')
+    case 'isActive':      return t('common.active', 'Aktiv')
     default:              return key
   }
 }

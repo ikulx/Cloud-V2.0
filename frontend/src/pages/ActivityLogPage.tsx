@@ -143,14 +143,6 @@ function EntryCard({ entry }: { entry: ActivityLogEntry }) {
         <Typography variant="caption" color="text.secondary">
           {who} · {time}
         </Typography>
-        {entry.entityId && (
-          <Chip
-            label={entry.entityId.slice(0, 8)}
-            size="small"
-            variant="outlined"
-            sx={{ fontSize: '0.65rem', height: 18, fontFamily: 'monospace' }}
-          />
-        )}
         {entry.statusCode && entry.statusCode >= 400 && (
           <Chip label={entry.statusCode} size="small" color="error" sx={{ fontSize: '0.65rem', height: 18 }} />
         )}

@@ -143,6 +143,8 @@ const de = {
     details: 'Details',
     empty: 'Keine Einträge',
     system: 'System',
+    contextPrefix: 'in',
+    itemCount: '{{count}} Einträge',
     totalEntries: 'Gesamt: {{count}} Einträge',
     moreAvailable: '… weitere {{count}} Einträge – siehe globales Aktivitätslog',
     verb: {
@@ -167,6 +169,14 @@ const de = {
       permission: 'Permission',
       todo: 'Todo',
       log: 'Logbuch-Eintrag',
+      peer: 'VPN-Peer',
+      lanDevice: 'LAN-Gerät',
+      command: 'Befehl',
+      deploy: 'VPN-Deploy',
+      approve: 'Registrierung',
+      enable: 'VPN aktiviert',
+      disable: 'VPN deaktiviert',
+      visu: 'Visu',
     },
   },
   groups: {
