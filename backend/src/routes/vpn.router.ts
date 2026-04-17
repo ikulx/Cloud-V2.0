@@ -1065,7 +1065,7 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
               'window.__VISU_SOCKET_PATH=B+"/socket.io/";',
               'window.__VISU_BASENAME=B;',
               // needsRewrite: prüft ob Pfad umgeschrieben werden muss
-              'function nr(p){return p.startsWith("/static/")||p.startsWith("/assets/")||p==="/manifest.json"||p==="/favicon.ico"||p.startsWith("/logo")}',
+              'function nr(p){return p.startsWith("/static/")||p.startsWith("/assets/")||p.startsWith("/socket.io/")||p==="/manifest.json"||p==="/favicon.ico"||p.startsWith("/logo")}',
               // rewrite: schreibt URL um wenn nötig
               'function rw(u){try{var x=new URL(u,location.origin);if(x.origin===location.origin&&nr(x.pathname))return x.origin+B+x.pathname+x.search+x.hash}catch(e){}return u}',
               // 1. createElement: script.src, link.href, img.src
