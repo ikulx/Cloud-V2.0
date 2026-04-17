@@ -21,6 +21,8 @@ import Divider from '@mui/material/Divider'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import HistoryIcon from '@mui/icons-material/History'
+import { EntityActivityLog } from '../components/EntityActivityLog'
 import { useGroups, useCreateGroup, useUpdateGroup, useDeleteGroup } from '../features/groups/queries'
 import { useUsers } from '../features/users/queries'
 import { useAnlagen } from '../features/anlagen/queries'
@@ -43,6 +45,7 @@ export function GroupsPage() {
   const canCreate = usePermission('groups:create')
   const canUpdate = usePermission('groups:update')
   const canDelete = usePermission('groups:delete')
+  const canReadActivityLog = usePermission('activityLog:read')
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [tab, setTab] = useState(0)
@@ -143,6 +146,9 @@ export function GroupsPage() {
             <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
               <Tab label={t('common.basicData')} />
               <Tab label={t('common.assignments')} />
+              {editGroup && canReadActivityLog && (
+                <Tab icon={<HistoryIcon fontSize="small" />} iconPosition="start" label={t('activityLog.tab', 'Aktivität')} />
+              )}
             </Tabs>
           </Box>
 
@@ -179,6 +185,10 @@ export function GroupsPage() {
                   onChange={(ids) => setAssign({ ...assign, deviceIds: ids })}
                 />
               </Box>
+            )}
+
+            {tab === 2 && editGroup && canReadActivityLog && (
+              <EntityActivityLog entityId={editGroup.id} limit={50} />
             )}
           </Box>
 

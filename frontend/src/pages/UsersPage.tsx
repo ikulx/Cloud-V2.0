@@ -28,6 +28,8 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import MailOutlineIcon from '@mui/icons-material/MailOutline'
 import ReplayIcon from '@mui/icons-material/Replay'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import HistoryIcon from '@mui/icons-material/History'
+import { EntityActivityLog } from '../components/EntityActivityLog'
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../features/users/queries'
 import { useInvitations, useCreateInvitation, useResendInvitation, useDeleteInvitation } from '../features/invitations/queries'
 import { useRoles } from '../features/roles/queries'
@@ -53,6 +55,7 @@ export function UsersPage() {
   const canCreate = usePermission('users:create')
   const canUpdate = usePermission('users:update')
   const canDelete = usePermission('users:delete')
+  const canReadActivityLog = usePermission('activityLog:read')
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [tab, setTab] = useState(0)
@@ -202,6 +205,9 @@ export function UsersPage() {
             <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
               <Tab label={t('common.basicData')} />
               <Tab label={t('common.assignments')} />
+              {editUser && canReadActivityLog && (
+                <Tab icon={<HistoryIcon fontSize="small" />} iconPosition="start" label={t('activityLog.tab', 'Aktivität')} />
+              )}
             </Tabs>
           </Box>
 
@@ -246,6 +252,10 @@ export function UsersPage() {
                   onChange={(ids) => setAssign({ ...assign, deviceIds: ids })}
                 />
               </Box>
+            )}
+
+            {tab === 2 && editUser && canReadActivityLog && (
+              <EntityActivityLog entityId={editUser.id} limit={50} />
             )}
           </Box>
 

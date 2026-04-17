@@ -36,6 +36,8 @@ import InfoIcon from '@mui/icons-material/Info'
 import LinkIcon from '@mui/icons-material/Link'
 import AssignmentIcon from '@mui/icons-material/Assignment'
 import BookIcon from '@mui/icons-material/Book'
+import HistoryIcon from '@mui/icons-material/History'
+import { EntityActivityLog } from '../components/EntityActivityLog'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemText from '@mui/material/ListItemText'
@@ -140,6 +142,7 @@ export function AnlageDetailPage() {
   const canUpdateTodo = usePermission('todos:update')
   const canReadLog = usePermission('logbook:read')
   const canCreateLog = usePermission('logbook:create')
+  const canReadActivityLog = usePermission('activityLog:read')
   const updateAnlage = useUpdateAnlage(id ?? '')
   const createTodo = useCreateAnlageTodo(id ?? '')
   const updateTodo = useUpdateAnlageTodo(id ?? '')
@@ -311,6 +314,13 @@ export function AnlageDetailPage() {
             icon={<BookIcon fontSize="small" />}
             iconPosition="start"
             label={t('logbook.tab')}
+          />
+        )}
+        {canReadActivityLog && (
+          <Tab
+            icon={<HistoryIcon fontSize="small" />}
+            iconPosition="start"
+            label={t('activityLog.tab', 'Aktivität')}
           />
         )}
       </Tabs>
@@ -808,6 +818,11 @@ export function AnlageDetailPage() {
             ))}
           </List>
         </Box>
+      )}
+
+      {/* TAB 4: AKTIVITÄTSLOG */}
+      {canReadActivityLog && tab === ((canReadTodos ? 1 : 0) + (canReadLog ? 1 : 0) + 2) && id && (
+        <EntityActivityLog entityId={id} />
       )}
 
       <Snackbar

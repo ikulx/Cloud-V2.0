@@ -4,29 +4,35 @@ import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
 import Button from '@mui/material/Button'
 import Paper from '@mui/material/Paper'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
-import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Pagination from '@mui/material/Pagination'
-import Tooltip from '@mui/material/Tooltip'
+import Chip from '@mui/material/Chip'
+import Stack from '@mui/material/Stack'
 import { useTranslation } from 'react-i18next'
-import { useActivityLog } from '../features/activity-log/queries'
+import { useActivityLog, type ActivityLogEntry } from '../features/activity-log/queries'
+import { formatActionTitle, formatDetails } from '../lib/activity-log-format'
 
 function actionColor(action: string): 'default' | 'primary' | 'success' | 'error' | 'warning' | 'info' {
   if (action.startsWith('auth.login.failed')) return 'error'
   if (action.startsWith('auth.')) return 'info'
-  if (action.endsWith('.delete')) return 'error'
-  if (action.endsWith('.create')) return 'success'
-  if (action.endsWith('.update')) return 'primary'
+  if (action.endsWith('.delete') || action.includes('.delete')) return 'error'
+  if (action.endsWith('.create') || action.includes('.create')) return 'success'
+  if (action.endsWith('.update') || action.includes('.update')) return 'primary'
   return 'default'
 }
 
-const PAGE_SIZE = 50
+function colorBorder(c: string): string {
+  switch (c) {
+    case 'error':    return 'error.main'
+    case 'success':  return 'success.main'
+    case 'primary':  return 'primary.main'
+    case 'info':     return 'info.main'
+    case 'warning':  return 'warning.main'
+    default:         return 'divider'
+  }
+}
+
+const PAGE_SIZE = 30
 
 export function ActivityLogPage() {
   const { t } = useTranslation()
@@ -51,7 +57,7 @@ export function ActivityLogPage() {
 
       <Box display="flex" gap={1} mb={2}>
         <TextField
-          label={t('activityLog.filterAction', 'Action-Filter (z.B. anlagen oder anlagen.create)')}
+          label={t('activityLog.filterAction', 'Filter (z.B. anlagen oder anlagen.create)')}
           size="small"
           value={actionFilter}
           onChange={(e) => setActionFilter(e.target.value)}
@@ -73,87 +79,20 @@ export function ActivityLogPage() {
 
       {isLoading ? (
         <Box display="flex" justifyContent="center" py={6}><CircularProgress /></Box>
+      ) : data?.entries.length === 0 ? (
+        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', py: 4, textAlign: 'center' }}>
+          <Typography color="text.secondary">{t('activityLog.empty', 'Keine Einträge')}</Typography>
+        </Paper>
       ) : (
         <>
-          <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ width: 170 }}>{t('activityLog.time', 'Zeitpunkt')}</TableCell>
-                  <TableCell sx={{ width: 200 }}>{t('activityLog.user', 'Benutzer')}</TableCell>
-                  <TableCell sx={{ width: 220 }}>{t('activityLog.action', 'Aktion')}</TableCell>
-                  <TableCell>{t('activityLog.entity', 'Entität')}</TableCell>
-                  <TableCell sx={{ width: 60 }}>{t('activityLog.status', 'Status')}</TableCell>
-                  <TableCell sx={{ width: 130 }}>{t('activityLog.ip', 'IP')}</TableCell>
-                  <TableCell>{t('activityLog.details', 'Details')}</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {data?.entries.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
-                      <Typography color="text.secondary">{t('activityLog.empty', 'Keine Einträge')}</Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
-                {data?.entries.map((e) => (
-                  <TableRow key={e.id} hover>
-                    <TableCell>
-                      <Tooltip title={new Date(e.createdAt).toLocaleString()}>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                          {new Date(e.createdAt).toLocaleString()}
-                        </Typography>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption">{e.userEmail ?? '—'}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={e.action}
-                        size="small"
-                        color={actionColor(e.action)}
-                        sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {e.entityType && (
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                          {e.entityType}{e.entityId ? ` · ${e.entityId.slice(0, 8)}…` : ''}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {e.statusCode && (
-                        <Chip
-                          label={e.statusCode}
-                          size="small"
-                          color={e.statusCode >= 400 ? 'error' : e.statusCode >= 300 ? 'warning' : 'default'}
-                          sx={{ fontSize: '0.65rem', height: 18 }}
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{e.ipAddress ?? '—'}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      {e.details && (
-                        <Tooltip title={<pre style={{ margin: 0, fontSize: 11 }}>{JSON.stringify(e.details, null, 2)}</pre>}>
-                          <Typography variant="caption" sx={{ fontFamily: 'monospace', cursor: 'help' }}>
-                            {JSON.stringify(e.details).slice(0, 80)}
-                            {JSON.stringify(e.details).length > 80 ? '…' : ''}
-                          </Typography>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Stack spacing={1.5}>
+            {data?.entries.map((entry) => (
+              <EntryCard key={entry.id} entry={entry} />
+            ))}
+          </Stack>
 
           {data && totalPages > 1 && (
-            <Box display="flex" justifyContent="center" mt={2}>
+            <Box display="flex" justifyContent="center" mt={3}>
               <Pagination
                 count={totalPages}
                 page={page}
@@ -172,5 +111,60 @@ export function ActivityLogPage() {
         </>
       )}
     </Box>
+  )
+}
+
+function EntryCard({ entry }: { entry: ActivityLogEntry }) {
+  const { t } = useTranslation()
+  const title = formatActionTitle(entry, t)
+  const details = formatDetails(entry, t)
+  const time = new Date(entry.createdAt).toLocaleString()
+  const who = entry.userEmail ?? t('activityLog.system', 'System')
+
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        border: '1px solid',
+        borderColor: 'divider',
+        borderLeft: '4px solid',
+        borderLeftColor: colorBorder(actionColor(entry.action)),
+        p: 1.5,
+      }}
+    >
+      <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+        <Chip
+          label={title}
+          size="small"
+          color={actionColor(entry.action)}
+          variant="filled"
+          sx={{ fontWeight: 600 }}
+        />
+        <Typography variant="caption" color="text.secondary">
+          {who} · {time}
+        </Typography>
+        {entry.entityId && (
+          <Chip
+            label={entry.entityId.slice(0, 8)}
+            size="small"
+            variant="outlined"
+            sx={{ fontSize: '0.65rem', height: 18, fontFamily: 'monospace' }}
+          />
+        )}
+        {entry.statusCode && entry.statusCode >= 400 && (
+          <Chip label={entry.statusCode} size="small" color="error" sx={{ fontSize: '0.65rem', height: 18 }} />
+        )}
+      </Box>
+      {details.length > 0 && (
+        <Box mt={1} display="grid" gridTemplateColumns={{ xs: '1fr', sm: '150px 1fr' }} gap={0.5} sx={{ fontSize: '0.85rem' }}>
+          {details.map((d, i) => (
+            <Box key={i} sx={{ display: 'contents' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>{d.label}:</Typography>
+              <Typography variant="caption" sx={{ wordBreak: 'break-word' }}>{d.value}</Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Paper>
   )
 }

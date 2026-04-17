@@ -26,6 +26,9 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import OpenInBrowserIcon from '@mui/icons-material/OpenInBrowser'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
+import InfoIcon from '@mui/icons-material/Info'
+import HistoryIcon from '@mui/icons-material/History'
+import { EntityActivityLog } from '../components/EntityActivityLog'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
@@ -99,6 +102,8 @@ export function DeviceDetailPage() {
 
   const canUpdate = usePermission('devices:update')
   // Todos/Logs sind jetzt an der Anlage, nicht mehr am Gerät
+  const canReadActivityLog = usePermission('activityLog:read')
+  const [tab, setTab] = useState(0)
   const canManageVpn = usePermission('vpn:manage')
 
   const sendCommand = useDeviceCommand(id!)
@@ -162,9 +167,14 @@ export function DeviceDetailPage() {
         </Box>
       </Box>
 
-      {/* Tabs entfernt — Todos und Logbuch sind jetzt auf der Anlage */}
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+        <Tab icon={<InfoIcon fontSize="small" />} iconPosition="start" label={t('detail.overview')} />
+        {canReadActivityLog && (
+          <Tab icon={<HistoryIcon fontSize="small" />} iconPosition="start" label={t('activityLog.tab', 'Aktivität')} />
+        )}
+      </Tabs>
 
-      {(
+      {tab === 0 && (
         <>
         <Box display="grid" gridTemplateColumns={{ xs: '1fr', md: '1fr 1fr' }} gap={3}>
           <Card>
@@ -687,6 +697,10 @@ export function DeviceDetailPage() {
           message={vpnMsg}
         />
         </>
+      )}
+
+      {canReadActivityLog && tab === 1 && id && (
+        <EntityActivityLog entityId={id} />
       )}
 
     </Box>
