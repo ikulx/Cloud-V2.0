@@ -213,6 +213,8 @@ const en = {
     visuIpHint: 'LAN IP of the Pi with router software, e.g. 192.168.10.1 (empty = no router)',
     wanIp: 'Pi WAN IP',
     wanIpHint: 'WAN IP of the Pi with router software (optional, informational)',
+    hasRouter: 'Router Software',
+    autoDetected: 'Auto-detected by agent',
     piKey: 'Pi Key',
     keyPresent: 'Key present',
     keyMissing: 'No key',

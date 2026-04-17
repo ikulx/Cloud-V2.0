@@ -275,6 +275,7 @@ export function DeviceDetailPage() {
                   <VpnKeyIcon color="primary" fontSize="small" />
                   <Typography variant="h6">{t('vpn.title')}</Typography>
                   {vpnConfig && <Chip label={t('vpn.enabled')} size="small" color="success" />}
+                  {device.hasRouter && <Chip label={t('vpn.hasRouter')} size="small" color="info" />}
                 </Box>
 
                 {!vpnConfig ? (
@@ -390,7 +391,7 @@ export function DeviceDetailPage() {
                         value={editVisuIp}
                         onChange={(e) => setEditVisuIp(e.target.value)}
                         placeholder="192.168.10.1"
-                        helperText={t('vpn.visuIpHint')}
+                        helperText={device.hasRouter ? t('vpn.autoDetected') : t('vpn.visuIpHint')}
                         sx={{ width: 200 }}
                       />
                       <TextField
@@ -399,7 +400,7 @@ export function DeviceDetailPage() {
                         value={editWanIp}
                         onChange={(e) => setEditWanIp(e.target.value)}
                         placeholder="192.168.1.100"
-                        helperText={t('vpn.wanIpHint')}
+                        helperText={device.hasRouter ? t('vpn.autoDetected') : t('vpn.wanIpHint')}
                         sx={{ width: 200 }}
                       />
                       <Button

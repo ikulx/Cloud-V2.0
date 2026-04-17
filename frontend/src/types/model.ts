@@ -66,6 +66,7 @@ export interface Device {
   mqttConnected?: boolean
   vpnActive?: boolean
   httpActive?: boolean
+  hasRouter?: boolean
   hasError?: boolean  // wird später vom Agent gesendet
   vpnDevice?: { vpnIp: string } | null
   parentDeviceId: string | null

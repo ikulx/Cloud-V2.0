@@ -66,7 +66,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC17"  # Setup ohne Warten, Agent-Service uebernimmt Registrierung
+AGENT_VERSION = "1.0.0-RC18"  # Router-Erkennung: hasRouter, piLanIp, piWanIp in Telemetrie
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -190,6 +190,62 @@ def get_http_status():
         return r.returncode == 0 and r.stdout.strip() == "true"
     except Exception:
         return False
+
+def get_router_info():
+    """Erkennt ob die Ycontrol-Router-Software installiert ist und liest LAN/WAN-IPs aus."""
+    info = {"hasRouter": False, "piLanIp": None, "piWanIp": None}
+    # Router-Software erkennen: systemd-Service oder Node-Prozess
+    try:
+        r = subprocess.run(["systemctl", "is-active", "ycontrol-router"],
+                           capture_output=True, text=True, timeout=3)
+        if r.returncode == 0 and r.stdout.strip() == "active":
+            info["hasRouter"] = True
+    except Exception:
+        pass
+    if not info["hasRouter"]:
+        try:
+            r = subprocess.run(["pgrep", "-f", "router-ui/server.js"],
+                               capture_output=True, text=True, timeout=3)
+            if r.returncode == 0 and r.stdout.strip():
+                info["hasRouter"] = True
+        except Exception:
+            pass
+    if not info["hasRouter"]:
+        # Fallback: Prüfe ob das Router-UI-Verzeichnis existiert
+        if os.path.isfile("/opt/ycontrol-router/server.js") or os.path.isfile("/home/pi/router-ui/server.js"):
+            info["hasRouter"] = True
+    if not info["hasRouter"]:
+        return info
+    # LAN-IP: br-lan oder br0 Interface (typisch fuer Router-Software)
+    for iface in ["br-lan", "br0", "eth1"]:
+        try:
+            r = subprocess.run(["ip", "-4", "addr", "show", iface],
+                               capture_output=True, text=True, timeout=3)
+            if r.returncode == 0:
+                import re
+                m = re.search(r"inet (\\d+\\.\\d+\\.\\d+\\.\\d+)", r.stdout)
+                if m:
+                    info["piLanIp"] = m.group(1)
+                    break
+        except Exception:
+            pass
+    # WAN-IP: eth0 Interface (Uplink-Netzwerk)
+    for iface in ["eth0", "wlan0"]:
+        try:
+            r = subprocess.run(["ip", "-4", "addr", "show", iface],
+                               capture_output=True, text=True, timeout=3)
+            if r.returncode == 0:
+                import re
+                m = re.search(r"inet (\\d+\\.\\d+\\.\\d+\\.\\d+)", r.stdout)
+                if m:
+                    ip = m.group(1)
+                    # Nicht die VPN-IP oder Loopback
+                    if not ip.startswith("10.") and not ip.startswith("127."):
+                        info["piWanIp"] = ip
+                        break
+        except Exception:
+            pass
+    return info
 
 _HEADERS = {
     "Content-Type": "application/json",
@@ -324,6 +380,13 @@ def run_agent():
             val = fn()
             if val:
                 tele[key] = val
+        # Router-Info: LAN/WAN-IP und ob Router-Software installiert ist
+        ri = get_router_info()
+        tele["hasRouter"] = ri["hasRouter"]
+        if ri["piLanIp"]:
+            tele["piLanIp"] = ri["piLanIp"]
+        if ri["piWanIp"]:
+            tele["piWanIp"] = ri["piWanIp"]
         return tele
 
     def publish_tele(c):

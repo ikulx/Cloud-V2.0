@@ -103,12 +103,33 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
 
   if (typeof data.vpnActive === 'boolean') update.vpnActive = data.vpnActive
   if (typeof data.httpActive === 'boolean') update.httpActive = data.httpActive
+  if (typeof data.hasRouter === 'boolean') update.hasRouter = data.hasRouter
 
   if (Object.keys(update).length > 0) {
     await prisma.device.update({ where: { id: device.id }, data: update })
     console.log(`[MQTT] Tele ${serial}:`, update)
     // Frontend informieren
     io.to(`device:${device.id}`).emit('device:tele', { deviceId: device.id, ...update })
+  }
+
+  // Router-IPs automatisch in VpnDevice speichern (wenn vorhanden)
+  if (typeof data.piLanIp === 'string' || typeof data.piWanIp === 'string') {
+    const vpnDevice = await prisma.vpnDevice.findUnique({
+      where: { deviceId: device.id },
+    })
+    if (vpnDevice) {
+      const vpnUpdate: Record<string, unknown> = {}
+      if (typeof data.piLanIp === 'string' && data.piLanIp !== vpnDevice.visuIp) {
+        vpnUpdate.visuIp = data.piLanIp
+      }
+      if (typeof data.piWanIp === 'string' && data.piWanIp !== vpnDevice.wanIp) {
+        vpnUpdate.wanIp = data.piWanIp
+      }
+      if (Object.keys(vpnUpdate).length > 0) {
+        await prisma.vpnDevice.update({ where: { id: vpnDevice.id }, data: vpnUpdate })
+        console.log(`[MQTT] VPN-Device ${serial} auto-update:`, vpnUpdate)
+      }
+    }
   }
 }
 

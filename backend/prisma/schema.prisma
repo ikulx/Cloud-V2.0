@@ -196,6 +196,7 @@ model Device {
   visuVersion     String?      @map("visu_version")
   vpnActive       Boolean      @default(false) @map("vpn_active")
   httpActive      Boolean      @default(false) @map("http_active")
+  hasRouter       Boolean      @default(false) @map("has_router")
   notes           String?
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
