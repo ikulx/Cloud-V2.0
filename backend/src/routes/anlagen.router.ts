@@ -4,6 +4,25 @@ import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import { buildVisibleAnlagenWhere } from '../lib/access-filter'
+import { publishCommand } from '../services/mqtt.service'
+
+/** Schickt `setProjectNumber` an alle ONLINE-Geräte einer Anlage. */
+async function pushProjectNumberToDevices(anlageId: string, projectNumber: string | null | undefined) {
+  try {
+    const anlageDevices = await prisma.anlageDevice.findMany({
+      where: { anlageId },
+      include: { device: { select: { serialNumber: true, status: true } } },
+    })
+    const value = projectNumber ?? ''
+    for (const ad of anlageDevices) {
+      if (ad.device.status === 'ONLINE') {
+        publishCommand(ad.device.serialNumber, { action: 'setProjectNumber', value })
+      }
+    }
+  } catch (e) {
+    console.warn('[Anlagen] pushProjectNumberToDevices fehlgeschlagen:', (e as Error).message)
+  }
+}
 
 const router = Router()
 
@@ -77,6 +96,12 @@ router.post('/', authenticate, requirePermission('anlagen:create'), async (req, 
     },
     include: anlageInclude,
   })
+
+  // Projektnummer an alle zugewiesenen Pi's schreiben (SYS01_DB_Projektnummer)
+  if (deviceIds && deviceIds.length > 0) {
+    pushProjectNumberToDevices(anlage.id, anlage.projectNumber).catch(() => {})
+  }
+
   res.status(201).json(anlage)
 })
 
@@ -85,9 +110,17 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
   const parsed = anlageSchema.partial().safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
 
+  const anlageId = req.params.id as string
+
+  // Vorher speichern um Änderungen an projectNumber / deviceIds zu erkennen
+  const before = await prisma.anlage.findUnique({
+    where: { id: anlageId },
+    select: { projectNumber: true },
+  })
+
   const { deviceIds, userIds, groupIds, ...data } = parsed.data
   const anlage = await prisma.anlage.update({
-    where: { id: req.params.id as string },
+    where: { id: anlageId },
     data: {
       ...data,
       ...(deviceIds !== undefined && {
@@ -102,6 +135,14 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
     },
     include: anlageInclude,
   })
+
+  // Projektnummer geändert ODER Device-Zuweisung geändert → an alle Geräte pushen
+  const projectNumberChanged = parsed.data.projectNumber !== undefined
+    && parsed.data.projectNumber !== before?.projectNumber
+  if (projectNumberChanged || deviceIds !== undefined) {
+    pushProjectNumberToDevices(anlage.id, anlage.projectNumber).catch(() => {})
+  }
+
   res.json(anlage)
 })
 

@@ -66,7 +66,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC18"  # Router-Erkennung: hasRouter, piLanIp, piWanIp in Telemetrie
+AGENT_VERSION = "1.0.0-RC19"  # setProjectNumber Action → schreibt in SYS01_DB_Projektnummer
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -130,6 +130,7 @@ def _sqlite_write(var_name, value):
 def get_anlage_name():    return _sqlite_read("SYS01_DB_Anlagenamen")
 def set_anlage_name(v):   return _sqlite_write("SYS01_DB_Anlagenamen", v)
 def get_project_number(): return _sqlite_read("SYS01_DB_Projektnummer")
+def set_project_number(v): return _sqlite_write("SYS01_DB_Projektnummer", v)
 def get_schema_number():  return _sqlite_read("SYS01_DB_Schemanummer")
 
 def get_visu_version():
@@ -463,6 +464,14 @@ def run_agent():
                 print("[YControl] Anlagenname gesetzt: " + new_name)
             else:
                 c.publish(topic_resp, json.dumps({"action": "setName", "status": "error"}), qos=1)
+        elif action == "setProjectNumber":
+            new_pn = (cmd.get("value") or "").strip()
+            if set_project_number(new_pn):
+                publish_tele(c)
+                c.publish(topic_resp, json.dumps({"action": "setProjectNumber", "status": "ok"}), qos=1)
+                print("[YControl] Projektnummer gesetzt: " + new_pn)
+            else:
+                c.publish(topic_resp, json.dumps({"action": "setProjectNumber", "status": "error"}), qos=1)
         elif action == "update":
             # Script wird direkt im MQTT-Befehl als Base64 mitgeliefert (kein HTTP nötig)
             script_b64 = cmd.get("script", "")
@@ -1066,6 +1075,23 @@ router.post('/', authenticate, requirePermission('devices:create'), async (req, 
     },
     include: deviceInclude,
   })
+
+  // Bei Erstellung mit Anlage-Zuweisung: Projektnummer an Pi schreiben
+  if (anlageIds && anlageIds.length > 0 && device.status === 'ONLINE') {
+    try {
+      const firstAnlage = await prisma.anlage.findUnique({
+        where: { id: anlageIds[0] },
+        select: { projectNumber: true },
+      })
+      publishCommand(device.serialNumber, {
+        action: 'setProjectNumber',
+        value: firstAnlage?.projectNumber ?? '',
+      })
+    } catch (e) {
+      console.warn(`[Devices] setProjectNumber konnte nicht gesendet werden:`, (e as Error).message)
+    }
+  }
+
   res.status(201).json(device)
 })
 
@@ -1095,6 +1121,24 @@ router.patch('/:id', authenticate, requirePermission('devices:update'), async (r
   // Name geändert → an Pi zurückschreiben (Pi schreibt in SQLite DB)
   if (parsed.data.name && device.status === 'ONLINE') {
     publishCommand(device.serialNumber, { action: 'setName', value: parsed.data.name })
+  }
+
+  // Anlage-Zuweisung geändert → Projektnummer an Pi schreiben (SYS01_DB_Projektnummer)
+  if (anlageIds !== undefined && device.status === 'ONLINE') {
+    try {
+      // Erste Anlage (bei mehreren wird die erste verwendet, leer bei keiner)
+      let projectNumber = ''
+      if (anlageIds.length > 0) {
+        const firstAnlage = await prisma.anlage.findUnique({
+          where: { id: anlageIds[0] },
+          select: { projectNumber: true },
+        })
+        projectNumber = firstAnlage?.projectNumber ?? ''
+      }
+      publishCommand(device.serialNumber, { action: 'setProjectNumber', value: projectNumber })
+    } catch (e) {
+      console.warn(`[Devices] setProjectNumber konnte nicht gesendet werden:`, (e as Error).message)
+    }
   }
 
   res.json(device)
