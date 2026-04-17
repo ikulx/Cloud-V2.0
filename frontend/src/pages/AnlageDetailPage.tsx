@@ -22,7 +22,9 @@ import Collapse from '@mui/material/Collapse'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Alert from '@mui/material/Alert'
-import MenuItem from '@mui/material/MenuItem'
+import FormGroup from '@mui/material/FormGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Checkbox from '@mui/material/Checkbox'
 import Snackbar from '@mui/material/Snackbar'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
@@ -51,7 +53,8 @@ const EMPTY_INFO_FORM = {
   projectNumber: '', name: '', description: '',
   street: '', zip: '', city: '', country: 'Schweiz',
   latitude: '', longitude: '',
-  plantType: '' as '' | 'HEAT_PUMP' | 'BOILER',
+  hasHeatPump: false,
+  hasBoiler: false,
   contactName: '', contactPhone: '', contactMobile: '', contactEmail: '',
   notes: '',
 }
@@ -151,7 +154,8 @@ export function AnlageDetailPage() {
         country: anlage.country ?? 'Schweiz',
         latitude: anlage.latitude != null ? String(anlage.latitude) : '',
         longitude: anlage.longitude != null ? String(anlage.longitude) : '',
-        plantType: anlage.plantType ?? '',
+        hasHeatPump: anlage.hasHeatPump ?? false,
+        hasBoiler: anlage.hasBoiler ?? false,
         contactName: anlage.contactName ?? '',
         contactPhone: anlage.contactPhone ?? '',
         contactMobile: anlage.contactMobile ?? '',
@@ -176,15 +180,10 @@ export function AnlageDetailPage() {
   const handleSaveInfo = async () => {
     setSaveError('')
     try {
-      const { latitude: latStr, longitude: lngStr, plantType, ...rest } = infoForm
+      const { latitude: latStr, longitude: lngStr, ...rest } = infoForm
       const latitude = latStr ? parseFloat(latStr) : null
       const longitude = lngStr ? parseFloat(lngStr) : null
-      await updateAnlage.mutateAsync({
-        ...rest,
-        latitude,
-        longitude,
-        plantType: plantType || null,
-      })
+      await updateAnlage.mutateAsync({ ...rest, latitude, longitude })
       setEditingInfo(false)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : t('common.errorSaving'))
@@ -226,7 +225,8 @@ export function AnlageDetailPage() {
         country: anlage.country ?? 'Schweiz',
         latitude: anlage.latitude != null ? String(anlage.latitude) : '',
         longitude: anlage.longitude != null ? String(anlage.longitude) : '',
-        plantType: anlage.plantType ?? '',
+        hasHeatPump: anlage.hasHeatPump ?? false,
+        hasBoiler: anlage.hasBoiler ?? false,
         contactName: anlage.contactName ?? '',
         contactPhone: anlage.contactPhone ?? '',
         contactMobile: anlage.contactMobile ?? '',
@@ -238,10 +238,11 @@ export function AnlageDetailPage() {
     setEditingInfo(false)
   }
 
-  const plantTypeLabel = (pt: 'HEAT_PUMP' | 'BOILER' | null): string => {
-    if (pt === 'HEAT_PUMP') return t('anlagen.plantTypeHeatPump')
-    if (pt === 'BOILER') return t('anlagen.plantTypeBoiler')
-    return '—'
+  const plantTypeLabel = (hp: boolean, b: boolean): string => {
+    const parts: string[] = []
+    if (hp) parts.push(t('anlagen.plantTypeHeatPump'))
+    if (b)  parts.push(t('anlagen.plantTypeBoiler'))
+    return parts.length ? parts.join(' + ') : '—'
   }
 
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
@@ -308,18 +309,19 @@ export function AnlageDetailPage() {
                       <TextField label="Projekt-Nr." size="small" value={infoForm.projectNumber} onChange={(e) => setInfoForm({ ...infoForm, projectNumber: e.target.value })} fullWidth />
                       <TextField label={t('common.name')} size="small" value={infoForm.name} onChange={(e) => setInfoForm({ ...infoForm, name: e.target.value })} fullWidth required />
                       <TextField label={t('common.description')} size="small" value={infoForm.description} onChange={(e) => setInfoForm({ ...infoForm, description: e.target.value })} fullWidth multiline rows={2} />
-                      <TextField
-                        label={t('anlagen.plantType')}
-                        size="small"
-                        select
-                        value={infoForm.plantType}
-                        onChange={(e) => setInfoForm({ ...infoForm, plantType: e.target.value as '' | 'HEAT_PUMP' | 'BOILER' })}
-                        fullWidth
-                      >
-                        <MenuItem value="">—</MenuItem>
-                        <MenuItem value="HEAT_PUMP">{t('anlagen.plantTypeHeatPump')}</MenuItem>
-                        <MenuItem value="BOILER">{t('anlagen.plantTypeBoiler')}</MenuItem>
-                      </TextField>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">{t('anlagen.plantType')}</Typography>
+                        <FormGroup row>
+                          <FormControlLabel
+                            control={<Checkbox size="small" checked={infoForm.hasHeatPump} onChange={(e) => setInfoForm({ ...infoForm, hasHeatPump: e.target.checked })} />}
+                            label={t('anlagen.plantTypeHeatPump')}
+                          />
+                          <FormControlLabel
+                            control={<Checkbox size="small" checked={infoForm.hasBoiler} onChange={(e) => setInfoForm({ ...infoForm, hasBoiler: e.target.checked })} />}
+                            label={t('anlagen.plantTypeBoiler')}
+                          />
+                        </FormGroup>
+                      </Box>
                     </Stack>
                   ) : (
                     <Stack spacing={1.5}>
@@ -337,7 +339,7 @@ export function AnlageDetailPage() {
                       </Box>
                       <Box>
                         <Typography variant="caption" color="text.secondary">{t('anlagen.plantType')}</Typography>
-                        <Typography variant="body1">{plantTypeLabel(anlage.plantType)}</Typography>
+                        <Typography variant="body1">{plantTypeLabel(anlage.hasHeatPump, anlage.hasBoiler)}</Typography>
                       </Box>
                       <Box>
                         <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>

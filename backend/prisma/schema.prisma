@@ -21,11 +21,6 @@ enum TodoStatus {
   DONE
 }
 
-enum PlantType {
-  HEAT_PUMP
-  BOILER
-}
-
 // ─── Auth / Users ─────────────────────────────────────────────────────────────
 
 model User {
@@ -152,7 +147,8 @@ model Anlage {
   notes           String?
   latitude        Float?
   longitude       Float?
-  plantType       PlantType? @map("plant_type")
+  hasHeatPump     Boolean  @default(false) @map("has_heat_pump")
+  hasBoiler       Boolean  @default(false) @map("has_boiler")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 

@@ -5,7 +5,9 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
-import MenuItem from '@mui/material/MenuItem'
+import FormGroup from '@mui/material/FormGroup'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Checkbox from '@mui/material/Checkbox'
 import Alert from '@mui/material/Alert'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
@@ -31,7 +33,8 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
   const { t } = useTranslation()
   const [tab, setTab] = useState(0)  // 0 = neu, 1 = bestehend
   const [newName, setNewName] = useState('')
-  const [newPlantType, setNewPlantType] = useState<'' | 'HEAT_PUMP' | 'BOILER'>('')
+  const [newHasHeatPump, setNewHasHeatPump] = useState(false)
+  const [newHasBoiler, setNewHasBoiler] = useState(false)
   const [existingAnlage, setExistingAnlage] = useState<Anlage | null>(null)
   const [error, setError] = useState('')
 
@@ -42,7 +45,7 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
   const pending = createAnlage.isPending || updateDevice.isPending || approveDevice.isPending
 
   const reset = () => {
-    setTab(0); setNewName(''); setNewPlantType(''); setExistingAnlage(null); setError('')
+    setTab(0); setNewName(''); setNewHasHeatPump(false); setNewHasBoiler(false); setExistingAnlage(null); setError('')
   }
 
   const handleClose = () => {
@@ -60,7 +63,8 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
         if (!newName.trim()) { setError(t('common.fieldRequired', 'Name erforderlich')); return }
         const created = await createAnlage.mutateAsync({
           name: newName.trim(),
-          plantType: newPlantType || null,
+          hasHeatPump: newHasHeatPump,
+          hasBoiler: newHasBoiler,
           country: 'Schweiz',
         })
         anlageId = (created as { id: string }).id
@@ -125,17 +129,19 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
               required
               autoFocus
             />
-            <TextField
-              label={t('anlagen.plantType')}
-              select
-              value={newPlantType}
-              onChange={(e) => setNewPlantType(e.target.value as '' | 'HEAT_PUMP' | 'BOILER')}
-              fullWidth
-            >
-              <MenuItem value="">—</MenuItem>
-              <MenuItem value="HEAT_PUMP">{t('anlagen.plantTypeHeatPump')}</MenuItem>
-              <MenuItem value="BOILER">{t('anlagen.plantTypeBoiler')}</MenuItem>
-            </TextField>
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" mb={0.5}>{t('anlagen.plantType')}</Typography>
+              <FormGroup row>
+                <FormControlLabel
+                  control={<Checkbox checked={newHasHeatPump} onChange={(e) => setNewHasHeatPump(e.target.checked)} />}
+                  label={t('anlagen.plantTypeHeatPump')}
+                />
+                <FormControlLabel
+                  control={<Checkbox checked={newHasBoiler} onChange={(e) => setNewHasBoiler(e.target.checked)} />}
+                  label={t('anlagen.plantTypeBoiler')}
+                />
+              </FormGroup>
+            </Box>
           </Box>
         )}
 

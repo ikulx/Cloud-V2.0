@@ -97,7 +97,8 @@ export interface Anlage {
   notes: string | null
   latitude: number | null
   longitude: number | null
-  plantType: 'HEAT_PUMP' | 'BOILER' | null
+  hasHeatPump: boolean
+  hasBoiler: boolean
   anlageDevices: { device: { id: string; name: string; status: DeviceStatus; isApproved: boolean } }[]
   directUsers: { user: { id: string; firstName: string; lastName: string } }[]
   groupAnlagen: { group: { id: string; name: string } }[]
