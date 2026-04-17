@@ -153,6 +153,15 @@ router.post('/refresh', async (req, res) => {
 
 // POST /api/auth/logout
 router.post('/logout', authenticate, async (req, res) => {
+  // Logout explizit loggen (unabhängig vom Erfolg des Token-Revokes)
+  logActivity({
+    action: 'auth.logout',
+    entityType: 'users',
+    entityId: req.user?.userId ?? null,
+    req,
+    statusCode: 204,
+  }).catch(() => {})
+
   const parsed = refreshSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(204).send()

@@ -2,6 +2,7 @@ import mqtt from 'mqtt'
 import { Server as SocketServer } from 'socket.io'
 import { prisma } from '../db/prisma'
 import { env } from '../config/env'
+import { logActivity } from './activity-log.service'
 
 
 let client: mqtt.MqttClient | null = null
@@ -137,7 +138,7 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
   try {
     const assignments = await prisma.anlageDevice.findMany({
       where: { deviceId: device.id },
-      include: { anlage: { select: { projectNumber: true } } },
+      include: { anlage: { select: { projectNumber: true, name: true } } },
       orderBy: { assignedAt: 'asc' },
       take: 1,
     })
@@ -147,6 +148,19 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
       if (expected !== actual) {
         console.log(`[MQTT] ${serial}: Projektnummer-Mismatch ('${actual}' → '${expected}'), sende setProjectNumber`)
         publishCommand(serial, { action: 'setProjectNumber', value: expected })
+        // Als System-Event loggen
+        void prisma.device.findUnique({ where: { id: device.id }, select: { name: true } })
+          .then((dev) => logActivity({
+            action: 'system.projectNumber.autoSync',
+            entityType: 'devices',
+            entityId: device.id,
+            details: {
+              entityName: dev?.name?.trim() || serial,
+              changes: { projectNumber: { from: actual, to: expected } },
+              anlageName: assignments[0].anlage.name,
+            },
+          }))
+          .catch(() => {})
       }
     }
   } catch (e) {

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
+import { logActivity } from '../services/activity-log.service'
 
 /**
  * Admin-Rolle hat IMMER Zugriff auf alles. Andere Rollen brauchen die explizite
@@ -16,6 +17,14 @@ export function requirePermission(...permissions: string[]) {
     }
     const hasAll = permissions.every((p) => req.user!.permissions.includes(p))
     if (!hasAll) {
+      // 403 loggen – sicherheitsrelevant
+      logActivity({
+        action: 'permission.denied',
+        entityType: 'permission',
+        details: { required: permissions, method: req.method, path: req.originalUrl },
+        req,
+        statusCode: 403,
+      }).catch(() => {})
       res.status(403).json({ message: 'Keine Berechtigung' })
       return
     }

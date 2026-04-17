@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
+import { logActivity } from '../services/activity-log.service'
 
 const router = Router()
 
@@ -57,9 +58,17 @@ router.patch('/:id', authenticate, requirePermission('roles:update'), async (req
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
 
   const { permissionIds, ...data } = parsed.data
+  const roleId = req.params.id as string
+
+  // Vor Update: aktuelle Permissions + Name sichern für Diff
+  const before = await prisma.role.findUnique({
+    where: { id: roleId },
+    include: { permissions: { include: { permission: { select: { key: true } } } } },
+  })
+  const beforeKeys = before?.permissions.map((p) => p.permission.key).sort() ?? []
 
   const role = await prisma.role.update({
-    where: { id: req.params.id as string },
+    where: { id: roleId },
     data: {
       ...data,
       ...(permissionIds !== undefined && {
@@ -72,6 +81,28 @@ router.patch('/:id', authenticate, requirePermission('roles:update'), async (req
     include: roleInclude,
   })
   res.json(role)
+
+  // Permission-Änderungen explizit loggen (sicherheitsrelevant)
+  if (permissionIds !== undefined && before) {
+    const afterKeys = (role as unknown as { permissions?: Array<{ permission?: { key: string } }> })
+      .permissions?.map((p) => p.permission?.key).filter(Boolean).sort() as string[] ?? []
+    const added = afterKeys.filter((k) => !beforeKeys.includes(k))
+    const removed = beforeKeys.filter((k) => !afterKeys.includes(k))
+    if (added.length > 0 || removed.length > 0) {
+      logActivity({
+        action: 'roles.permissions.update',
+        entityType: 'roles',
+        entityId: role.id,
+        details: {
+          entityName: role.name,
+          added,
+          removed,
+        },
+        req,
+        statusCode: 200,
+      }).catch(() => {})
+    }
+  }
 })
 
 // DELETE /api/roles/:id

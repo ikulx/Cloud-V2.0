@@ -43,6 +43,7 @@ import {
 import { env } from '../config/env'
 import { publishCommand } from '../services/mqtt.service'
 import { hashDeviceSecret } from '../lib/token'
+import { logActivity } from '../services/activity-log.service'
 
 const router = Router()
 
@@ -312,6 +313,15 @@ router.get('/devices/:deviceId/pi-config', authenticate, requirePermission('vpn:
   res.setHeader('Content-Type',        'text/plain; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.send(config)
+
+  logActivity({
+    action: 'vpn.config.download',
+    entityType: 'devices',
+    entityId: deviceId,
+    details: { entityName: device?.name ?? null, configType: 'pi-config' },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
 })
 
 // POST /api/vpn/devices/:deviceId/deploy
@@ -320,7 +330,7 @@ router.post('/devices/:deviceId/deploy', authenticate, requirePermission('vpn:ma
 
   const device = await prisma.device.findUnique({
     where: { id: deviceId },
-    select: { serialNumber: true, isApproved: true },
+    select: { serialNumber: true, isApproved: true, name: true },
   })
   if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
   if (!device.isApproved) { res.status(409).json({ message: 'Gerät noch nicht freigegeben' }); return }
@@ -346,6 +356,18 @@ router.post('/devices/:deviceId/deploy', authenticate, requirePermission('vpn:ma
 
   publishCommand(device.serialNumber, { action: 'vpn_install', config })
   res.json({ ok: true, serial: device.serialNumber })
+
+  logActivity({
+    action: 'vpn.deploy',
+    entityType: 'devices',
+    entityId: deviceId,
+    details: {
+      entityName: device.name?.trim() || device.serialNumber,
+      vpnIp: vpnDevice.vpnIp,
+    },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
 })
 
 // ─── Pi-seitiger Konfig-Download (Device-Auth) ───────────────────────────────
@@ -389,7 +411,7 @@ router.get('/device-config', async (req, res) => {
 // ─── Server-Config ────────────────────────────────────────────────────────────
 
 // GET /api/vpn/server-config
-router.get('/server-config', authenticate, requirePermission('vpn:manage'), async (_req, res) => {
+router.get('/server-config', authenticate, requirePermission('vpn:manage'), async (req, res) => {
   const settings = await getVpnSettings()
 
   const [vpnDevices, vpnPeers] = await Promise.all([
@@ -430,6 +452,14 @@ PrivateKey = <SERVER_PRIVATEN_SCHLUESSEL_HIER_EINTRAGEN>
   res.setHeader('Content-Type',        'text/plain; charset=utf-8')
   res.setHeader('Content-Disposition', 'attachment; filename="wg0.conf"')
   res.send(config)
+
+  logActivity({
+    action: 'vpn.config.download',
+    entityType: 'vpn',
+    details: { configType: 'server-config' },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
 })
 
 // ─── Techniker-Peers ──────────────────────────────────────────────────────────
@@ -513,6 +543,15 @@ router.get('/peers/:id/config', authenticate, requirePermission('vpn:manage'), a
   res.setHeader('Content-Type',        'text/plain; charset=utf-8')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   res.send(config)
+
+  logActivity({
+    action: 'vpn.config.download',
+    entityType: 'vpn.peers',
+    entityId: peer.id,
+    details: { entityName: peer.name, configType: 'peer-config' },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
 })
 
 // ─── VPN-Erreichbarkeitstest ──────────────────────────────────────────────────
@@ -932,11 +971,33 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
   const userCtx = await getUserAccessContext(payload.sub)
   if (!userCtx) { res.status(401).json({ message: 'Benutzer nicht gefunden' }); return }
 
-  // Session-Cookie setzen damit Sub-Ressourcen (JS/CSS) ohne access_token-Param geladen werden
+  // Session-Cookie setzen damit Sub-Ressourcen (JS/CSS) ohne access_token-Param geladen werden.
+  // Dieser Zweig greift nur beim INITIALEN Visu-Load (iframe-src mit ?access_token=…);
+  // alle Folge-Requests nutzen den Cookie und werden nicht nochmal geloggt.
   if (queryToken || headerToken) {
     const cookiePath = `/api/vpn/devices/${deviceId}/visu`
     res.setHeader('set-cookie',
       `${cookieName}=${rawToken}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=3600`)
+
+    // Fernzugriff-Event loggen (nur beim initialen Öffnen)
+    prisma.device.findUnique({
+      where: { id: deviceId },
+      select: { name: true, serialNumber: true },
+    }).then((dev) => {
+      logActivity({
+        action: 'vpn.visu.open',
+        entityType: 'devices',
+        entityId: deviceId,
+        details: {
+          entityName: dev?.name?.trim() || dev?.serialNumber || null,
+          remoteUser: typeof req.query.remoteUser === 'string' ? req.query.remoteUser : undefined,
+        },
+        userId: userCtx.userId,
+        userEmail: userCtx.email,
+        req,
+        statusCode: 200,
+      }).catch(() => {})
+    }).catch(() => {})
   }
 
   const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })

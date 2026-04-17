@@ -1,88 +1,114 @@
 import type { Request, Response, NextFunction } from 'express'
-import { logActivity } from '../services/activity-log.service'
+import {
+  logActivity,
+  fetchEntitySnapshot,
+  computeDiff,
+} from '../services/activity-log.service'
 
-/**
- * Bekannte Top-Level Entitäten. Nur diese werden als entityType akzeptiert.
- * Verhindert dass UUIDs oder andere Path-Segmente als Entity-Name landen.
- */
+/** Nur diese Top-Level-Entitäten werden als entityType akzeptiert. */
 const KNOWN_ENTITIES = new Set([
   'anlagen', 'devices', 'users', 'groups', 'roles', 'permissions',
   'vpn', 'settings', 'invitations', 'auth', 'activity-log', 'me',
 ])
 
-/**
- * Bekannte Sub-Ressourcen (für z.B. anlagen/<id>/todos).
- * Wenn ein Segment hier steht, wird es an entityType angehängt.
- */
 const KNOWN_SUBRESOURCES = new Set([
   'todos', 'logs', 'peers', 'lan-devices', 'lan-device',
   'todo', 'log', 'deploy', 'approve', 'command', 'enable', 'disable',
   'pi-config', 'server-config', 'device-config', 'visu', 'ping',
-  'setup-script', 'invite', 'accept', 'register', 'refresh',
+  'setup-script', 'invite', 'accept', 'register', 'refresh', 'config',
 ])
+
+/** Entitäten für die wir einen Before/After-Diff machen. */
+const DIFFABLE_ENTITIES = new Set(['anlagen', 'devices', 'users', 'groups', 'roles'])
 
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 
+interface PathInfo {
+  entityType: string | null
+  entityId: string | null
+  isSubResource: boolean
+}
+
+function parsePath(originalUrl: string): PathInfo {
+  const fullPath = (originalUrl || '').split('?')[0]
+  const parts = fullPath.split('/').filter(Boolean)
+  const relevant = parts[0] === 'api' ? parts.slice(1) : parts
+
+  let entityType: string | null = null
+  let entityId: string | null = null
+  let isSubResource = false
+
+  for (let i = 0; i < relevant.length; i++) {
+    const seg = relevant[i]
+    if (KNOWN_ENTITIES.has(seg)) {
+      entityType = seg
+      if (relevant[i + 1] && isUuid(relevant[i + 1])) {
+        entityId = relevant[i + 1]
+      }
+      const afterId = relevant[i + 1] && isUuid(relevant[i + 1]) ? i + 2 : i + 1
+      if (relevant[afterId] && KNOWN_SUBRESOURCES.has(relevant[afterId])) {
+        entityType = `${entityType}.${relevant[afterId]}`
+        isSubResource = true
+        if (relevant[afterId + 1] && isUuid(relevant[afterId + 1])) {
+          entityId = relevant[afterId + 1]
+        }
+      }
+      break
+    }
+  }
+
+  if (!entityType && relevant.length > 0) {
+    const firstNonUuid = relevant.find((s) => !isUuid(s))
+    if (firstNonUuid) entityType = firstNonUuid
+  }
+
+  return { entityType, entityId, isSubResource }
+}
+
 /**
- * Logt alle mutierenden HTTP-Requests (POST/PATCH/PUT/DELETE) in die ActivityLog-Tabelle.
- * - entityType wird nur aus KNOWN_ENTITIES gesetzt (nie UUIDs).
- * - entityId ist die letzte UUID im Pfad (oft die Sub-Entity bei verschachtelten Routen).
- * - Für Sub-Ressourcen wird ".subresource" angehängt.
- * - GET-Requests werden nicht geloggt (zu viel Noise).
+ * Aktivitäts-Log mit Before/After-Diff.
+ * - Vor PATCH/PUT/DELETE: Snapshot der Entität
+ * - Nach Response-Ende: neuen Snapshot holen, Diff berechnen
+ * - Details enthalten: entityName, changes: { field: {from, to} }
  */
-export function activityLogMiddleware(req: Request, res: Response, next: NextFunction) {
+export async function activityLogMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   const method = req.method.toUpperCase()
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
     return next()
+  }
+
+  const { entityType, entityId, isSubResource } = parsePath(req.originalUrl || '')
+  const baseEntity = entityType?.split('.')[0] ?? null
+
+  // Before-Snapshot für Updates/Deletes
+  let before: { data: Record<string, unknown>; label: string | null } | null = null
+  if (
+    entityId &&
+    baseEntity &&
+    DIFFABLE_ENTITIES.has(baseEntity) &&
+    !isSubResource &&
+    (method === 'PATCH' || method === 'PUT' || method === 'DELETE')
+  ) {
+    before = await fetchEntitySnapshot(baseEntity, entityId)
   }
 
   res.on('finish', () => {
     const statusCode = res.statusCode
     if (statusCode >= 500) return
 
-    // originalUrl verwenden (z.B. /api/anlagen/<uuid>/todos) – unabhängig vom Mount-Point.
-    const fullPath = (req.originalUrl || '').split('?')[0]
-    const parts = fullPath.split('/').filter(Boolean)
-    // "api"-Prefix entfernen falls vorhanden
-    const relevant = parts[0] === 'api' ? parts.slice(1) : parts
-
-    let entityType: string | null = null
-    let entityId: string | null = null
-
-    // Erstes bekanntes Entity-Segment suchen
-    for (let i = 0; i < relevant.length; i++) {
-      const seg = relevant[i]
-      if (KNOWN_ENTITIES.has(seg)) {
-        entityType = seg
-        // Nächstes Segment UUID? → entityId
-        if (relevant[i + 1] && isUuid(relevant[i + 1])) {
-          entityId = relevant[i + 1]
-        }
-        // Gibt es danach eine bekannte Sub-Ressource? → anhängen
-        const afterId = relevant[i + 1] && isUuid(relevant[i + 1]) ? i + 2 : i + 1
-        if (relevant[afterId] && KNOWN_SUBRESOURCES.has(relevant[afterId])) {
-          entityType = `${entityType}.${relevant[afterId]}`
-          // Danach evtl. Sub-Entity UUID?
-          if (relevant[afterId + 1] && isUuid(relevant[afterId + 1])) {
-            entityId = relevant[afterId + 1]
-          }
-        }
-        break
-      }
-    }
-
-    // Fallback: wenn nichts Bekanntes gefunden, den ersten Pfad-Teil nehmen (ohne UUIDs)
-    if (!entityType && relevant.length > 0) {
-      const firstNonUuid = relevant.find((s) => !isUuid(s))
-      if (firstNonUuid) entityType = firstNonUuid
-    }
-
     const actionVerb = method === 'POST' ? 'create'
                      : method === 'DELETE' ? 'delete'
                      : 'update'
     const action = `${entityType ?? 'unknown'}.${actionVerb}`
 
-    // Sensitive Payload-Felder rausfiltern (Passwörter, Secrets)
+    // Duplikat-Logging für Auth vermeiden (dort explizit)
+    if (entityType === 'auth' || action.startsWith('auth.')) return
+
+    // Sensitive Payload-Felder entfernen
     const body = (req.body && typeof req.body === 'object') ? req.body as Record<string, unknown> : {}
     const sanitized: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(body)) {
@@ -91,18 +117,79 @@ export function activityLogMiddleware(req: Request, res: Response, next: NextFun
       sanitized[k] = v
     }
 
-    // Doppellog für auth.login / auth.login.failed vermeiden (werden im auth.router explizit geloggt)
-    if (entityType === 'auth' || action.startsWith('auth.')) return
+    const details: Record<string, unknown> = {}
+    if (Object.keys(sanitized).length > 0) details.payload = sanitized
 
-    logActivity({
-      action,
-      entityType,
-      entityId,
-      details: Object.keys(sanitized).length > 0 ? sanitized : null,
-      req,
-      statusCode,
-    }).catch(() => { /* bereits gelogged in service */ })
+    // Async: After-Snapshot für Diff, dann Log schreiben
+    void (async () => {
+      if (statusCode >= 400) {
+        // Fehlerhafte Requests: einfach so loggen mit entityName vom before-Snapshot
+        if (before?.label) details.entityName = before.label
+        await logActivity({
+          action,
+          entityType,
+          entityId,
+          details: Object.keys(details).length > 0 ? details : null,
+          req,
+          statusCode,
+        })
+        return
+      }
+
+      // Bei erfolgreichen Updates: Diff berechnen
+      if (before && entityId && baseEntity && DIFFABLE_ENTITIES.has(baseEntity) && (method === 'PATCH' || method === 'PUT')) {
+        const after = await fetchEntitySnapshot(baseEntity, entityId)
+        if (after) {
+          const changes = computeDiff(before.data, after.data)
+          if (Object.keys(changes).length > 0) {
+            details.changes = changes
+          }
+          details.entityName = after.label ?? before.label
+        } else {
+          details.entityName = before.label
+        }
+      } else if (method === 'POST' && entityId && baseEntity && DIFFABLE_ENTITIES.has(baseEntity)) {
+        // Neu erstellt: aktuellen Snapshot als "created" ablegen
+        const snap = await fetchEntitySnapshot(baseEntity, entityId)
+        if (snap) {
+          details.entityName = snap.label
+          // Nur "interessante" Felder speichern (nicht den kompletten Datensatz)
+          details.created = extractInterestingFields(snap.data, baseEntity)
+        }
+      } else if (method === 'DELETE' && before) {
+        details.entityName = before.label
+      } else if (method === 'POST' && baseEntity && DIFFABLE_ENTITIES.has(baseEntity)) {
+        // POST ohne entityId in URL (z.B. /api/anlagen Create) – ID aus Body/Response unbekannt hier;
+        // Body ist aber schon in details.payload
+      }
+
+      await logActivity({
+        action,
+        entityType,
+        entityId,
+        details: Object.keys(details).length > 0 ? details : null,
+        req,
+        statusCode,
+      })
+    })()
   })
 
   next()
+}
+
+function extractInterestingFields(data: Record<string, unknown>, entityType: string): Record<string, unknown> {
+  const fields = ENTITY_INTERESTING_FIELDS[entityType] ?? ['name']
+  const result: Record<string, unknown> = {}
+  for (const f of fields) {
+    if (data[f] !== undefined && data[f] !== null && data[f] !== '') result[f] = data[f]
+  }
+  return result
+}
+
+const ENTITY_INTERESTING_FIELDS: Record<string, string[]> = {
+  anlagen: ['projectNumber', 'name', 'city', 'hasHeatPump', 'hasBoiler'],
+  devices: ['serialNumber', 'name', 'ipAddress', 'isApproved'],
+  users: ['firstName', 'lastName', 'email', 'roleId'],
+  groups: ['name', 'description'],
+  roles: ['name', 'description'],
 }

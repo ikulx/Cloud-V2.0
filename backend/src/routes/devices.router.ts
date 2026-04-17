@@ -8,6 +8,7 @@ import { generateDeviceSecret, hashDeviceSecret } from '../lib/token'
 import { publishCommand, kickMqttClient, clearRetainedMessages } from '../services/mqtt.service'
 import { env } from '../config/env'
 import { getSetting } from './settings.router'
+import { logActivity } from '../services/activity-log.service'
 
 const router = Router()
 
@@ -1191,10 +1192,23 @@ router.post('/:id/command', authenticate, requirePermission('devices:update'), a
 
   const device = await prisma.device.findUnique({
     where: { id: req.params.id as string },
-    select: { id: true, serialNumber: true, status: true },
+    select: { id: true, serialNumber: true, status: true, name: true },
   })
   if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
   if (device.status !== 'ONLINE') { res.status(409).json({ message: 'Gerät ist offline' }); return }
+
+  // Explizit mit konkretem Befehl loggen (z.B. "devices.command.restart")
+  logActivity({
+    action: `devices.command.${parsed.data.action}`,
+    entityType: 'devices',
+    entityId: device.id,
+    details: {
+      entityName: device.name?.trim() || device.serialNumber,
+      command: parsed.data.action,
+    },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
 
   // Update: Script direkt via MQTT übermitteln (kein HTTP-Pull durch den Pi)
   if (parsed.data.action === 'update') {

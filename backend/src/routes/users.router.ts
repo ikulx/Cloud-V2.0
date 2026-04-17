@@ -4,6 +4,7 @@ import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import { hashPassword } from '../lib/password'
+import { logActivity } from '../services/activity-log.service'
 
 const router = Router()
 
@@ -95,6 +96,18 @@ router.patch('/:id', authenticate, requirePermission('users:update'), async (req
     include: userInclude,
   })
   res.json(sanitize(user))
+
+  // Passwort-Änderung sicherheitsrelevant separat loggen
+  if (password) {
+    logActivity({
+      action: 'users.password.update',
+      entityType: 'users',
+      entityId: user.id,
+      details: { entityName: `${user.firstName} ${user.lastName} (${user.email})` },
+      req,
+      statusCode: 200,
+    }).catch(() => {})
+  }
 })
 
 // DELETE /api/users/:id
