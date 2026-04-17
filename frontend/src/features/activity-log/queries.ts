@@ -24,24 +24,45 @@ export interface ActivityLogResponse {
   entries: ActivityLogEntry[]
 }
 
+export type ActivityCategory = 'security' | 'changes' | 'remote' | 'system' | 'login'
+
 export interface ActivityLogQuery {
   limit?: number
   offset?: number
-  action?: string
+  search?: string
+  actions?: string     // comma-separated action prefixes
+  category?: ActivityCategory
+  userEmail?: string
   userId?: string
   entityId?: string
+  startDate?: string   // ISO
+  endDate?: string     // ISO
+  sort?: 'asc' | 'desc'
 }
 
 export function useActivityLog(params: ActivityLogQuery) {
   const qs = new URLSearchParams()
-  if (params.limit !== undefined) qs.set('limit', String(params.limit))
-  if (params.offset !== undefined) qs.set('offset', String(params.offset))
-  if (params.action) qs.set('action', params.action)
-  if (params.userId) qs.set('userId', params.userId)
-  if (params.entityId) qs.set('entityId', params.entityId)
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === '') continue
+    qs.set(k, String(v))
+  }
 
   return useQuery({
     queryKey: ['activity-log', params],
     queryFn: () => apiGet<ActivityLogResponse>(`/activity-log?${qs.toString()}`),
+  })
+}
+
+export interface ActivityLogUser {
+  userId: string | null
+  userEmail: string | null
+}
+
+/** Holt die distinct User aus dem Aktivitätslog (für Filter-Dropdown). */
+export function useActivityLogUsers() {
+  return useQuery({
+    queryKey: ['activity-log', 'users'],
+    queryFn: () => apiGet<ActivityLogUser[]>('/activity-log/users'),
+    staleTime: 5 * 60_000, // 5 min
   })
 }
