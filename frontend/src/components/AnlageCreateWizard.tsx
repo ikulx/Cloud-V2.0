@@ -61,12 +61,15 @@ export function AnlageCreateWizard({
   const [error, setError] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  // Fehler erst anzeigen nachdem der Nutzer "Weiter" oder "Erstellen" versucht hat
+  const [showErrors, setShowErrors] = useState(false)
 
   useEffect(() => {
     if (open) {
       setStep(0)
       setForm(EMPTY)
       setError('')
+      setShowErrors(false)
     }
   }, [open])
 
@@ -90,16 +93,19 @@ export function AnlageCreateWizard({
                      && form.zip.trim().length > 0
                      && form.city.trim().length > 0
 
-  const canGoNext = (): boolean => {
+  const currentStepValid = (): boolean => {
     if (step === 0) return step0Valid
     if (step === 1) return step1Valid
     return true
   }
 
   const handleNext = () => {
+    if (!currentStepValid()) { setShowErrors(true); return }
+    setShowErrors(false)
     if (step < steps.length - 1) setStep(step + 1)
   }
   const handleBack = () => {
+    setShowErrors(false)
     if (step > 0) setStep(step - 1)
   }
 
@@ -121,6 +127,9 @@ export function AnlageCreateWizard({
 
   const handleSubmit = async () => {
     setError('')
+    // Alle vorherigen Schritte validieren
+    if (!step0Valid) { setShowErrors(true); setStep(0); return }
+    if (!step1Valid) { setShowErrors(true); setStep(1); return }
     try {
       const { latitude: latStr, longitude: lngStr, ...rest } = form
       const latitude = latStr ? parseFloat(latStr) : null
@@ -160,8 +169,8 @@ export function AnlageCreateWizard({
               onChange={(e) => setForm({ ...form, projectNumber: e.target.value })}
               fullWidth
               required
-              error={!form.projectNumber.trim()}
-              helperText={!form.projectNumber.trim() ? t('common.fieldRequired') : ''}
+              error={showErrors && !form.projectNumber.trim()}
+              helperText={showErrors && !form.projectNumber.trim() ? t('common.fieldRequired') : ''}
               autoFocus
             />
             <TextField
@@ -170,12 +179,12 @@ export function AnlageCreateWizard({
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               fullWidth
               required
-              error={!form.name.trim()}
-              helperText={!form.name.trim() ? t('common.fieldRequired') : ''}
+              error={showErrors && !form.name.trim()}
+              helperText={showErrors && !form.name.trim() ? t('common.fieldRequired') : ''}
             />
             <TextField label={t('common.description')} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} fullWidth multiline rows={2} />
             <Box>
-              <Typography variant="subtitle2" color={!form.hasHeatPump && !form.hasBoiler ? 'error' : 'text.secondary'} mb={0.5}>
+              <Typography variant="subtitle2" color={showErrors && !form.hasHeatPump && !form.hasBoiler ? 'error' : 'text.secondary'} mb={0.5}>
                 {t('anlagen.plantType')} *
               </Typography>
               <FormGroup row>
@@ -188,7 +197,7 @@ export function AnlageCreateWizard({
                   label={t('anlagen.plantTypeBoiler')}
                 />
               </FormGroup>
-              {!form.hasHeatPump && !form.hasBoiler && (
+              {showErrors && !form.hasHeatPump && !form.hasBoiler && (
                 <Typography variant="caption" color="error">{t('anlagen.plantTypeRequired', 'Mindestens ein Typ erforderlich')}</Typography>
               )}
             </Box>
@@ -204,8 +213,8 @@ export function AnlageCreateWizard({
               onChange={(e) => setForm({ ...form, street: e.target.value })}
               fullWidth
               required
-              error={!form.street.trim()}
-              helperText={!form.street.trim() ? t('common.fieldRequired') : ''}
+              error={showErrors && !form.street.trim()}
+              helperText={showErrors && !form.street.trim() ? t('common.fieldRequired') : ''}
               autoFocus
             />
             <Box display="flex" gap={2}>
@@ -215,7 +224,7 @@ export function AnlageCreateWizard({
                 onChange={(e) => setForm({ ...form, zip: e.target.value })}
                 sx={{ width: 140 }}
                 required
-                error={!form.zip.trim()}
+                error={showErrors && !form.zip.trim()}
               />
               <TextField
                 label="Ort *"
@@ -223,7 +232,7 @@ export function AnlageCreateWizard({
                 onChange={(e) => setForm({ ...form, city: e.target.value })}
                 fullWidth
                 required
-                error={!form.city.trim()}
+                error={showErrors && !form.city.trim()}
               />
             </Box>
             <TextField label="Land" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} fullWidth />
@@ -332,7 +341,7 @@ export function AnlageCreateWizard({
           <Button onClick={handleBack} disabled={createMutation.isPending}>{t('anlagen.wizardBack')}</Button>
         )}
         {step < steps.length - 1 ? (
-          <Button variant="contained" onClick={handleNext} disabled={!canGoNext()}>
+          <Button variant="contained" onClick={handleNext}>
             {t('anlagen.wizardNext')}
           </Button>
         ) : (

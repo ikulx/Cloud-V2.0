@@ -141,6 +141,15 @@ export function AnlageDetailPage() {
   const [saveError, setSaveError] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [showErrors, setShowErrors] = useState(false)
+
+  // Validierung für Edit-Modus (gleiche Pflichtfelder wie im Wizard)
+  const basicsValid = infoForm.projectNumber.trim().length > 0
+                      && infoForm.name.trim().length > 0
+                      && (infoForm.hasHeatPump || infoForm.hasBoiler)
+  const addressValid = infoForm.street.trim().length > 0
+                       && infoForm.zip.trim().length > 0
+                       && infoForm.city.trim().length > 0
 
   useEffect(() => {
     if (anlage) {
@@ -179,11 +188,16 @@ export function AnlageDetailPage() {
 
   const handleSaveInfo = async () => {
     setSaveError('')
+    if (!basicsValid || !addressValid) {
+      setShowErrors(true)
+      return
+    }
     try {
       const { latitude: latStr, longitude: lngStr, ...rest } = infoForm
       const latitude = latStr ? parseFloat(latStr) : null
       const longitude = lngStr ? parseFloat(lngStr) : null
       await updateAnlage.mutateAsync({ ...rest, latitude, longitude })
+      setShowErrors(false)
       setEditingInfo(false)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : t('common.errorSaving'))
@@ -235,6 +249,7 @@ export function AnlageDetailPage() {
       })
     }
     setSaveError('')
+    setShowErrors(false)
     setEditingInfo(false)
   }
 
@@ -288,7 +303,7 @@ export function AnlageDetailPage() {
             ) : (
               canUpdateAnlage && (
                 <Tooltip title={t('common.edit')}>
-                  <IconButton onClick={() => setEditingInfo(true)}>
+                  <IconButton onClick={() => { setShowErrors(false); setEditingInfo(true) }}>
                     <EditIcon />
                   </IconButton>
                 </Tooltip>
@@ -306,11 +321,31 @@ export function AnlageDetailPage() {
                   <Typography variant="h6" gutterBottom>Stammdaten</Typography>
                   {editingInfo ? (
                     <Stack spacing={2}>
-                      <TextField label="Projekt-Nr." size="small" value={infoForm.projectNumber} onChange={(e) => setInfoForm({ ...infoForm, projectNumber: e.target.value })} fullWidth />
-                      <TextField label={t('common.name')} size="small" value={infoForm.name} onChange={(e) => setInfoForm({ ...infoForm, name: e.target.value })} fullWidth required />
+                      <TextField
+                        label="Projekt-Nr. *"
+                        size="small"
+                        value={infoForm.projectNumber}
+                        onChange={(e) => setInfoForm({ ...infoForm, projectNumber: e.target.value })}
+                        fullWidth
+                        required
+                        error={showErrors && !infoForm.projectNumber.trim()}
+                        helperText={showErrors && !infoForm.projectNumber.trim() ? t('common.fieldRequired') : ''}
+                      />
+                      <TextField
+                        label={t('common.name') + ' *'}
+                        size="small"
+                        value={infoForm.name}
+                        onChange={(e) => setInfoForm({ ...infoForm, name: e.target.value })}
+                        fullWidth
+                        required
+                        error={showErrors && !infoForm.name.trim()}
+                        helperText={showErrors && !infoForm.name.trim() ? t('common.fieldRequired') : ''}
+                      />
                       <TextField label={t('common.description')} size="small" value={infoForm.description} onChange={(e) => setInfoForm({ ...infoForm, description: e.target.value })} fullWidth multiline rows={2} />
                       <Box>
-                        <Typography variant="caption" color="text.secondary">{t('anlagen.plantType')}</Typography>
+                        <Typography variant="caption" color={showErrors && !infoForm.hasHeatPump && !infoForm.hasBoiler ? 'error' : 'text.secondary'}>
+                          {t('anlagen.plantType')} *
+                        </Typography>
                         <FormGroup row>
                           <FormControlLabel
                             control={<Checkbox size="small" checked={infoForm.hasHeatPump} onChange={(e) => setInfoForm({ ...infoForm, hasHeatPump: e.target.checked })} />}
@@ -321,6 +356,9 @@ export function AnlageDetailPage() {
                             label={t('anlagen.plantTypeBoiler')}
                           />
                         </FormGroup>
+                        {showErrors && !infoForm.hasHeatPump && !infoForm.hasBoiler && (
+                          <Typography variant="caption" color="error">{t('anlagen.plantTypeRequired')}</Typography>
+                        )}
                       </Box>
                     </Stack>
                   ) : (
@@ -355,10 +393,35 @@ export function AnlageDetailPage() {
                   <Typography variant="h6" gutterBottom>Adresse</Typography>
                   {editingInfo ? (
                     <Stack spacing={2}>
-                      <TextField label="Strasse" size="small" value={infoForm.street} onChange={(e) => setInfoForm({ ...infoForm, street: e.target.value })} fullWidth />
+                      <TextField
+                        label="Strasse *"
+                        size="small"
+                        value={infoForm.street}
+                        onChange={(e) => setInfoForm({ ...infoForm, street: e.target.value })}
+                        fullWidth
+                        required
+                        error={showErrors && !infoForm.street.trim()}
+                        helperText={showErrors && !infoForm.street.trim() ? t('common.fieldRequired') : ''}
+                      />
                       <Box display="flex" gap={2}>
-                        <TextField label="PLZ" size="small" value={infoForm.zip} onChange={(e) => setInfoForm({ ...infoForm, zip: e.target.value })} sx={{ width: 120 }} />
-                        <TextField label="Ort" size="small" value={infoForm.city} onChange={(e) => setInfoForm({ ...infoForm, city: e.target.value })} fullWidth />
+                        <TextField
+                          label="PLZ *"
+                          size="small"
+                          value={infoForm.zip}
+                          onChange={(e) => setInfoForm({ ...infoForm, zip: e.target.value })}
+                          sx={{ width: 120 }}
+                          required
+                          error={showErrors && !infoForm.zip.trim()}
+                        />
+                        <TextField
+                          label="Ort *"
+                          size="small"
+                          value={infoForm.city}
+                          onChange={(e) => setInfoForm({ ...infoForm, city: e.target.value })}
+                          fullWidth
+                          required
+                          error={showErrors && !infoForm.city.trim()}
+                        />
                       </Box>
                       <TextField label="Land" size="small" value={infoForm.country} onChange={(e) => setInfoForm({ ...infoForm, country: e.target.value })} fullWidth />
                       <Button
