@@ -42,7 +42,18 @@ async function main() {
   const wss = new WebSocketServer({ noServer: true })
 
   httpServer.on('upgrade', (req, socket, head) => {
-    const match = (req.url ?? '').match(/^\/api\/vpn\/devices\/([^/?]+)\/visu\/socket\.io(.*)/i)
+    let match = (req.url ?? '').match(/^\/api\/vpn\/devices\/([^/?]+)\/visu\/socket\.io(.*)/i)
+    // Fallback: Wenn WebSocket direkt am Root /socket.io/ ankommt (client-side
+    // URL-Rewrite fehlgeschlagen), via Referer das Device ermitteln.
+    if (!match && (req.url ?? '').startsWith('/socket.io/')) {
+      const referer = (req.headers.referer ?? '') as string
+      const m = referer.match(/\/api\/vpn\/devices\/([^/?#]+)\/visu/)
+      if (m) {
+        const socketPath = (req.url ?? '').replace('/socket.io', '')
+        match = ['', m[1], socketPath] as RegExpMatchArray
+        console.log(`[WS-Tunnel] Root /socket.io/ fallback via Referer → device ${m[1]}`)
+      }
+    }
     if (!match) return  // andere Upgrades (z.B. Socket.IO der Cloud-App) nicht anfassen
 
     const [, deviceId, socketPath] = match
