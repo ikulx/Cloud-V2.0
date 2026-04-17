@@ -8,25 +8,18 @@ import Pagination from '@mui/material/Pagination'
 import Stack from '@mui/material/Stack'
 import Chip from '@mui/material/Chip'
 import Autocomplete from '@mui/material/Autocomplete'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
-import ViewListIcon from '@mui/icons-material/ViewList'
-import ViewStreamIcon from '@mui/icons-material/ViewStream'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { useTranslation } from 'react-i18next'
 import { useActivityLog, useActivityLogUsers, type ActivityCategory } from '../features/activity-log/queries'
-import { ActivityCard } from '../components/ActivityCard'
 import { ActivityTable } from '../components/ActivityTable'
 
 type DateRange = 'today' | '7d' | '30d' | 'all'
-type ViewMode = 'cards' | 'table'
 
-const PAGE_SIZE_CARDS = 30
-const PAGE_SIZE_TABLE = 100
+const PAGE_SIZE = 100
 
 function dateRangeToIso(range: DateRange): { startDate?: string } {
   if (range === 'all') return {}
@@ -45,34 +38,28 @@ function dateRangeToIso(range: DateRange): { startDate?: string } {
 export function ActivityLogPage() {
   const { t } = useTranslation()
 
-  // Filter-State
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<ActivityCategory | 'all'>('all')
   const [dateRange, setDateRange] = useState<DateRange>('7d')
   const [userFilter, setUserFilter] = useState<string | null>(null)
   const [sort, setSort] = useState<'asc' | 'desc'>('desc')
-  const [view, setView] = useState<ViewMode>('cards')
   const [page, setPage] = useState(1)
-
-  const pageSize = view === 'cards' ? PAGE_SIZE_CARDS : PAGE_SIZE_TABLE
 
   const dateQuery = useMemo(() => dateRangeToIso(dateRange), [dateRange])
   const { data: users } = useActivityLogUsers()
 
-  const query = {
-    limit: pageSize,
-    offset: (page - 1) * pageSize,
+  const { data, isLoading, isFetching } = useActivityLog({
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
     search: search.trim() || undefined,
     category: category === 'all' ? undefined : category,
     userEmail: userFilter ?? undefined,
     ...dateQuery,
     sort,
-  }
+  })
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1
 
-  const { data, isLoading, isFetching } = useActivityLog(query)
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1
-
-  const hasAnyFilter = search || category !== 'all' || dateRange !== 'all' || userFilter
+  const hasAnyFilter = search || category !== 'all' || dateRange !== '7d' || userFilter
   const resetAll = () => {
     setSearch('')
     setCategory('all')
@@ -109,7 +96,7 @@ export function ActivityLogPage() {
           <CategoryChip label={t('activityLog.cat.system', 'System')}       value="system"   current={category} onClick={setCategory} resetPage={() => setPage(1)} />
         </Stack>
 
-        {/* Zeitraum-Chips + Sortierung + View-Toggle */}
+        {/* Zeitraum + Sortierung */}
         <Box display="flex" alignItems="center" gap={2} mb={1.5} flexWrap="wrap">
           <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
             <DateChip label={t('activityLog.range.today', 'Heute')}  value="today" current={dateRange} onClick={(v) => { setDateRange(v); setPage(1) }} />
@@ -128,24 +115,6 @@ export function ActivityLogPage() {
               {sort === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <ArrowUpwardIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
-
-          <ToggleButtonGroup
-            value={view}
-            exclusive
-            size="small"
-            onChange={(_, v) => { if (v) { setView(v); setPage(1) } }}
-          >
-            <ToggleButton value="cards">
-              <Tooltip title={t('activityLog.viewCards', 'Karten')}>
-                <ViewStreamIcon fontSize="small" />
-              </Tooltip>
-            </ToggleButton>
-            <ToggleButton value="table">
-              <Tooltip title={t('activityLog.viewTable', 'Tabelle')}>
-                <ViewListIcon fontSize="small" />
-              </Tooltip>
-            </ToggleButton>
-          </ToggleButtonGroup>
 
           {hasAnyFilter && (
             <Tooltip title={t('activityLog.resetFilters', 'Filter zurücksetzen')}>
@@ -183,10 +152,6 @@ export function ActivityLogPage() {
         <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', py: 4, textAlign: 'center' }}>
           <Typography color="text.secondary">{t('activityLog.empty', 'Keine Einträge')}</Typography>
         </Paper>
-      ) : view === 'cards' ? (
-        <Stack spacing={1.25}>
-          {data?.entries.map((entry) => <ActivityCard key={entry.id} entry={entry} />)}
-        </Stack>
       ) : (
         <ActivityTable entries={data?.entries ?? []} />
       )}
@@ -206,8 +171,6 @@ export function ActivityLogPage() {
     </Box>
   )
 }
-
-// ─── Helper Components ──────────────────────────────────────────────────────
 
 interface CategoryChipProps {
   label: string

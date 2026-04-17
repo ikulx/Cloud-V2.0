@@ -2,10 +2,9 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Paper from '@mui/material/Paper'
 import CircularProgress from '@mui/material/CircularProgress'
-import Stack from '@mui/material/Stack'
 import { useTranslation } from 'react-i18next'
 import { useActivityLog } from '../features/activity-log/queries'
-import { ActivityCard } from './ActivityCard'
+import { ActivityTable } from './ActivityTable'
 
 interface Props {
   entityId: string
@@ -30,15 +29,13 @@ export function EntityActivityLog({ entityId, limit = 100 }: Props) {
   }
 
   return (
-    <Stack spacing={1.25}>
-      {data.entries.map((entry) => (
-        <ActivityCard key={entry.id} entry={entry} />
-      ))}
+    <Box>
+      <ActivityTable entries={data.entries} />
       {data.total > data.entries.length && (
-        <Typography variant="caption" color="text.secondary" textAlign="center">
+        <Typography variant="caption" color="text.secondary" textAlign="center" display="block" mt={1}>
           {t('activityLog.moreAvailable', '… weitere {{count}} Einträge – siehe globales Aktivitätslog', { count: data.total - data.entries.length })}
         </Typography>
       )}
-    </Stack>
+    </Box>
   )
 }

@@ -164,7 +164,7 @@ export function AnlageCreateWizard({
         {step === 0 && (
           <Stack spacing={2}>
             <TextField
-              label="Projekt-Nr. *"
+              label="Projekt-Nr."
               value={form.projectNumber}
               onChange={(e) => setForm({ ...form, projectNumber: e.target.value })}
               fullWidth
@@ -174,7 +174,7 @@ export function AnlageCreateWizard({
               autoFocus
             />
             <TextField
-              label={t('common.name') + ' *'}
+              label={t('common.name') }
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               fullWidth
@@ -208,7 +208,7 @@ export function AnlageCreateWizard({
         {step === 1 && (
           <Stack spacing={2}>
             <TextField
-              label="Strasse *"
+              label="Strasse"
               value={form.street}
               onChange={(e) => setForm({ ...form, street: e.target.value })}
               fullWidth
@@ -219,7 +219,7 @@ export function AnlageCreateWizard({
             />
             <Box display="flex" gap={2}>
               <TextField
-                label="PLZ *"
+                label="PLZ"
                 value={form.zip}
                 onChange={(e) => setForm({ ...form, zip: e.target.value })}
                 sx={{ width: 140 }}
@@ -227,7 +227,7 @@ export function AnlageCreateWizard({
                 error={showErrors && !form.zip.trim()}
               />
               <TextField
-                label="Ort *"
+                label="Ort"
                 value={form.city}
                 onChange={(e) => setForm({ ...form, city: e.target.value })}
                 fullWidth
@@ -235,7 +235,8 @@ export function AnlageCreateWizard({
                 error={showErrors && !form.city.trim()}
               />
             </Box>
-            <TextField label="Land" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} fullWidth />
+            <TextField label="Land" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} fullWidth required
+                error={showErrors && !form.city.trim()} />
             <Button
               variant="outlined"
               size="small"

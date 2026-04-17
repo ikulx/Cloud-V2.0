@@ -34,15 +34,18 @@ import type { Anlage, Device } from '../types/model'
 
 type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'EMPTY'
 
-function computeAnlageStatus(devices: Device[]): AnlageStatus {
+function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
   if (devices.length === 0) return 'EMPTY'
   // Priorität: OFFLINE > ERROR > TODO > OK
   const hasOffline = devices.some((d) => d.status !== 'ONLINE')
   if (hasOffline) return 'OFFLINE'
   const hasError = devices.some((d) => d.hasError === true)
   if (hasError) return 'ERROR'
-  const hasTodos = devices.some((d) => (d._count?.todos ?? 0) > 0)
-  if (hasTodos) return 'TODO'
+  // Todos liegen jetzt an der Anlage (nicht mehr am Device)
+  const openTodos = anlage.todos
+    ? anlage.todos.filter((t) => t.status === 'OPEN').length
+    : (anlage._count?.todos ?? 0)
+  if (openTodos > 0) return 'TODO'
   return 'OK'
 }
 
@@ -113,7 +116,7 @@ export function AnlagenPage() {
             {anlagen?.map((anlage) => {
               const deviceIdSet = new Set(anlage.anlageDevices.map((ad) => ad.device.id))
               const anlageDevices = (allDevices ?? []).filter((d) => deviceIdSet.has(d.id))
-              const status = computeAnlageStatus(anlageDevices)
+              const status = computeAnlageStatus(anlage, anlageDevices)
               return (
                 <TableRow
                   key={anlage.id}

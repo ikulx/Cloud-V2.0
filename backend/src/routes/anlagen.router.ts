@@ -56,7 +56,13 @@ const anlageInclude = {
   anlageDevices: { include: { device: { select: { id: true, name: true, status: true, isApproved: true } } } },
   directUsers: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
   groupAnlagen: { include: { group: { select: { id: true, name: true } } } },
-  _count: { select: { anlageDevices: true, todos: true } },
+  _count: {
+    select: {
+      anlageDevices: true,
+      // Nur OFFENE Todos zählen (für Status-Anzeige in der Übersicht)
+      todos: { where: { status: 'OPEN' as const } },
+    },
+  },
 }
 
 // GET /api/anlagen
