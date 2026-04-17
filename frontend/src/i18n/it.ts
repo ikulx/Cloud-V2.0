@@ -95,6 +95,8 @@ const it = {
     sectionAssigned: 'Dispositivi attivi',
     confirmRegisterAssign: 'È davvero il dispositivo giusto? Sarà registrato e assegnato all\'impianto selezionato.',
     confirmAssign: 'È davvero il dispositivo giusto? Sarà assegnato all\'impianto selezionato.',
+    wizardHintRegister: 'Il dispositivo sarà registrato e assegnato al nuovo impianto dopo la creazione.',
+    wizardHintAssign: 'Il dispositivo sarà assegnato al nuovo impianto.',
   },
   anlagen: {
     title: 'Impianti ({{count}})',

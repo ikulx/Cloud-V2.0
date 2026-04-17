@@ -5,9 +5,6 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogActions from '@mui/material/DialogActions'
 import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
-import FormGroup from '@mui/material/FormGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Checkbox from '@mui/material/Checkbox'
 import Alert from '@mui/material/Alert'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
@@ -15,9 +12,12 @@ import Box from '@mui/material/Box'
 import Autocomplete from '@mui/material/Autocomplete'
 import Typography from '@mui/material/Typography'
 import Chip from '@mui/material/Chip'
+import AddIcon from '@mui/icons-material/Add'
 import { useTranslation } from 'react-i18next'
-import { useCreateAnlage } from '../features/anlagen/queries'
-import { useUpdateDevice, useApproveDevice } from '../features/devices/queries'
+import { useUpdateDevice, useApproveDevice, useDevices } from '../features/devices/queries'
+import { useUsers } from '../features/users/queries'
+import { useGroups } from '../features/groups/queries'
+import { AnlageCreateWizard } from './AnlageCreateWizard'
 import type { Anlage, Device } from '../types/model'
 
 interface Props {
@@ -31,21 +31,22 @@ interface Props {
 
 export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegister }: Props) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState(0)  // 0 = neu, 1 = bestehend
-  const [newName, setNewName] = useState('')
-  const [newHasHeatPump, setNewHasHeatPump] = useState(false)
-  const [newHasBoiler, setNewHasBoiler] = useState(false)
+  const [tab, setTab] = useState(0)  // 0 = neu (Wizard), 1 = bestehend
   const [existingAnlage, setExistingAnlage] = useState<Anlage | null>(null)
   const [error, setError] = useState('')
+  const [wizardOpen, setWizardOpen] = useState(false)
 
-  const createAnlage = useCreateAnlage()
+  const { data: allDevices } = useDevices()
+  const { data: allUsers } = useUsers()
+  const { data: allGroups } = useGroups()
+
   const updateDevice = useUpdateDevice(device?.id ?? '')
   const approveDevice = useApproveDevice()
 
-  const pending = createAnlage.isPending || updateDevice.isPending || approveDevice.isPending
+  const pending = updateDevice.isPending || approveDevice.isPending
 
   const reset = () => {
-    setTab(0); setNewName(''); setNewHasHeatPump(false); setNewHasBoiler(false); setExistingAnlage(null); setError('')
+    setTab(0); setExistingAnlage(null); setError('')
   }
 
   const handleClose = () => {
@@ -53,123 +54,127 @@ export function AssignDeviceDialog({ open, onClose, device, anlagen, alsoRegiste
     onClose()
   }
 
-  const handleConfirm = async () => {
-    if (!device) return
+  const handleAssignExisting = async () => {
+    if (!device || !existingAnlage) { setError(t('common.fieldRequired', 'Anlage wählen')); return }
     setError('')
     try {
-      let anlageId: string
-      if (tab === 0) {
-        // Neue Anlage erstellen
-        if (!newName.trim()) { setError(t('common.fieldRequired', 'Name erforderlich')); return }
-        const created = await createAnlage.mutateAsync({
-          name: newName.trim(),
-          hasHeatPump: newHasHeatPump,
-          hasBoiler: newHasBoiler,
-          country: 'Schweiz',
-        })
-        anlageId = (created as { id: string }).id
-      } else {
-        // Bestehender Anlage zuweisen
-        if (!existingAnlage) { setError(t('common.fieldRequired', 'Anlage wählen')); return }
-        anlageId = existingAnlage.id
-      }
-
-      // Gerät registrieren (wenn noch nicht) und zuweisen
       if (alsoRegister && !device.isApproved) {
         await approveDevice.mutateAsync({ id: device.id, isApproved: true })
       }
-
-      // Zuweisung: aktuelle anlageIds + neue
       const currentAnlageIds = device.anlageDevices.map((ad) => ad.anlage.id)
-      const newAnlageIds = Array.from(new Set([...currentAnlageIds, anlageId]))
+      const newAnlageIds = Array.from(new Set([...currentAnlageIds, existingAnlage.id]))
       await updateDevice.mutateAsync({ anlageIds: newAnlageIds })
-
       handleClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.errorSaving'))
     }
   }
 
+  // Callback vom Wizard – wird nach erfolgreichem Erstellen aufgerufen.
+  // Gerät wurde bereits im Wizard via deviceIds zugewiesen; wir müssen nur noch
+  // registrieren, falls nötig.
+  const handleWizardCreated = async () => {
+    if (!device) return
+    if (alsoRegister && !device.isApproved) {
+      await approveDevice.mutateAsync({ id: device.id, isApproved: true })
+    }
+    setWizardOpen(false)
+    handleClose()
+  }
+
   if (!device) return null
 
+  const deviceOptions = (allDevices ?? []).map((d) => ({ id: d.id, label: `${d.name || d.serialNumber} (${d.serialNumber})` }))
+  const userOptions = (allUsers ?? []).map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName} (${u.email})` }))
+  const groupOptions = (allGroups ?? []).map((g) => ({ id: g.id, label: g.name }))
+
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{t('anlagen.assignDevice')}</DialogTitle>
-      <DialogContent dividers>
-        <Alert severity="info" sx={{ mb: 2 }}>
-          <Typography variant="body2" gutterBottom>
-            {alsoRegister
-              ? t('devices.confirmRegisterAssign', 'Ist das wirklich das richtige Gerät? Es wird registriert und zugewiesen.')
-              : t('devices.confirmAssign', 'Ist das wirklich das richtige Gerät? Es wird zugewiesen.')}
-          </Typography>
-          <Box display="flex" alignItems="center" gap={1} mt={1}>
-            <Typography variant="caption" color="text.secondary">{t('devices.serialNumber')}:</Typography>
-            <Chip label={device.serialNumber} size="small" sx={{ fontFamily: 'monospace', fontWeight: 600 }} />
-          </Box>
-          {device.piSerial && (
-            <Box display="flex" alignItems="center" gap={1} mt={0.5}>
-              <Typography variant="caption" color="text.secondary">Pi-Serial:</Typography>
-              <Chip label={device.piSerial} size="small" sx={{ fontFamily: 'monospace' }} variant="outlined" />
+    <>
+      <Dialog open={open && !wizardOpen} onClose={handleClose} maxWidth="sm" fullWidth>
+        <DialogTitle>{t('anlagen.assignDevice')}</DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2" gutterBottom>
+              {alsoRegister
+                ? t('devices.confirmRegisterAssign', 'Ist das wirklich das richtige Gerät? Es wird registriert und zugewiesen.')
+                : t('devices.confirmAssign', 'Ist das wirklich das richtige Gerät? Es wird zugewiesen.')}
+            </Typography>
+            <Box display="flex" alignItems="center" gap={1} mt={1}>
+              <Typography variant="caption" color="text.secondary">{t('devices.serialNumber')}:</Typography>
+              <Chip label={device.serialNumber} size="small" sx={{ fontFamily: 'monospace', fontWeight: 600 }} />
+            </Box>
+            {device.piSerial && (
+              <Box display="flex" alignItems="center" gap={1} mt={0.5}>
+                <Typography variant="caption" color="text.secondary">Pi-Serial:</Typography>
+                <Chip label={device.piSerial} size="small" sx={{ fontFamily: 'monospace' }} variant="outlined" />
+              </Box>
+            )}
+          </Alert>
+
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Tab label={t('anlagen.assignToNew')} />
+            <Tab label={t('anlagen.assignToExisting')} />
+          </Tabs>
+
+          {tab === 0 && (
+            <Box display="flex" flexDirection="column" gap={2} pt={1} alignItems="center" py={3}>
+              <Typography variant="body2" color="text.secondary" textAlign="center">
+                {t('anlagen.wizardTitle')} – {t('anlagen.wizardStepBasics')}, {t('anlagen.wizardStepAddress')}, {t('anlagen.wizardStepContact')}…
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setWizardOpen(true)}
+              >
+                {t('anlagen.wizardTitle')}
+              </Button>
+              <Typography variant="caption" color="text.secondary" textAlign="center">
+                {alsoRegister
+                  ? t('devices.wizardHintRegister', 'Das Gerät wird nach der Erstellung registriert und zugewiesen.')
+                  : t('devices.wizardHintAssign', 'Das Gerät wird der neuen Anlage zugewiesen.')}
+              </Typography>
             </Box>
           )}
-        </Alert>
 
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Tab label={t('anlagen.assignToNew')} />
-          <Tab label={t('anlagen.assignToExisting')} />
-        </Tabs>
-
-        {tab === 0 && (
-          <Box display="flex" flexDirection="column" gap={2} pt={1}>
-            <TextField
-              label={t('common.name')}
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              fullWidth
-              required
-              autoFocus
-            />
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary" mb={0.5}>{t('anlagen.plantType')}</Typography>
-              <FormGroup row>
-                <FormControlLabel
-                  control={<Checkbox checked={newHasHeatPump} onChange={(e) => setNewHasHeatPump(e.target.checked)} />}
-                  label={t('anlagen.plantTypeHeatPump')}
-                />
-                <FormControlLabel
-                  control={<Checkbox checked={newHasBoiler} onChange={(e) => setNewHasBoiler(e.target.checked)} />}
-                  label={t('anlagen.plantTypeBoiler')}
-                />
-              </FormGroup>
+          {tab === 1 && (
+            <Box pt={1}>
+              <Autocomplete
+                options={anlagen}
+                value={existingAnlage}
+                onChange={(_, v) => setExistingAnlage(v)}
+                getOptionLabel={(a) => a.projectNumber ? `${a.projectNumber} – ${a.name}` : a.name}
+                renderInput={(params) => <TextField {...params} label={t('nav.anlagen')} autoFocus />}
+                fullWidth
+              />
             </Box>
-          </Box>
-        )}
+          )}
 
-        {tab === 1 && (
-          <Box pt={1}>
-            <Autocomplete
-              options={anlagen}
-              value={existingAnlage}
-              onChange={(_, v) => setExistingAnlage(v)}
-              getOptionLabel={(a) => a.projectNumber ? `${a.projectNumber} – ${a.name}` : a.name}
-              renderInput={(params) => <TextField {...params} label={t('nav.anlagen')} autoFocus />}
-              fullWidth
-            />
-          </Box>
-        )}
+          {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClose} disabled={pending}>{t('common.cancel')}</Button>
+          {tab === 1 && (
+            <Button
+              variant="contained"
+              onClick={handleAssignExisting}
+              disabled={pending || !existingAnlage}
+            >
+              {alsoRegister ? t('devices.register') : t('common.confirm')}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
 
-        {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose} disabled={pending}>{t('common.cancel')}</Button>
-        <Button
-          variant="contained"
-          onClick={handleConfirm}
-          disabled={pending || (tab === 0 ? !newName.trim() : !existingAnlage)}
-        >
-          {alsoRegister ? t('devices.register') : t('common.confirm')}
-        </Button>
-      </DialogActions>
-    </Dialog>
+      {/* Wizard für neue Anlage – mit Device vorausgewählt */}
+      <AnlageCreateWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        deviceOptions={deviceOptions}
+        userOptions={userOptions}
+        groupOptions={groupOptions}
+        initialDeviceIds={[device.id]}
+        onCreated={handleWizardCreated}
+      />
+    </>
   )
 }

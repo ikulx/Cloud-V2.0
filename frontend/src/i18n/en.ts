@@ -95,6 +95,8 @@ const en = {
     sectionAssigned: 'Active devices',
     confirmRegisterAssign: 'Is this really the right device? It will be registered and assigned to the selected installation.',
     confirmAssign: 'Is this really the right device? It will be assigned to the selected installation.',
+    wizardHintRegister: 'The device will be registered and assigned to the new installation after creation.',
+    wizardHintAssign: 'The device will be assigned to the new installation.',
   },
   anlagen: {
     title: 'Installations ({{count}})',

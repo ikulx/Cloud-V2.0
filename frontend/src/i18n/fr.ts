@@ -95,6 +95,8 @@ const fr = {
     sectionAssigned: 'Appareils actifs',
     confirmRegisterAssign: 'Est-ce vraiment le bon appareil ? Il sera enregistré et assigné à l\'installation sélectionnée.',
     confirmAssign: 'Est-ce vraiment le bon appareil ? Il sera assigné à l\'installation sélectionnée.',
+    wizardHintRegister: 'L\'appareil sera enregistré et assigné à la nouvelle installation après sa création.',
+    wizardHintAssign: 'L\'appareil sera assigné à la nouvelle installation.',
   },
   anlagen: {
     title: 'Installations ({{count}})',

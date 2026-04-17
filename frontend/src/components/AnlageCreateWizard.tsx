@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
 import DialogContent from '@mui/material/DialogContent'
@@ -32,6 +32,12 @@ interface Props {
   deviceOptions: Option[]
   userOptions: Option[]
   groupOptions: Option[]
+  /** Vorab zugewiesene Geräte (z.B. wenn Wizard vom Geräte-Zuweisen-Dialog geöffnet wird) */
+  initialDeviceIds?: string[]
+  /** Callback nach erfolgreicher Erstellung – z.B. um Gerät zusätzlich zu registrieren */
+  onCreated?: (anlageId: string) => Promise<void> | void
+  /** Überschriebener Titel */
+  title?: string
 }
 
 const EMPTY = {
@@ -45,16 +51,32 @@ const EMPTY = {
 }
 const EMPTY_ASSIGN = { deviceIds: [] as string[], userIds: [] as string[], groupIds: [] as string[] }
 
-export function AnlageCreateWizard({ open, onClose, deviceOptions, userOptions, groupOptions }: Props) {
+export function AnlageCreateWizard({
+  open, onClose, deviceOptions, userOptions, groupOptions,
+  initialDeviceIds, onCreated, title,
+}: Props) {
   const { t } = useTranslation()
   const createMutation = useCreateAnlage()
 
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(EMPTY)
-  const [assign, setAssign] = useState(EMPTY_ASSIGN)
+  const [assign, setAssign] = useState<typeof EMPTY_ASSIGN>({
+    ...EMPTY_ASSIGN,
+    deviceIds: initialDeviceIds ?? [],
+  })
   const [error, setError] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+
+  // Bei Öffnen: Initial-Werte setzen (falls z.B. initialDeviceIds sich ändern)
+  useEffect(() => {
+    if (open) {
+      setStep(0)
+      setForm(EMPTY)
+      setAssign({ ...EMPTY_ASSIGN, deviceIds: initialDeviceIds ?? [] })
+      setError('')
+    }
+  }, [open, initialDeviceIds])
 
   const steps = [
     t('anlagen.wizardStepBasics'),
@@ -109,7 +131,11 @@ export function AnlageCreateWizard({ open, onClose, deviceOptions, userOptions, 
       const { latitude: latStr, longitude: lngStr, ...rest } = form
       const latitude = latStr ? parseFloat(latStr) : null
       const longitude = lngStr ? parseFloat(lngStr) : null
-      await createMutation.mutateAsync({ ...rest, latitude, longitude, ...assign })
+      const created = await createMutation.mutateAsync({ ...rest, latitude, longitude, ...assign })
+      const createdId = (created as { id?: string })?.id
+      if (onCreated && createdId) {
+        await onCreated(createdId)
+      }
       handleClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.errorSaving'))
@@ -118,7 +144,7 @@ export function AnlageCreateWizard({ open, onClose, deviceOptions, userOptions, 
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>{t('anlagen.wizardTitle')}</DialogTitle>
+      <DialogTitle>{title ?? t('anlagen.wizardTitle')}</DialogTitle>
       <DialogContent dividers>
         <Stepper activeStep={step} sx={{ mb: 4 }}>
           {steps.map((label) => (

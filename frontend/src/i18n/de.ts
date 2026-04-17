@@ -95,6 +95,8 @@ const de = {
     sectionAssigned: 'Aktive Geräte',
     confirmRegisterAssign: 'Ist das wirklich das richtige Gerät? Es wird registriert und der gewählten Anlage zugewiesen.',
     confirmAssign: 'Ist das wirklich das richtige Gerät? Es wird der gewählten Anlage zugewiesen.',
+    wizardHintRegister: 'Das Gerät wird nach der Erstellung registriert und der neuen Anlage zugewiesen.',
+    wizardHintAssign: 'Das Gerät wird der neuen Anlage zugewiesen.',
   },
   anlagen: {
     title: 'Anlagen ({{count}})',
