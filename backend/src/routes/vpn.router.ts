@@ -1076,8 +1076,10 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
               'console.log("[VisuProxy] Interceptor active, base="+B);',
               'window.__VISU_SOCKET_PATH=B+"/socket.io/";',
               'window.__VISU_BASENAME=B;',
-              // needsRewrite: prüft ob Pfad umgeschrieben werden muss
-              'function nr(p){return p.startsWith("/static/")||p.startsWith("/assets/")||p.startsWith("/socket.io/")||p==="/manifest.json"||p==="/favicon.ico"||p.startsWith("/logo")}',
+              // needsRewrite: schreibt ALLE same-origin Pfade um die noch nicht proxied sind.
+              // Die Visu-iframe ist isoliert → alle ihre Fetch/XHR-Calls gehen an den Pi,
+              // nicht an die Cloud. Deshalb sicher, alles umzuschreiben was nicht unter B/ liegt.
+              'function nr(p){if(!p||p.charAt(0)!=="/")return false;if(p===B||p.indexOf(B+"/")===0)return false;return true}',
               // rewrite: schreibt URL um wenn nötig
               'function rw(u){try{var x=new URL(u,location.origin);if(x.origin===location.origin&&nr(x.pathname))return x.origin+B+x.pathname+x.search+x.hash}catch(e){}return u}',
               // 1. createElement: script.src, link.href, img.src
