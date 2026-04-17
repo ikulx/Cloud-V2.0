@@ -6,6 +6,76 @@ import { requirePermission } from '../middleware/require-permission'
 import { buildVisibleAnlagenWhere } from '../lib/access-filter'
 import { publishCommand } from '../services/mqtt.service'
 
+const CONTACT_TODO_TITLE = 'Verantwortlichen vervollständigen'
+
+interface ContactFields {
+  contactName?: string | null
+  contactPhone?: string | null
+  contactMobile?: string | null
+  contactEmail?: string | null
+}
+
+/**
+ * Erstellt/aktualisiert/schliesst automatisch ein "Verantwortlichen vervollständigen"-Todo
+ * basierend auf dem aktuellen Kontakt-Zustand der Anlage.
+ * - Name fehlt ODER keiner von Telefon/Mobil/E-Mail → Todo erstellen (oder Details updaten)
+ * - Alles vorhanden → existierendes offenes Todo auf DONE setzen
+ */
+async function ensureContactTodo(
+  anlageId: string,
+  userId: string,
+  contact: ContactFields,
+): Promise<void> {
+  try {
+    const hasName = !!contact.contactName?.trim()
+    const hasContactMethod = !!(
+      contact.contactPhone?.trim() ||
+      contact.contactMobile?.trim() ||
+      contact.contactEmail?.trim()
+    )
+    const missing: string[] = []
+    if (!hasName)          missing.push('Name')
+    if (!hasContactMethod) missing.push('Telefon/Mobil/E-Mail')
+
+    const existing = await prisma.anlageTodo.findFirst({
+      where: { anlageId, title: CONTACT_TODO_TITLE, status: 'OPEN' },
+    })
+
+    if (missing.length === 0) {
+      // Kontakt vollständig → offenes Todo schliessen
+      if (existing) {
+        await prisma.anlageTodo.update({
+          where: { id: existing.id },
+          data: { status: 'DONE' },
+        })
+      }
+      return
+    }
+
+    const details = `Fehlend: ${missing.join(', ')}`
+    if (existing) {
+      if (existing.details !== details) {
+        await prisma.anlageTodo.update({
+          where: { id: existing.id },
+          data: { details },
+        })
+      }
+    } else {
+      await prisma.anlageTodo.create({
+        data: {
+          anlageId,
+          title: CONTACT_TODO_TITLE,
+          details,
+          status: 'OPEN',
+          createdById: userId,
+        },
+      })
+    }
+  } catch (e) {
+    console.warn('[Anlagen] ensureContactTodo fehlgeschlagen:', (e as Error).message)
+  }
+}
+
 /** Schickt `setProjectNumber` an alle ONLINE-Geräte einer Anlage. */
 async function pushProjectNumberToDevices(anlageId: string, projectNumber: string | null | undefined) {
   try {
@@ -108,6 +178,16 @@ router.post('/', authenticate, requirePermission('anlagen:create'), async (req, 
     pushProjectNumberToDevices(anlage.id, anlage.projectNumber).catch(() => {})
   }
 
+  // Kontakt-Todo automatisch erstellen falls Verantwortlicher fehlt/unvollständig
+  if (req.user) {
+    ensureContactTodo(anlage.id, req.user.userId, {
+      contactName: anlage.contactName,
+      contactPhone: anlage.contactPhone,
+      contactMobile: anlage.contactMobile,
+      contactEmail: anlage.contactEmail,
+    }).catch(() => {})
+  }
+
   res.status(201).json(anlage)
 })
 
@@ -147,6 +227,16 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
     && parsed.data.projectNumber !== before?.projectNumber
   if (projectNumberChanged || deviceIds !== undefined) {
     pushProjectNumberToDevices(anlage.id, anlage.projectNumber).catch(() => {})
+  }
+
+  // Kontakt-Todo: bei jeder Anlage-Update neu prüfen (öffnen/schliessen/aktualisieren)
+  if (req.user) {
+    ensureContactTodo(anlage.id, req.user.userId, {
+      contactName: anlage.contactName,
+      contactPhone: anlage.contactPhone,
+      contactMobile: anlage.contactMobile,
+      contactEmail: anlage.contactEmail,
+    }).catch(() => {})
   }
 
   res.json(anlage)
