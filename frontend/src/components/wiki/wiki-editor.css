@@ -132,4 +132,73 @@
 .wiki-editor .wiki-img {
   max-width: 100%;
   border-radius: 6px;
+  display: block;
 }
+
+/* Resizable Image Wrapper */
+.wiki-editor .wiki-img-wrapper {
+  margin: 1em 0;
+  display: flex;
+}
+.wiki-editor .wiki-img-wrapper.align-left   { justify-content: flex-start; }
+.wiki-editor .wiki-img-wrapper.align-center { justify-content: center; }
+.wiki-editor .wiki-img-wrapper.align-right  { justify-content: flex-end; }
+
+.wiki-editor .wiki-img-container {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  cursor: grab;
+}
+.wiki-editor .wiki-img-wrapper.selected .wiki-img-container {
+  outline: 2px solid #1976d2;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.wiki-editor .wiki-img-container img {
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none; /* Drag-Handle übernimmt der Wrapper */
+}
+
+.wiki-editor .wiki-img-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #1976d2;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  z-index: 2;
+}
+.wiki-editor .wiki-img-handle-se { right: -6px;  bottom: -6px; cursor: nwse-resize; }
+.wiki-editor .wiki-img-handle-sw { left:  -6px;  bottom: -6px; cursor: nesw-resize; }
+
+.wiki-editor .wiki-img-toolbar {
+  position: absolute;
+  top: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  background: #1e1e1e;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  z-index: 3;
+}
+.wiki-editor .wiki-img-toolbar button {
+  border: none;
+  background: transparent;
+  color: #fff;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.wiki-editor .wiki-img-toolbar button:hover { background: rgba(255,255,255,0.12); }
+.wiki-editor .wiki-img-toolbar button.active { background: #1976d2; }

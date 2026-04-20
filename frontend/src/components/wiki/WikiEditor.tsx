@@ -3,7 +3,7 @@ import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
-import Image from '@tiptap/extension-image'
+import { ResizableImage } from './ResizableImage'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
@@ -65,7 +65,7 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
           autolink: true,
           HTMLAttributes: { rel: 'noopener noreferrer' },
         }),
-        Image.configure({ HTMLAttributes: { class: 'wiki-img' } }),
+        ResizableImage.configure({ inline: false, HTMLAttributes: { class: 'wiki-img' } }),
         TaskList,
         TaskItem.configure({ nested: true }),
         Table.configure({ resizable: true }),
