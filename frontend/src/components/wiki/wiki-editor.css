@@ -288,3 +288,70 @@
   font-size: 12px;
 }
 .wiki-editor .wiki-drawio-toolbar button:hover { background: rgba(255,255,255,0.12); }
+
+/* File-Attachment Card */
+.wiki-editor .wiki-file-wrapper {
+  margin: 0.75em 0;
+}
+.wiki-editor .wiki-file-wrapper.selected .wiki-file-card {
+  outline: 2px solid #1976d2;
+  outline-offset: 2px;
+}
+.wiki-editor .wiki-file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.02);
+  color: inherit !important;
+  text-decoration: none !important;
+  max-width: 520px;
+  transition: background 120ms, border-color 120ms;
+}
+[data-mui-color-scheme='dark'] .wiki-editor .wiki-file-card {
+  border-color: rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.04);
+}
+.wiki-editor .wiki-file-card:hover {
+  background: rgba(25,118,210,0.08);
+  border-color: rgba(25,118,210,0.4);
+}
+.wiki-editor .wiki-file-icon {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.wiki-editor .wiki-file-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.wiki-editor .wiki-file-name {
+  font-weight: 500;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wiki-editor .wiki-file-size {
+  font-size: 12px;
+  color: rgba(0,0,0,0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+[data-mui-color-scheme='dark'] .wiki-editor .wiki-file-size {
+  color: rgba(255,255,255,0.55);
+}
+.wiki-editor .wiki-file-action {
+  font-size: 18px;
+  color: rgba(0,0,0,0.4);
+  flex-shrink: 0;
+}
+[data-mui-color-scheme='dark'] .wiki-editor .wiki-file-action {
+  color: rgba(255,255,255,0.4);
+}

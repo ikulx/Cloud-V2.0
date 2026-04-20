@@ -42,7 +42,7 @@ function extractDrawioText(xml: string): string {
  *  Spezielle Block-Typen (drawio-Diagramme) werden zusätzlich ausgelesen. */
 function extractText(node: unknown): string {
   if (!node || typeof node !== 'object') return ''
-  const n = node as { type?: string; text?: string; content?: unknown[]; attrs?: { xml?: unknown } }
+  const n = node as { type?: string; text?: string; content?: unknown[]; attrs?: Record<string, unknown> }
   let out = ''
 
   // TipTap-Textknoten
@@ -52,6 +52,13 @@ function extractText(node: unknown): string {
   if (n.type === 'drawio' && n.attrs && typeof n.attrs.xml === 'string') {
     const drawText = extractDrawioText(n.attrs.xml)
     if (drawText) out += (out && !out.endsWith(' ') ? ' ' : '') + drawText
+  }
+
+  // Sonderfall Datei-Anhang: Dateiname (und ggf. MIME) in den Index
+  if (n.type === 'fileAttachment' && n.attrs) {
+    const a = n.attrs as Record<string, unknown>
+    const name = typeof a.name === 'string' ? a.name : ''
+    if (name) out += (out && !out.endsWith(' ') ? ' ' : '') + name
   }
 
   if (Array.isArray(n.content)) {
@@ -413,6 +420,13 @@ router.get('/search', authenticate, async (req, res) => {
 const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'wiki')
 fs.mkdirSync(UPLOAD_DIR, { recursive: true })
 
+// Blockliste ausführbarer / gefährlicher Dateien. Alles andere ist erlaubt
+// (PDFs, Office-Dokumente, Archive, CAD, Code-Dateien etc.).
+const FORBIDDEN_EXT = new Set([
+  '.exe', '.bat', '.cmd', '.com', '.msi', '.scr', '.pif', '.vbs', '.js', '.jse',
+  '.ws', '.wsf', '.wsh', '.ps1', '.jar', '.sh',
+])
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: UPLOAD_DIR,
@@ -422,18 +436,28 @@ const upload = multer({
       cb(null, `${crypto.randomBytes(16).toString('hex')}${safeExt}`)
     },
   }),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
   fileFilter: (_req, file, cb) => {
-    const ok = /^image\/(png|jpe?g|gif|webp|svg\+xml)$/i.test(file.mimetype)
-    if (ok) cb(null, true)
-    else cb(new Error('Nur Bilddateien erlaubt'))
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (FORBIDDEN_EXT.has(ext)) {
+      cb(new Error('Dateityp nicht erlaubt'))
+      return
+    }
+    cb(null, true)
   },
 })
 
-// POST /api/wiki/upload – gibt { url } zurück, vom Editor konsumiert
+// POST /api/wiki/upload – gibt { url, name, size, mime } zurück.
+// Wird sowohl für Bilder im Editor als auch für generische Dateianhänge
+// genutzt – unterscheidet der Aufrufer anhand des MIME-Typs.
 router.post('/upload', authenticate, requirePermission('wiki:update'), upload.single('file'), (req, res) => {
   if (!req.file) { res.status(400).json({ message: 'Keine Datei' }); return }
-  res.status(201).json({ url: `/uploads/wiki/${req.file.filename}` })
+  res.status(201).json({
+    url: `/uploads/wiki/${req.file.filename}`,
+    name: req.file.originalname,
+    size: req.file.size,
+    mime: req.file.mimetype,
+  })
 })
 
 // POST /api/wiki/reindex – alle Seiten erneut in den searchText extrahieren.

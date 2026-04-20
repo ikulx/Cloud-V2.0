@@ -56,6 +56,43 @@ const ITEMS: SlashItem[] = [
     },
   },
   {
+    title: 'Datei', description: 'Datei hochladen und als Anhang einfügen',
+    keywords: ['file', 'attachment', 'datei', 'pdf', 'anhang', 'upload'],
+    command: ({ editor, range }) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.onchange = async () => {
+        const file = input.files?.[0]
+        if (!file) return
+        try {
+          const formData = new FormData()
+          formData.append('file', file)
+          const token = localStorage.getItem('accessToken')
+          const res = await fetch('/api/wiki/upload', {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+          })
+          if (!res.ok) {
+            let msg = 'Upload fehlgeschlagen'
+            try { const err = await res.json() as { message?: string }; msg = err.message ?? msg } catch { /* noop */ }
+            throw new Error(msg)
+          }
+          const data = await res.json() as { url: string; name: string; size: number; mime: string }
+          const isImage = data.mime.startsWith('image/')
+          editor.chain().focus().deleteRange(range).insertContent(
+            isImage
+              ? { type: 'image', attrs: { src: data.url } }
+              : { type: 'fileAttachment', attrs: { url: data.url, name: data.name, size: data.size, mime: data.mime } },
+          ).run()
+        } catch (err) {
+          window.alert(err instanceof Error ? err.message : 'Upload fehlgeschlagen')
+        }
+      }
+      input.click()
+    },
+  },
+  {
     title: 'Bild', description: 'Bild hochladen', keywords: ['image', 'img', 'upload'],
     command: ({ editor, range }) => {
       const input = document.createElement('input')

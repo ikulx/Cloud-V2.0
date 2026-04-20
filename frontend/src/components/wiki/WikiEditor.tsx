@@ -5,6 +5,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import { ResizableImage } from './ResizableImage'
 import { Drawio } from './Drawio'
+import { FileAttachment } from './FileAttachment'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
@@ -35,19 +36,17 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
         handlePaste: (view, event) => {
           if (!editable) return false
           const files = Array.from(event.clipboardData?.files ?? [])
-          const images = files.filter((f) => f.type.startsWith('image/'))
-          if (images.length === 0) return false
+          if (files.length === 0) return false
           event.preventDefault()
-          void uploadAndInsert(images, view)
+          void uploadAndInsert(files, view)
           return true
         },
         handleDrop: (view, event) => {
           if (!editable) return false
           const files = Array.from(event.dataTransfer?.files ?? [])
-          const images = files.filter((f) => f.type.startsWith('image/'))
-          if (images.length === 0) return false
+          if (files.length === 0) return false
           event.preventDefault()
-          void uploadAndInsert(images, view, event as DragEvent)
+          void uploadAndInsert(files, view, event as DragEvent)
           return true
         },
       },
@@ -73,6 +72,7 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
         TableRow, TableHeader, TableCell,
         CodeBlockLowlight.configure({ lowlight }),
         Drawio,
+        FileAttachment,
         SlashCommand,
       ],
       content: isValidDoc(content) ? content : { type: 'doc', content: [] },
@@ -103,7 +103,8 @@ function isValidDoc(c: unknown): c is object {
   return !!c && typeof c === 'object' && (c as { type?: string }).type === 'doc'
 }
 
-/** Lädt Bilder zum Backend hoch und fügt sie als Image-Nodes in das Dokument ein.
+/** Lädt Dateien zum Backend hoch und fügt sie als passende Node ein.
+ *  Bilder werden zu Image-Nodes, alles andere zu File-Attachment-Nodes.
  *  Bei einem Drop-Event wird an der Drop-Position eingefügt, sonst an der
  *  aktuellen Auswahl. */
 async function uploadAndInsert(
@@ -121,11 +122,27 @@ async function uploadAndInsert(
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       })
-      if (!res.ok) throw new Error('Upload fehlgeschlagen')
-      const data = await res.json() as { url: string }
+      if (!res.ok) {
+        let msg = 'Upload fehlgeschlagen'
+        try { const err = await res.json() as { message?: string }; msg = err.message ?? msg } catch { /* noop */ }
+        throw new Error(msg)
+      }
+      const data = await res.json() as { url: string; name: string; size: number; mime: string }
 
       const { schema } = view.state
-      const node = schema.nodes.image?.create({ src: data.url })
+      const isImage = data.mime.startsWith('image/')
+
+      let node
+      if (isImage) {
+        node = schema.nodes.image?.create({ src: data.url })
+      } else {
+        node = schema.nodes.fileAttachment?.create({
+          url: data.url,
+          name: data.name,
+          size: data.size,
+          mime: data.mime,
+        })
+      }
       if (!node) continue
 
       if (dropEvent) {
@@ -137,8 +154,8 @@ async function uploadAndInsert(
         view.dispatch(tr)
       }
     } catch (err) {
-      console.error('[WikiEditor] Bild-Upload fehlgeschlagen:', err)
-      window.alert(err instanceof Error ? err.message : 'Bild-Upload fehlgeschlagen')
+      console.error('[WikiEditor] Upload fehlgeschlagen:', err)
+      window.alert(err instanceof Error ? err.message : 'Upload fehlgeschlagen')
     }
   }
 }
