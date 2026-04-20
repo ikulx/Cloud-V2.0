@@ -174,7 +174,8 @@ const de = {
     justNow: 'gerade eben',
     minutesAgo: 'vor {{n}} Min',
     hoursAgo: 'vor {{n}} Std',
-    yesterday: 'gestern',
+    yesterday: 'Gestern',
+    today: 'Heute',
     verb: {
       create: 'erstellt',
       update: 'bearbeitet',

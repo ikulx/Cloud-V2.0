@@ -174,7 +174,8 @@ const fr = {
     justNow: 'à l\'instant',
     minutesAgo: 'il y a {{n}} min',
     hoursAgo: 'il y a {{n}} h',
-    yesterday: 'hier',
+    yesterday: 'Hier',
+    today: 'Aujourd\'hui',
     verb: {
       create: 'créé',
       update: 'modifié',

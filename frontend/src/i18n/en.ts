@@ -174,7 +174,8 @@ const en = {
     justNow: 'just now',
     minutesAgo: '{{n}} min ago',
     hoursAgo: '{{n}} h ago',
-    yesterday: 'yesterday',
+    yesterday: 'Yesterday',
+    today: 'Today',
     verb: {
       create: 'created',
       update: 'updated',

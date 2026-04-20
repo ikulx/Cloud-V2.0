@@ -174,7 +174,8 @@ const it = {
     justNow: 'proprio ora',
     minutesAgo: '{{n}} min fa',
     hoursAgo: '{{n}} h fa',
-    yesterday: 'ieri',
+    yesterday: 'Ieri',
+    today: 'Oggi',
     verb: {
       create: 'creato',
       update: 'modificato',
