@@ -32,8 +32,11 @@ interface Props {
   onSave: (result: DrawioResult) => void
 }
 
+// WICHTIG: configure=1 darf hier NICHT gesetzt sein – das veranlasst drawio
+// darauf zu warten, dass wir als Host eine 'configure'-Nachricht schicken,
+// bevor es initialisiert. Ergebnis: Ladekreis bleibt ewig. Weglassen → init.
 const DRAWIO_URL =
-  'https://embed.diagrams.net/?embed=1&proto=json&spin=1&libraries=1&configure=1&saveAndExit=1&noSaveBtn=0&noExitBtn=0&ui=kennedy'
+  'https://embed.diagrams.net/?embed=1&proto=json&spin=1&libraries=1&saveAndExit=1&noSaveBtn=0&noExitBtn=0&ui=kennedy'
 
 export function DrawioDialog({ open, initialXml, onClose, onSave }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
