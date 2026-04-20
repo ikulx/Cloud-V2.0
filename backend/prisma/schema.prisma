@@ -21,6 +21,22 @@ enum TodoStatus {
   DONE
 }
 
+enum WikiNodeType {
+  FOLDER
+  PAGE
+}
+
+enum WikiAccessLevel {
+  VIEW
+  EDIT
+}
+
+enum WikiAccessTarget {
+  ROLE
+  GROUP
+  USER
+}
+
 // ─── Auth / Users ─────────────────────────────────────────────────────────────
 
 model User {
@@ -538,6 +554,8 @@ model WikiPage {
   title       String
   /// Optionales Emoji, das im Seitenbaum vor dem Titel angezeigt wird
   icon        String?
+  /// Unterscheidet Container-Knoten (Ordner, kein Inhalt) von echten Seiten.
+  type        WikiNodeType @default(PAGE)
   /// TipTap-Dokument (ProseMirror-JSON) als Json gespeichert
   content     Json     @default("{}")
   /// Extrahierter Reintext aus `content` für Volltextsuche. Wird bei jedem
@@ -550,6 +568,8 @@ model WikiPage {
   /// Reihenfolge innerhalb der Geschwister-Ebene
   sortOrder   Int      @default(0) @map("sort_order")
 
+  permissions WikiPagePermission[]
+
   createdById String   @map("created_by_id") @db.Uuid
   createdBy   User     @relation("WikiPageAuthor", fields: [createdById], references: [id])
   updatedById String   @map("updated_by_id") @db.Uuid
@@ -561,4 +581,24 @@ model WikiPage {
   @@index([parentId])
   @@index([slug])
   @@map("wiki_pages")
+}
+
+/// Zugriffsrechte pro Wiki-Knoten. Einträge auf einem Ordner wirken auf alle
+/// darunterliegenden Seiten/Ordner, es sei denn der Nachkomme hat selbst
+/// Einträge – dann gilt ausschließlich die nächstgelegene Regel (am Knoten
+/// oder seinem nächsten Vorfahren mit Einträgen). Hat ein Zweig gar keine
+/// Einträge, greifen die globalen wiki:*-Permissions.
+model WikiPagePermission {
+  id         String           @id @default(uuid()) @db.Uuid
+  pageId     String           @map("page_id") @db.Uuid
+  page       WikiPage         @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  targetType WikiAccessTarget @map("target_type")
+  /// ID des Ziels (Role.id, UserGroup.id oder User.id je nach targetType)
+  targetId   String           @map("target_id") @db.Uuid
+  level      WikiAccessLevel
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  @@unique([pageId, targetType, targetId])
+  @@index([targetId])
+  @@map("wiki_page_permissions")
 }

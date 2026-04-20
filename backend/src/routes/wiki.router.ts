@@ -7,6 +7,7 @@ import multer from 'multer'
 import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
+import { buildWikiAccessMap, loadWikiUserCtx } from '../services/wiki-access.service'
 
 const router = Router()
 
@@ -95,6 +96,7 @@ const createSchema = z.object({
   icon: z.string().max(8).optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   content: z.unknown().optional(), // TipTap JSON
+  type: z.enum(['FOLDER', 'PAGE']).optional(),
 })
 
 const updateSchema = z.object({
@@ -103,19 +105,66 @@ const updateSchema = z.object({
   parentId: z.string().uuid().optional().nullable(),
   content: z.unknown().optional(),
   sortOrder: z.number().int().optional(),
+  type: z.enum(['FOLDER', 'PAGE']).optional(),
 })
 
-// GET /api/wiki/tree – leichtgewichtiger Seitenbaum für die Sidebar
-router.get('/tree', authenticate, requirePermission('wiki:read'), async (_req, res) => {
+const permissionSchema = z.object({
+  targetType: z.enum(['ROLE', 'GROUP', 'USER']),
+  targetId: z.string().uuid(),
+  level: z.enum(['VIEW', 'EDIT']),
+})
+const permissionsPutSchema = z.object({
+  entries: z.array(permissionSchema),
+})
+
+// GET /api/wiki/tree – leichtgewichtiger Seitenbaum für die Sidebar.
+// Ergebnis ist pro Benutzer gefiltert und mit effektiven Rechten angereichert.
+router.get('/tree', authenticate, async (req, res) => {
+  const ctx = await loadWikiUserCtx(req.user!.userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+
   const pages = await prisma.wikiPage.findMany({
-    select: { id: true, title: true, icon: true, parentId: true, sortOrder: true, slug: true, updatedAt: true },
+    select: { id: true, title: true, icon: true, parentId: true, sortOrder: true, slug: true, updatedAt: true, type: true },
     orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
   })
-  res.json(pages)
+  const access = await buildWikiAccessMap(ctx)
+
+  // Sichtbare Seiten = solche mit view-Recht. Ein unsichtbarer Zwischenknoten
+  // würde den Baum "zerschneiden"; deshalb lassen wir Eltern mit mind. einem
+  // sichtbaren Nachkommen ebenfalls sichtbar (flache Navigation).
+  const hasVisibleDescendant = new Set<string>()
+  // Parent-Lookup vorberechnen
+  const parentOf = new Map<string, string | null>()
+  for (const p of pages) parentOf.set(p.id, p.parentId ?? null)
+  for (const p of pages) {
+    if (access.get(p.id)?.view) {
+      let cursor = p.parentId ?? null
+      while (cursor) {
+        if (hasVisibleDescendant.has(cursor)) break
+        hasVisibleDescendant.add(cursor)
+        cursor = parentOf.get(cursor) ?? null
+      }
+    }
+  }
+
+  const visible = pages
+    .filter((p) => access.get(p.id)?.view || hasVisibleDescendant.has(p.id))
+    .map((p) => {
+      const a = access.get(p.id) ?? { view: false, edit: false }
+      return { ...p, canEdit: a.edit, canView: a.view }
+    })
+  res.json(visible)
 })
 
 // GET /api/wiki/pages/:id – einzelne Seite mit Inhalt + Autor-Meta
-router.get('/pages/:id', authenticate, requirePermission('wiki:read'), async (req, res) => {
+router.get('/pages/:id', authenticate, async (req, res) => {
+  const ctx = await loadWikiUserCtx(req.user!.userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+
+  const access = await buildWikiAccessMap(ctx)
+  const a = access.get(req.params.id as string)
+  if (!a?.view) { res.status(403).json({ message: 'Keine Berechtigung' }); return }
+
   const page = await prisma.wikiPage.findUnique({
     where: { id: req.params.id as string },
     include: {
@@ -124,10 +173,10 @@ router.get('/pages/:id', authenticate, requirePermission('wiki:read'), async (re
     },
   })
   if (!page) { res.status(404).json({ message: 'Seite nicht gefunden' }); return }
-  res.json(page)
+  res.json({ ...page, canEdit: a.edit })
 })
 
-// POST /api/wiki/pages – neue Seite
+// POST /api/wiki/pages – neue Seite (oder neuer Ordner via type: 'FOLDER')
 router.post('/pages', authenticate, requirePermission('wiki:create'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -135,6 +184,17 @@ router.post('/pages', authenticate, requirePermission('wiki:create'), async (req
     return
   }
   const userId = req.user!.userId
+
+  // Wenn ein Parent angegeben ist: der User muss dort Edit-Rechte haben.
+  if (parsed.data.parentId) {
+    const ctx = await loadWikiUserCtx(userId)
+    if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+    const access = await buildWikiAccessMap(ctx)
+    if (!access.get(parsed.data.parentId)?.edit) {
+      res.status(403).json({ message: 'Keine Berechtigung im Zielordner' })
+      return
+    }
+  }
 
   // sortOrder: hinter die letzte Geschwisterseite setzen
   const last = await prisma.wikiPage.findFirst({
@@ -151,6 +211,7 @@ router.post('/pages', authenticate, requirePermission('wiki:create'), async (req
       title: parsed.data.title,
       icon: parsed.data.icon ?? null,
       parentId: parsed.data.parentId ?? null,
+      type: parsed.data.type ?? 'PAGE',
       content: contentJson,
       searchText: `${parsed.data.title} ${extractText(contentJson)}`.trim(),
       slug,
@@ -167,13 +228,28 @@ router.post('/pages', authenticate, requirePermission('wiki:create'), async (req
 })
 
 // PATCH /api/wiki/pages/:id – Inhalt/Meta aktualisieren
-router.patch('/pages/:id', authenticate, requirePermission('wiki:update'), async (req, res) => {
+router.patch('/pages/:id', authenticate, async (req, res) => {
   const parsed = updateSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() })
     return
   }
   const userId = req.user!.userId
+
+  const ctx = await loadWikiUserCtx(userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+  const access = await buildWikiAccessMap(ctx)
+  if (!access.get(req.params.id as string)?.edit) {
+    res.status(403).json({ message: 'Keine Berechtigung' })
+    return
+  }
+  // Beim Verschieben: Ziel-Parent braucht ebenfalls Edit-Recht.
+  if (parsed.data.parentId) {
+    if (!access.get(parsed.data.parentId)?.edit) {
+      res.status(403).json({ message: 'Keine Berechtigung im Zielordner' })
+      return
+    }
+  }
 
   // Eine Seite darf nicht zu einem eigenen Nachfahren verschoben werden (Zyklus)
   if (parsed.data.parentId) {
@@ -215,6 +291,7 @@ router.patch('/pages/:id', authenticate, requirePermission('wiki:update'), async
         ...(parsed.data.parentId !== undefined && { parentId: parsed.data.parentId }),
         ...(parsed.data.content !== undefined && { content: parsed.data.content as object }),
         ...(parsed.data.sortOrder !== undefined && { sortOrder: parsed.data.sortOrder }),
+        ...(parsed.data.type !== undefined && { type: parsed.data.type }),
         ...(searchText !== undefined && { searchText }),
         updatedById: userId,
       },
@@ -231,6 +308,13 @@ router.patch('/pages/:id', authenticate, requirePermission('wiki:update'), async
 
 // DELETE /api/wiki/pages/:id – Seite löschen (Kinder werden via Cascade mitgelöscht)
 router.delete('/pages/:id', authenticate, requirePermission('wiki:delete'), async (req, res) => {
+  const ctx = await loadWikiUserCtx(req.user!.userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+  const access = await buildWikiAccessMap(ctx)
+  if (!access.get(req.params.id as string)?.edit) {
+    res.status(403).json({ message: 'Keine Berechtigung' })
+    return
+  }
   try {
     await prisma.wikiPage.delete({ where: { id: req.params.id as string } })
     res.status(204).send()
@@ -239,10 +323,60 @@ router.delete('/pages/:id', authenticate, requirePermission('wiki:delete'), asyn
   }
 })
 
-// GET /api/wiki/search?q=... – einfache Volltextsuche in Titel + Inhalt
-router.get('/search', authenticate, requirePermission('wiki:read'), async (req, res) => {
+// GET /api/wiki/pages/:id/permissions – aktuelle Einträge
+router.get('/pages/:id/permissions', authenticate, async (req, res) => {
+  const ctx = await loadWikiUserCtx(req.user!.userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+  const access = await buildWikiAccessMap(ctx)
+  if (!access.get(req.params.id as string)?.edit) {
+    res.status(403).json({ message: 'Keine Berechtigung' })
+    return
+  }
+  const entries = await prisma.wikiPagePermission.findMany({
+    where: { pageId: req.params.id as string },
+    select: { targetType: true, targetId: true, level: true },
+    orderBy: [{ targetType: 'asc' }, { createdAt: 'asc' }],
+  })
+  res.json(entries)
+})
+
+// PUT /api/wiki/pages/:id/permissions – komplette Liste ersetzen
+router.put('/pages/:id/permissions', authenticate, async (req, res) => {
+  const parsed = permissionsPutSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() })
+    return
+  }
+  const ctx = await loadWikiUserCtx(req.user!.userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+  const access = await buildWikiAccessMap(ctx)
+  if (!access.get(req.params.id as string)?.edit) {
+    res.status(403).json({ message: 'Keine Berechtigung' })
+    return
+  }
+
+  const pageId = req.params.id as string
+  // Alte Einträge löschen, neue anlegen – in einer Transaktion.
+  await prisma.$transaction([
+    prisma.wikiPagePermission.deleteMany({ where: { pageId } }),
+    ...parsed.data.entries.map((e) =>
+      prisma.wikiPagePermission.create({
+        data: { pageId, targetType: e.targetType, targetId: e.targetId, level: e.level },
+      }),
+    ),
+  ])
+  res.json({ count: parsed.data.entries.length })
+})
+
+// GET /api/wiki/search?q=... – einfache Volltextsuche in Titel + Inhalt,
+// gefiltert auf Seiten mit View-Recht
+router.get('/search', authenticate, async (req, res) => {
+  const ctx = await loadWikiUserCtx(req.user!.userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
   const q = String(req.query.q ?? '').trim()
   if (q.length < 2) { res.json([]); return }
+
+  const access = await buildWikiAccessMap(ctx)
 
   const results = await prisma.wikiPage.findMany({
     where: {
@@ -253,24 +387,24 @@ router.get('/search', authenticate, requirePermission('wiki:read'), async (req, 
     },
     select: { id: true, slug: true, title: true, icon: true, parentId: true, searchText: true },
     orderBy: { updatedAt: 'desc' },
-    take: 20,
+    take: 40,
   })
 
-  // Kurzen Textauszug um den Treffer herum erzeugen
   const lower = q.toLowerCase()
-  const excerpts = results.map((r) => {
-    const body = r.searchText ?? ''
-    const idx = body.toLowerCase().indexOf(lower)
-    let excerpt = ''
-    if (idx >= 0) {
-      const start = Math.max(0, idx - 40)
-      const end = Math.min(body.length, idx + q.length + 40)
-      excerpt = (start > 0 ? '… ' : '') + body.slice(start, end) + (end < body.length ? ' …' : '')
-    }
-    return {
-      id: r.id, slug: r.slug, title: r.title, icon: r.icon, parentId: r.parentId, excerpt,
-    }
-  })
+  const excerpts = results
+    .filter((r) => access.get(r.id)?.view)
+    .slice(0, 20)
+    .map((r) => {
+      const body = r.searchText ?? ''
+      const idx = body.toLowerCase().indexOf(lower)
+      let excerpt = ''
+      if (idx >= 0) {
+        const start = Math.max(0, idx - 40)
+        const end = Math.min(body.length, idx + q.length + 40)
+        excerpt = (start > 0 ? '… ' : '') + body.slice(start, end) + (end < body.length ? ' …' : '')
+      }
+      return { id: r.id, slug: r.slug, title: r.title, icon: r.icon, parentId: r.parentId, excerpt }
+    })
   res.json(excerpts)
 })
 

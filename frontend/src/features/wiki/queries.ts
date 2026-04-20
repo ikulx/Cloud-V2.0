@@ -1,5 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPost, apiPatch, apiDelete } from '../../lib/api'
+import { apiGet, apiPost, apiPatch, apiDelete, apiFetch } from '../../lib/api'
+
+export type WikiNodeType = 'FOLDER' | 'PAGE'
+export type WikiAccessLevel = 'VIEW' | 'EDIT'
+export type WikiAccessTarget = 'ROLE' | 'GROUP' | 'USER'
 
 export interface WikiPageNode {
   id: string
@@ -9,6 +13,15 @@ export interface WikiPageNode {
   parentId: string | null
   sortOrder: number
   updatedAt: string
+  type: WikiNodeType
+  canEdit: boolean
+  canView: boolean
+}
+
+export interface WikiPermissionEntry {
+  targetType: WikiAccessTarget
+  targetId: string
+  level: WikiAccessLevel
 }
 
 export interface WikiAuthor {
@@ -23,6 +36,36 @@ export interface WikiPage extends WikiPageNode {
   createdAt: string
   createdBy: WikiAuthor
   updatedBy: WikiAuthor
+}
+
+export function useWikiPermissions(pageId: string | null) {
+  return useQuery({
+    queryKey: ['wiki', 'permissions', pageId ?? ''] as const,
+    queryFn: () => apiGet<WikiPermissionEntry[]>(`/wiki/pages/${pageId}/permissions`),
+    enabled: Boolean(pageId),
+  })
+}
+
+export function useSaveWikiPermissions(pageId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (entries: WikiPermissionEntry[]) => {
+      const res = await apiFetch(`/wiki/pages/${pageId}/permissions`, {
+        method: 'PUT',
+        body: JSON.stringify({ entries }),
+      })
+      if (!res.ok) {
+        let msg = 'Fehler beim Speichern'
+        try { const err = await res.json(); msg = err.message ?? msg } catch { /* noop */ }
+        throw new Error(msg)
+      }
+      return res.json()
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wiki', 'permissions', pageId] })
+      qc.invalidateQueries({ queryKey: wikiKeys.tree })
+    },
+  })
 }
 
 export const wikiKeys = {
@@ -48,8 +91,13 @@ export function useWikiPage(id: string | undefined) {
 export function useCreateWikiPage() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { title: string; icon?: string | null; parentId?: string | null; content?: unknown }) =>
-      apiPost<WikiPage>('/wiki/pages', data),
+    mutationFn: (data: {
+      title: string
+      icon?: string | null
+      parentId?: string | null
+      content?: unknown
+      type?: WikiNodeType
+    }) => apiPost<WikiPage>('/wiki/pages', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: wikiKeys.tree })
     },

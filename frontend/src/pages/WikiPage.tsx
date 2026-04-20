@@ -13,6 +13,8 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutline'
 import CloudSyncIcon from '@mui/icons-material/CloudSync'
 import SearchIcon from '@mui/icons-material/Search'
+import LockIcon from '@mui/icons-material/Lock'
+import FolderIcon from '@mui/icons-material/Folder'
 import { useSession } from '../context/SessionContext'
 import {
   useWikiTree, useWikiPage, useCreateWikiPage, useUpdateWikiPage, useDeleteWikiPage,
@@ -21,6 +23,7 @@ import {
 import { WikiTree } from '../components/wiki/WikiTree'
 import { WikiEditor } from '../components/wiki/WikiEditor'
 import { WikiSearchDialog } from '../components/wiki/WikiSearchDialog'
+import { WikiPermissionsDialog } from '../components/wiki/WikiPermissionsDialog'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { apiFetch } from '../lib/api'
 
@@ -30,7 +33,6 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 export function WikiPage() {
   const { hasPermission } = useSession()
   const canCreate = hasPermission('wiki:create')
-  const canUpdate = hasPermission('wiki:update')
   const canDelete = hasPermission('wiki:delete')
 
   const { data: treeData } = useWikiTree()
@@ -48,6 +50,7 @@ export function WikiPage() {
   const createMut = useCreateWikiPage()
   const updateMut = useUpdateWikiPage(selectedId ?? '')
   const deleteMut = useDeleteWikiPage()
+  const canUpdate = page?.canEdit === true
   // Getrennte Mutation für Moves (andere ID als die aktuell selektierte)
   const moveWikiPage = async (id: string, parentId: string | null, sortOrder: number) => {
     await apiFetch(`/wiki/pages/${id}`, {
@@ -99,10 +102,20 @@ export function WikiPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, title, icon, selectedId])
 
-  const handleAddChild = async (parentId: string | null) => {
-    const newPage = await createMut.mutateAsync({ title: 'Neue Seite', parentId })
+  const handleAddChild = async (parentId: string | null, type: 'PAGE' | 'FOLDER' = 'PAGE') => {
+    const newPage = await createMut.mutateAsync({
+      title: type === 'FOLDER' ? 'Neuer Ordner' : 'Neue Seite',
+      parentId,
+      type,
+    })
     setSelectedId(newPage.id)
   }
+
+  const [permPageId, setPermPageId] = useState<string | null>(null)
+  const permPage = useMemo(
+    () => pages.find((p) => p.id === permPageId) ?? null,
+    [pages, permPageId],
+  )
 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const handleDelete = async () => {
@@ -159,7 +172,8 @@ export function WikiPage() {
           selectedId={selectedId}
           onSelect={(id) => setSelectedId(id)}
           onAddChild={canCreate ? handleAddChild : undefined}
-          onMove={canUpdate ? moveWikiPage : undefined}
+          onMove={moveWikiPage}
+          onOpenPermissions={(id) => setPermPageId(id)}
           canCreate={canCreate}
           canUpdate={canUpdate}
         />
@@ -206,8 +220,15 @@ export function WikiPage() {
                   {dirty ? <CloudSyncIcon /> : <CheckCircleIcon />}
                 </Box>
               </Tooltip>
-              {canDelete && (
-                <Tooltip title="Seite löschen">
+              {canUpdate && (
+                <Tooltip title="Zugriff verwalten">
+                  <IconButton onClick={() => setPermPageId(page.id)} size="small">
+                    <LockIcon />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {canDelete && canUpdate && (
+                <Tooltip title={page.type === 'FOLDER' ? 'Ordner löschen' : 'Seite löschen'}>
                   <IconButton onClick={() => setConfirmDelete(true)} size="small">
                     <DeleteIcon />
                   </IconButton>
@@ -222,12 +243,21 @@ export function WikiPage() {
 
             <Divider sx={{ mb: 3 }} />
 
-            <WikiEditor
-              key={page.id}
-              content={page.content}
-              editable={canUpdate}
-              onChange={(json) => { contentBufferRef.current = json; scheduleSave() }}
-            />
+            {page.type === 'FOLDER' ? (
+              <FolderChildrenView
+                pages={pages}
+                folderId={page.id}
+                onSelect={(id) => setSelectedId(id)}
+                onAddChild={canCreate && canUpdate ? handleAddChild : undefined}
+              />
+            ) : (
+              <WikiEditor
+                key={page.id}
+                content={page.content}
+                editable={canUpdate}
+                onChange={(json) => { contentBufferRef.current = json; scheduleSave() }}
+              />
+            )}
           </Box>
         )}
       </Box>
@@ -259,6 +289,14 @@ export function WikiPage() {
         onSelect={(id) => setSelectedId(id)}
       />
 
+      <WikiPermissionsDialog
+        open={Boolean(permPageId)}
+        pageId={permPageId}
+        pageTitle={permPage?.title ?? ''}
+        onClose={() => setPermPageId(null)}
+      />
+
+      {/* Delete confirm */}
       <ConfirmDialog
         open={confirmDelete}
         title="Seite löschen?"
@@ -267,6 +305,67 @@ export function WikiPage() {
         onConfirm={handleDelete}
         confirmLabel="Löschen"
       />
+    </Box>
+  )
+}
+
+/** Liste der direkten Kinder eines Ordners als Kachel-Übersicht. */
+function FolderChildrenView({
+  pages, folderId, onSelect, onAddChild,
+}: {
+  pages: WikiPageNode[]
+  folderId: string
+  onSelect: (id: string) => void
+  onAddChild?: (parentId: string | null, type: 'PAGE' | 'FOLDER') => void
+}) {
+  const children = pages
+    .filter((p) => p.parentId === folderId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title))
+
+  return (
+    <Box>
+      {children.length === 0 ? (
+        <Typography color="text.secondary" sx={{ py: 2 }}>
+          Ordner ist leer.
+        </Typography>
+      ) : (
+        <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' } }}>
+          {children.map((c) => (
+            <Box
+              key={c.id}
+              onClick={() => onSelect(c.id)}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+                p: 1.5,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1.5,
+                cursor: 'pointer',
+                '&:hover': { bgcolor: 'action.hover' },
+              }}
+            >
+              <Box sx={{ fontSize: 22 }}>
+                {c.icon ?? (c.type === 'FOLDER' ? <FolderIcon /> : '📄')}
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography noWrap fontWeight={500}>{c.title || 'Unbenannt'}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {c.type === 'FOLDER' ? 'Ordner' : 'Seite'} · {new Date(c.updatedAt).toLocaleDateString('de-CH')}
+                </Typography>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {onAddChild && (
+        <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
+          <Button variant="outlined" onClick={() => onAddChild(folderId, 'PAGE')}>+ Neue Seite</Button>
+          <Button variant="outlined" onClick={() => onAddChild(folderId, 'FOLDER')}>+ Neuer Ordner</Button>
+        </Box>
+      )}
     </Box>
   )
 }

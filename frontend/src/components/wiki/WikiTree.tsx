@@ -6,7 +6,17 @@ import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import AddIcon from '@mui/icons-material/Add'
+import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
+import FolderIcon from '@mui/icons-material/Folder'
+import FolderOpenIcon from '@mui/icons-material/FolderOpen'
+import ArticleIcon from '@mui/icons-material/Article'
+import LockIcon from '@mui/icons-material/Lock'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import Menu from '@mui/material/Menu'
+import MenuItem from '@mui/material/MenuItem'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
   type DragEndEvent, type DragOverEvent,
@@ -18,8 +28,9 @@ interface WikiTreeProps {
   pages: WikiPageNode[]
   selectedId: string | null
   onSelect: (id: string) => void
-  onAddChild?: (parentId: string | null) => void
+  onAddChild?: (parentId: string | null, type: 'PAGE' | 'FOLDER') => void
   onMove?: (id: string, newParentId: string | null, newSortOrder: number) => void
+  onOpenPermissions?: (pageId: string) => void
   canCreate: boolean
   canUpdate: boolean
 }
@@ -47,7 +58,7 @@ function buildTree(pages: WikiPageNode[]): Node[] {
   return roots
 }
 
-export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, canCreate, canUpdate }: WikiTreeProps) {
+export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOpenPermissions, canCreate, canUpdate }: WikiTreeProps) {
   const tree = useMemo(() => buildTree(pages), [pages])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [overId, setOverId] = useState<string | null>(null)
@@ -109,11 +120,10 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, canC
           isOpen={isOpen}
           isSelected={isSelected}
           isOver={overId === `inside:${node.id}`}
-          canUpdate={canUpdate}
-          canCreate={canCreate}
           onSelect={onSelect}
           onToggle={toggle}
-          onAddChild={onAddChild ? (id) => { onAddChild(id); setExpanded((s) => new Set(s).add(id)) } : undefined}
+          onAddChild={onAddChild ? (id, type) => { onAddChild(id, type); setExpanded((s) => new Set(s).add(id)) } : undefined}
+          onOpenPermissions={onOpenPermissions}
         />
         {isOpen && hasChildren && <Box>{node.children.map((c) => renderNode(c, depth + 1))}</Box>}
       </Box>
@@ -131,11 +141,18 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, canC
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, px: 0.5 }}>
           <Typography variant="overline" color="text.secondary">Seiten</Typography>
           {canCreate && onAddChild && (
-            <Tooltip title="Neue Seite auf oberster Ebene">
-              <IconButton size="small" onClick={() => onAddChild(null)}>
-                <AddIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <Box sx={{ display: 'flex', gap: 0.25 }}>
+              <Tooltip title="Neuer Ordner (Wurzel)">
+                <IconButton size="small" onClick={() => onAddChild(null, 'FOLDER')}>
+                  <CreateNewFolderIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Neue Seite (Wurzel)">
+                <IconButton size="small" onClick={() => onAddChild(null, 'PAGE')}>
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
           )}
         </Box>
 
@@ -171,16 +188,17 @@ interface TreeRowProps {
   isOpen: boolean
   isSelected: boolean
   isOver: boolean
-  canUpdate: boolean
-  canCreate: boolean
   onSelect: (id: string) => void
   onToggle: (id: string) => void
-  onAddChild?: (id: string) => void
+  onAddChild?: (id: string, type: 'PAGE' | 'FOLDER') => void
+  onOpenPermissions?: (id: string) => void
 }
 
-function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, canUpdate, canCreate, onSelect, onToggle, onAddChild }: TreeRowProps) {
-  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: node.id, disabled: !canUpdate })
-  const { setNodeRef: setDropRef } = useDroppable({ id: `inside:${node.id}`, disabled: !canUpdate })
+function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelect, onToggle, onAddChild, onOpenPermissions }: TreeRowProps) {
+  const canEdit = node.canEdit
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: node.id, disabled: !canEdit })
+  const { setNodeRef: setDropRef } = useDroppable({ id: `inside:${node.id}`, disabled: !canEdit })
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
 
   // Ein DOM-Knoten muss sowohl draggable (für Listener) als auch droppable sein.
   const combinedRef = (el: HTMLDivElement | null) => { setDragRef(el); setDropRef(el) }
@@ -188,7 +206,7 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, canUpda
   return (
     <Box
       ref={combinedRef}
-      onClick={() => onSelect(node.id)}
+      onClick={() => !node.canView ? null : onSelect(node.id)}
       {...attributes}
       sx={{
         display: 'flex',
@@ -198,8 +216,8 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, canUpda
         pr: 0.5,
         py: 0.5,
         borderRadius: 1,
-        cursor: 'pointer',
-        opacity: isDragging ? 0.4 : 1,
+        cursor: node.canView ? 'pointer' : 'not-allowed',
+        opacity: isDragging ? 0.4 : (node.canView ? 1 : 0.5),
         bgcolor: isOver ? 'action.focus' : isSelected ? 'action.selected' : 'transparent',
         outline: isOver ? '2px solid' : 'none',
         outlineColor: 'primary.main',
@@ -207,7 +225,7 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, canUpda
         '&:hover .wiki-tree-action': { opacity: 1 },
       }}
     >
-      {canUpdate && (
+      {canEdit && (
         <Box
           {...listeners}
           className="wiki-tree-action"
@@ -220,26 +238,73 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, canUpda
       <IconButton
         size="small"
         onClick={(e) => { e.stopPropagation(); onToggle(node.id) }}
-        sx={{ p: 0.25, visibility: hasChildren ? 'visible' : 'hidden' }}
+        sx={{ p: 0.25, visibility: hasChildren || node.type === 'FOLDER' ? 'visible' : 'hidden' }}
       >
         {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
       </IconButton>
+      {/* Typ-Icon: Ordner oder Seite. Eigenes Emoji-Icon (node.icon) geht vor. */}
+      {!node.icon && (
+        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mr: 0.25 }}>
+          {node.type === 'FOLDER'
+            ? (isOpen ? <FolderOpenIcon fontSize="small" /> : <FolderIcon fontSize="small" />)
+            : <ArticleIcon fontSize="small" />}
+        </Box>
+      )}
       <Typography sx={{ flex: 1, fontSize: 14, userSelect: 'none' }} noWrap>
         {node.icon && <span style={{ marginRight: 6 }}>{node.icon}</span>}
         {node.title || 'Unbenannt'}
       </Typography>
-      {canCreate && onAddChild && (
+      {!node.canView && (
+        <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+      )}
+      {canEdit && onAddChild && (
         <Tooltip title="Unterseite">
           <IconButton
             size="small"
             className="wiki-tree-action"
             sx={{ p: 0.25, opacity: 0, transition: 'opacity 120ms' }}
-            onClick={(e) => { e.stopPropagation(); onAddChild(node.id) }}
+            onClick={(e) => { e.stopPropagation(); onAddChild(node.id, 'PAGE') }}
           >
             <AddIcon fontSize="small" />
           </IconButton>
         </Tooltip>
       )}
+      {canEdit && (
+        <IconButton
+          size="small"
+          className="wiki-tree-action"
+          sx={{ p: 0.25, opacity: 0, transition: 'opacity 120ms' }}
+          onClick={(e) => { e.stopPropagation(); setMenuAnchor(e.currentTarget) }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+      )}
+
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={() => setMenuAnchor(null)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {onAddChild && (
+          <MenuItem onClick={() => { onAddChild(node.id, 'PAGE'); setMenuAnchor(null) }}>
+            <ListItemIcon><AddIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Neue Seite</ListItemText>
+          </MenuItem>
+        )}
+        {onAddChild && (
+          <MenuItem onClick={() => { onAddChild(node.id, 'FOLDER'); setMenuAnchor(null) }}>
+            <ListItemIcon><CreateNewFolderIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Neuer Ordner</ListItemText>
+          </MenuItem>
+        )}
+        {onOpenPermissions && (
+          <MenuItem onClick={() => { onOpenPermissions(node.id); setMenuAnchor(null) }}>
+            <ListItemIcon><LockIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Zugriff …</ListItemText>
+          </MenuItem>
+        )}
+      </Menu>
     </Box>
   )
 }
