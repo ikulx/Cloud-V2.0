@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiGet, apiPatch, apiPost, apiDelete } from '../../lib/api'
+import { apiGet, apiPatch, apiPost, apiFetch } from '../../lib/api'
 
 export const settingsKeys = { all: ['settings'] as const, system: ['settings', 'system-info'] as const }
 
@@ -83,7 +83,11 @@ export function useCleanupActivityLog() {
 export function useDeleteAllActivityLog() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => apiDelete<{ deleted: number }>('/settings/activity-log/all'),
+    mutationFn: async (): Promise<{ deleted: number }> => {
+      const res = await apiFetch('/settings/activity-log/all', { method: 'DELETE' })
+      if (!res.ok) throw new Error(await res.text())
+      return res.json()
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: settingsKeys.system })
       qc.invalidateQueries({ queryKey: ['activity-log'] })
