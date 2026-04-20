@@ -63,7 +63,8 @@
       "Bash(tasklist)",
       "Bash(gh repo *)",
       "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" --version)",
-      "Bash(npm audit *)"
+      "Bash(npm audit *)",
+      "Bash(curl -s -o /tmp/ghsec.json -w \"HTTP_CODE:%{http_code}\" \"https://api.github.com/repos/ikulx/Cloud-V2.0/code-scanning/alerts?state=open&per_page=30\")"
     ]
   }
 }

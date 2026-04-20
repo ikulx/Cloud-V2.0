@@ -48,7 +48,7 @@ export function initMqttService(io: SocketServer) {
         handleResp(serial, payload.toString(), io)
       }
     } catch (err) {
-      console.error(`[MQTT] Fehler bei Topic ${topic}:`, err)
+      console.error('[MQTT] Fehler bei Topic %s:', topic, err)
     }
   })
 }
@@ -108,7 +108,7 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
 
   if (Object.keys(update).length > 0) {
     await prisma.device.update({ where: { id: device.id }, data: update })
-    console.log(`[MQTT] Tele ${serial}:`, update)
+    console.log('[MQTT] Tele %s:', serial, update)
     // Frontend informieren
     io.to(`device:${device.id}`).emit('device:tele', { deviceId: device.id, ...update })
   }
@@ -128,7 +128,7 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
       }
       if (Object.keys(vpnUpdate).length > 0) {
         await prisma.vpnDevice.update({ where: { id: vpnDevice.id }, data: vpnUpdate })
-        console.log(`[MQTT] VPN-Device ${serial} auto-update:`, vpnUpdate)
+        console.log('[MQTT] VPN-Device %s auto-update:', serial, vpnUpdate)
       }
     }
   }
@@ -181,7 +181,7 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
       }
     }
   } catch (e) {
-    console.warn(`[MQTT] Projektnummer-Check fehlgeschlagen für ${serial}:`, (e as Error).message)
+    console.warn('[MQTT] Projektnummer-Check fehlgeschlagen für %s: %s', serial, (e as Error).message)
   }
 }
 
@@ -224,6 +224,6 @@ export function publishCommand(serial: string, command: Record<string, unknown>)
   }
   const topic = `yc/${serial}/cmnd`
   client.publish(topic, JSON.stringify(command))
-  console.log(`[MQTT] Command → ${topic}:`, command)
+  console.log('[MQTT] Command → %s:', topic, command)
   return true
 }

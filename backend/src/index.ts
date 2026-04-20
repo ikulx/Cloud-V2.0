@@ -124,7 +124,7 @@ async function main() {
         })
 
         piWs.on('error', (err) => {
-          console.error(`[WS-Tunnel] Fehler bei ${piWsUrl}:`, err.message)
+          console.error('[WS-Tunnel] Fehler bei %s: %s', piWsUrl, err.message)
           try { socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n') } catch {}
           socket.destroy()
         })

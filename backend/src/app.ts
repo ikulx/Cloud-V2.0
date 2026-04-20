@@ -4,6 +4,7 @@ import helmet from 'helmet'
 import { env } from './config/env'
 import apiRouter from './routes/index'
 import { activityLogMiddleware } from './middleware/activity-log'
+import { apiRateLimiter } from './middleware/rate-limit'
 
 export function createApp() {
   const app = express()
@@ -37,6 +38,11 @@ export function createApp() {
   // Activity-Log Middleware – erfasst alle POST/PATCH/PUT/DELETE Requests.
   // Läuft nach Auth, damit req.user verfügbar ist (Auth-Middleware wird in
   // einzelnen Router-Handlern angewendet; finish-Listener feuert auch hier ohne Auth).
+  // Generischer Rate-Limiter (600 req/min/IP) – greift vor allen /api/* Routes.
+  // Verhindert DoS/Scripted-Scanning und deckt CodeQL's "missing rate limiting"
+  // für alle Routen global ab (einzelne Routes haben zusätzliche, striktere Limits).
+  app.use('/api', apiRateLimiter)
+
   app.use('/api', activityLogMiddleware)
 
   app.use('/api', apiRouter)

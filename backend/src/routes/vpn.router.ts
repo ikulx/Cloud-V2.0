@@ -932,7 +932,7 @@ ${baCredentials ? '<div class="err">Anmeldedaten ungueltig</div>' : ''}
 
     proxyReq.on('timeout', () => proxyReq.destroy(new Error('PROXY_TIMEOUT')))
     proxyReq.on('error', (err) => {
-      console.error(`[VPN-LAN] ${url}:`, err.message)
+      console.error('[VPN-LAN] %s: %s', url, err.message)
       if (!res.headersSent) {
         if (err.message === 'PROXY_TIMEOUT') {
           res.status(504).json({ message: `Timeout – LAN-Gerät nicht erreichbar (${lanIp}:${lanPort})` })
@@ -968,8 +968,18 @@ router.post('/devices/:deviceId/visu-ticket', authenticate, async (req, res) => 
 })
 
 // ─── Visu-Proxy (Ycontrol Visu auf Pi) ───────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 router.all('/devices/:deviceId/visu*', async (req, res) => {
   const deviceId = req.params.deviceId as string
+
+  // Strikte UUID-Validierung: verhindert XSS über injizierte deviceId-Strings,
+  // die später im HTML/JS-Interceptor auftauchen.
+  if (!UUID_RE.test(deviceId)) {
+    res.status(400).json({ message: 'Ungültige Device-ID' })
+    return
+  }
+
   // Cookie-Name für diese Device-Session (Sub-Ressourcen kommen ohne access_token)
   const cookieName = `visu_${deviceId.replace(/-/g, '')}`
 
@@ -1259,7 +1269,9 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
     })
 
     proxyReq.on('error', (err) => {
-      console.error(`[VPN-Proxy] ${url}:`, err.message)
+      // %s-Format-Specifier verwenden, damit `url` (potenziell user-controlled via Query)
+      // NICHT als Format-String interpretiert wird – fixt CodeQL js/tainted-format-string.
+      console.error('[VPN-Proxy] %s: %s', url, err.message)
       if (!res.headersSent) {
         if (err.message === 'PROXY_TIMEOUT') {
           res.status(504).json({ message: `Timeout – Pi nicht erreichbar via VPN (${piVisuIp}:${piVisuPort}). WireGuard aktiv?` })
