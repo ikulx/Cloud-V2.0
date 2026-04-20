@@ -10,13 +10,49 @@ import { requirePermission } from '../middleware/require-permission'
 
 const router = Router()
 
+/** Extrahiert die Beschriftungen aller Shapes aus einem drawio-XML.
+ *  Nutzt Regex (kein XML-Parser nötig, das Format ist sehr flach – alle
+ *  Beschriftungen stecken in `value="…"` Attributen von mxCell-Elementen). */
+function extractDrawioText(xml: string): string {
+  if (!xml || typeof xml !== 'string') return ''
+  const tokens: string[] = []
+  // value="…" aus mxCell — value kann HTML enthalten (Rich-Text-Labels).
+  const re = /value="((?:[^"\\]|\\.)*)"/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(xml)) !== null) {
+    const raw = m[1] ?? ''
+    if (!raw) continue
+    const decoded = raw
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+    // HTML-Tags entfernen (Rich-Text-Labels wie <div>…</div>)
+    const text = decoded.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    if (text) tokens.push(text)
+  }
+  return tokens.join(' ')
+}
+
 /** Extrahiert reinen Text aus einem TipTap-Dokument. Wird für die
- *  Volltextsuche in die Spalte `searchText` gespeichert. */
+ *  Volltextsuche in die Spalte `searchText` gespeichert.
+ *  Spezielle Block-Typen (drawio-Diagramme) werden zusätzlich ausgelesen. */
 function extractText(node: unknown): string {
   if (!node || typeof node !== 'object') return ''
-  const n = node as { text?: string; content?: unknown[] }
+  const n = node as { type?: string; text?: string; content?: unknown[]; attrs?: { xml?: unknown } }
   let out = ''
+
+  // TipTap-Textknoten
   if (typeof n.text === 'string') out += n.text
+
+  // Sonderfall drawio-Block: Beschriftungen aus XML extrahieren
+  if (n.type === 'drawio' && n.attrs && typeof n.attrs.xml === 'string') {
+    const drawText = extractDrawioText(n.attrs.xml)
+    if (drawText) out += (out && !out.endsWith(' ') ? ' ' : '') + drawText
+  }
+
   if (Array.isArray(n.content)) {
     for (const c of n.content) {
       const sub = extractText(c)
