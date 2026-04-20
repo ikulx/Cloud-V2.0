@@ -137,12 +137,33 @@
 
 /* Resizable Image Wrapper */
 .wiki-editor .wiki-img-wrapper {
-  margin: 1em 0;
-  display: flex;
+  margin: 0.75em 0;
 }
-.wiki-editor .wiki-img-wrapper.align-left   { justify-content: flex-start; }
-.wiki-editor .wiki-img-wrapper.align-center { justify-content: center; }
-.wiki-editor .wiki-img-wrapper.align-right  { justify-content: flex-end; }
+
+/* Mitte: weiterhin als Block in der Mitte. */
+.wiki-editor .wiki-img-wrapper.align-center {
+  display: flex;
+  justify-content: center;
+  clear: both;
+}
+
+/* Links/Rechts: Bild floated, nachfolgender Text fließt drumherum. */
+.wiki-editor .wiki-img-wrapper.align-left {
+  float: left;
+  margin: 0.25em 1.25em 0.5em 0;
+}
+.wiki-editor .wiki-img-wrapper.align-right {
+  float: right;
+  margin: 0.25em 0 0.5em 1.25em;
+}
+
+/* Nach allen Images ist ein Container-Reset möglich über eine neue Leerzeile.
+   Paragraphs räumen sich selbst hinter floats auf, wenn clearfix greift. */
+.wiki-editor .ProseMirror::after {
+  content: '';
+  display: block;
+  clear: both;
+}
 
 .wiki-editor .wiki-img-container {
   position: relative;
