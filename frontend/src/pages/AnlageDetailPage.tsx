@@ -48,6 +48,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import { useAnlage, useUpdateAnlage, useCreateAnlageTodo, useUpdateAnlageTodo, useCreateAnlageLog } from '../features/anlagen/queries'
+import { fetchVisuUrl } from '../features/vpn/queries'
 import { useDevices, useUpdateDevice } from '../features/devices/queries'
 import { useSession } from '../context/SessionContext'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
@@ -192,16 +193,32 @@ export function AnlageDetailPage() {
     }
   }, [anlage])
 
-  const buildVisuUrl = (deviceId: string) => {
-    const token = localStorage.getItem('accessToken') ?? ''
-    const params = new URLSearchParams({ access_token: token })
-    if (me?.email) params.set('remoteUser', me.email)
-    return `/api/vpn/devices/${deviceId}/visu/?${params.toString()}`
+  const [visuUrl, setVisuUrl] = useState<string | null>(null)
+
+  const handleDeviceClick = async (device: Device) => {
+    if (!device.vpnDevice) return
+    if (expandedVisuDeviceId === device.id) {
+      setExpandedVisuDeviceId(null)
+      setVisuUrl(null)
+      return
+    }
+    setExpandedVisuDeviceId(device.id)
+    setVisuUrl(null)
+    try {
+      const url = await fetchVisuUrl(device.id, me?.email ? { remoteUser: me.email } : undefined)
+      setVisuUrl(url)
+    } catch {
+      setVisuUrl(null)
+    }
   }
 
-  const handleDeviceClick = (device: Device) => {
-    if (!device.vpnDevice) return
-    setExpandedVisuDeviceId((prev) => (prev === device.id ? null : device.id))
+  const openVisuInNewTab = async (deviceId: string) => {
+    try {
+      const url = await fetchVisuUrl(deviceId, me?.email ? { remoteUser: me.email } : undefined)
+      window.open(url, '_blank')
+    } catch (err) {
+      console.error('[Visu] Ticket fehlgeschlagen:', err)
+    }
   }
 
   const handleSaveInfo = async () => {
@@ -677,7 +694,7 @@ export function AnlageDetailPage() {
                                   variant="outlined"
                                   size="small"
                                   startIcon={<OpenInNewIcon />}
-                                  onClick={() => window.open(buildVisuUrl(device.id), '_blank')}
+                                  onClick={() => openVisuInNewTab(device.id)}
                                 >
                                   {t('devices.openNewTab', 'In neuem Tab öffnen')}
                                 </Button>
@@ -694,7 +711,7 @@ export function AnlageDetailPage() {
                                   }}
                                 >
                                   <iframe
-                                    src={buildVisuUrl(device.id)}
+                                    src={visuUrl ?? 'about:blank'}
                                     style={{ width: '100%', height: '100%', border: 'none' }}
                                     title={`Visualisierung – ${device.name || defaultDeviceName}`}
                                   />

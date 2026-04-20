@@ -48,10 +48,11 @@ async function main() {
   console.log(`✓ ${PERMISSION_CATALOG.length} permissions seeded`)
 
   // Roles
+  // Admin = System-Rolle, kann nicht editiert/gelöscht werden und hat immer Vollzugriff.
   const adminRole = await prisma.role.upsert({
     where: { name: 'admin' },
-    update: {},
-    create: { name: 'admin', description: 'Vollzugriff auf alle Funktionen' },
+    update: { isSystem: true },
+    create: { name: 'admin', description: 'Vollzugriff auf alle Funktionen', isSystem: true },
   })
 
   const verwalterRole = await prisma.role.upsert({

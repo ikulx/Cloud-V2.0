@@ -1,6 +1,6 @@
 import { prisma } from '../db/prisma'
 import { AuthenticatedUser } from '../types/authenticated-user'
-import { PERMISSION_CATALOG, PRIVILEGED_ROLE_NAMES } from '../lib/permission-catalog'
+import { PERMISSION_CATALOG } from '../lib/permission-catalog'
 
 export async function getUserAccessContext(userId: string): Promise<AuthenticatedUser | null> {
   const user = await prisma.user.findUnique({
@@ -14,6 +14,7 @@ export async function getUserAccessContext(userId: string): Promise<Authenticate
       role: {
         select: {
           name: true,
+          isSystem: true,
           permissions: {
             select: { permission: { select: { key: true } } },
           },
@@ -24,10 +25,10 @@ export async function getUserAccessContext(userId: string): Promise<Authenticate
 
   if (!user) return null
 
-  const permissions = getEffectivePermissions(
-    user.role?.name ?? null,
-    user.role?.permissions.map((rp) => rp.permission.key) ?? []
-  )
+  const isSystemRole = user.role?.isSystem === true
+  const permissions = isSystemRole
+    ? [...PERMISSION_CATALOG]
+    : user.role?.permissions.map((rp) => rp.permission.key) ?? []
 
   return {
     userId: user.id,
@@ -36,16 +37,18 @@ export async function getUserAccessContext(userId: string): Promise<Authenticate
     lastName: user.lastName,
     roleId: user.roleId,
     roleName: user.role?.name ?? null,
+    isSystemRole,
     permissions,
   }
 }
 
+/** Legacy-Export für bestehende Aufrufer (z.B. Routes). */
 export function getEffectivePermissions(
   roleName: string | null,
   assignedPermissions: string[]
 ): string[] {
-  if (roleName && PRIVILEGED_ROLE_NAMES.includes(roleName as typeof PRIVILEGED_ROLE_NAMES[number])) {
-    return [...PERMISSION_CATALOG]
-  }
+  // Erhält die alte Signatur für Kompatibilität.
+  // Die echte Prüfung läuft jetzt über isSystemRole im UserContext.
+  if (roleName === 'admin') return [...PERMISSION_CATALOG]
   return assignedPermissions
 }

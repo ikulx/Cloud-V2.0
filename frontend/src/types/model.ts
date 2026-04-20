@@ -150,6 +150,8 @@ export interface MeResponse {
   lastName: string
   roleId: string | null
   roleName: string | null
+  /** true wenn System-Rolle (voller Zugriff) – gesetzt nur durch Seed, nicht durch Name-Match */
+  isSystemRole?: boolean
   permissions: string[]
 }
 

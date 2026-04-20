@@ -37,3 +37,46 @@ export const env = {
   },
   appUrl: process.env.APP_URL ?? 'http://localhost:5173',
 }
+
+/**
+ * Startup-Sicherheits-Check: verweigert den Start im Production-Modus wenn
+ * bekannte Dev-Defaults aktiv sind. Das verhindert versehentliches Deployment
+ * mit öffentlich bekannten Secrets.
+ */
+export function validateProdSecrets(): void {
+  if (env.nodeEnv !== 'production') return
+
+  const problems: string[] = []
+  const DEV_MARKERS = ['change-me', 'dev-', 'CHANGE_ME', 'your-', 'secret-here']
+
+  const checks: Array<[string, string]> = [
+    ['JWT_ACCESS_SECRET', env.jwt.accessSecret],
+    ['JWT_REFRESH_SECRET', env.jwt.refreshSecret],
+    ['MQTT_AUTH_SECRET', env.mqttAuthSecret],
+    ['MQTT_BACKEND_PASSWORD', env.mqttBackendPassword],
+  ]
+  for (const [name, value] of checks) {
+    if (!value || value.length < 24) {
+      problems.push(`${name}: zu kurz (min 24 Zeichen erforderlich, aktuell ${value.length})`)
+    } else if (DEV_MARKERS.some((m) => value.toLowerCase().includes(m.toLowerCase()))) {
+      problems.push(`${name}: enthält Dev-Platzhalter. Muss in Prod ein starkes, zufälliges Secret sein.`)
+    }
+  }
+
+  if (env.jwt.accessSecret === env.jwt.refreshSecret) {
+    problems.push('JWT_ACCESS_SECRET und JWT_REFRESH_SECRET dürfen nicht identisch sein')
+  }
+
+  if (problems.length > 0) {
+    console.error('═══════════════════════════════════════════════════════════════')
+    console.error('  🚨 SECURITY: Produktions-Start abgebrochen')
+    console.error('═══════════════════════════════════════════════════════════════')
+    for (const p of problems) console.error(`  ✗ ${p}`)
+    console.error('')
+    console.error('  Bitte in der .env sichere, zufällige Secrets setzen, z.B.:')
+    console.error('  JWT_ACCESS_SECRET=$(openssl rand -hex 32)')
+    console.error('  JWT_REFRESH_SECRET=$(openssl rand -hex 32)')
+    console.error('═══════════════════════════════════════════════════════════════')
+    process.exit(1)
+  }
+}

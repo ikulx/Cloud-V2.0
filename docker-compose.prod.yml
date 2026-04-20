@@ -27,12 +27,30 @@ services:
       retries: 5
 
   # ─── MQTT Broker (Mosquitto + go-auth) ───────────────────────────────────────
+  # WARNUNG: Port 1883 ist unverschlüsselt. Credentials werden im Klartext
+  # übertragen. Drei Deployment-Optionen:
+  #
+  # 1) INTERNES NETZWERK NUR (sicher, einfach)
+  #    Pi's verbinden sich über WireGuard zum Server und nutzen MQTT via
+  #    internes Docker-Netz. → MQTT_LISTEN=127.0.0.1:1883 (siehe unten)
+  #
+  # 2) TLS AKTIVIEREN (sicher, Setup-Aufwand)
+  #    mosquitto.conf um TLS-Listener auf 8883 erweitern, Zertifikate bereitstellen,
+  #    Pi-Agent auf mqtts:// umstellen.
+  #
+  # 3) CLOUDFLARE TUNNEL TCP-ROUTE (sicher, null Config auf Pi)
+  #    Cloudflare Tunnel kann TCP (inkl. MQTT) routen. Pi verbindet sich zu
+  #    cloudflared-client, der über den Tunnel geht. 1883-Port bleibt im
+  #    Docker-Netz, kein öffentlicher Zugang nötig.
+  #
+  # Current default (für Migration): Port 1883 öffentlich. In der .env kann
+  # MQTT_LISTEN=127.0.0.1:1883 gesetzt werden um nur auf localhost zu hören.
   mqtt:
     image: iegomez/mosquitto-go-auth:latest
     container_name: ycontrol_mqtt
     restart: unless-stopped
     ports:
-      - "1883:1883"    # MQTT (Raspberry Pi Geräte – direkter TCP-Zugang)
+      - "${MQTT_LISTEN:-1883}:1883"    # Default 1883 extern; für lokal-only: MQTT_LISTEN=127.0.0.1:1883
     volumes:
       - ./mosquitto/mosquitto.conf:/etc/mosquitto/mosquitto.conf:ro
     healthcheck:

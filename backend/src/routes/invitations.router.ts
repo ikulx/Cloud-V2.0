@@ -6,6 +6,7 @@ import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import { hashPassword } from '../lib/password'
 import { sendInvitationMail } from '../services/mail.service'
+import { inviteAcceptRateLimiter } from '../middleware/rate-limit'
 
 const router = Router()
 
@@ -125,7 +126,7 @@ router.post('/:id/resend', authenticate, requirePermission('users:create'), asyn
 // GET /api/invitations/verify/:token  –  Token prüfen (Frontend zeigt Formular)
 router.get('/verify/:token', async (req, res) => {
   const invitation = await prisma.invitation.findUnique({
-    where: { token: req.params.token },
+    where: { token: req.params.token as string },
   })
 
   if (!invitation) return res.status(404).json({ message: 'Einladung nicht gefunden' })
@@ -142,14 +143,14 @@ const acceptSchema = z.object({
   password: z.string().min(8).max(200),
 })
 
-router.post('/accept/:token', async (req, res) => {
+router.post('/accept/:token', inviteAcceptRateLimiter, async (req, res) => {
   const parsed = acceptSchema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ message: 'Ungültige Daten', errors: parsed.error.flatten() })
   }
 
   const invitation = await prisma.invitation.findUnique({
-    where: { token: req.params.token },
+    where: { token: req.params.token as string },
   })
   if (!invitation) return res.status(404).json({ message: 'Einladung nicht gefunden' })
   if (invitation.usedAt) return res.status(410).json({ message: 'Einladung wurde bereits eingelöst' })

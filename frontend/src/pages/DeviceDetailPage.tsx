@@ -36,6 +36,7 @@ import {
   useUpdateDeviceVpn,
   useDisableDeviceVpn,
   useDeployVpnToDevice,
+  fetchVisuUrl,
 } from '../features/vpn/queries'
 import { apiFetch } from '../lib/api'
 import { StatusChip } from '../components/StatusChip'
@@ -111,6 +112,7 @@ export function DeviceDetailPage() {
   const deployVpn  = useDeployVpnToDevice()
   const [vpnMsg, setVpnMsg] = useState<string | null>(null)
   const [visuOpen, setVisuOpen] = useState(false)
+  const [visuUrl, setVisuUrl] = useState<string | null>(null)
   const [visuTargetIp, setVisuTargetIp] = useState('')    // leer = Pi selbst; sonst LAN-IP z.B. 192.168.10.50
   const [visuTargetPort, setVisuTargetPort] = useState('')  // leer = visuPort aus Config
   const [pingResult, setPingResult] = useState<{ reachable: boolean; statusCode?: number; latencyMs?: number; error?: string; ip?: string; port?: number } | null>(null)
@@ -520,26 +522,55 @@ export function DeviceDetailPage() {
               </Box>
 
               {(() => {
-                const token = localStorage.getItem('accessToken') ?? ''
-                const params = new URLSearchParams({ access_token: token })
-                if (me?.email) params.set('remoteUser', me.email)
-                if (visuTargetIp.trim()) params.set('targetIp', visuTargetIp.trim())
-                if (visuTargetPort.trim()) params.set('targetPort', visuTargetPort.trim())
-                const visuUrl = `/api/vpn/devices/${id}/visu/?${params.toString()}`
+                const buildExtraParams = () => {
+                  const extras: Record<string, string> = {}
+                  if (visuTargetIp.trim()) extras.targetIp = visuTargetIp.trim()
+                  if (visuTargetPort.trim()) extras.targetPort = visuTargetPort.trim()
+                  return extras
+                }
+                const handleTogglePreview = async () => {
+                  if (visuOpen) {
+                    setVisuOpen(false)
+                    setVisuUrl(null)
+                    return
+                  }
+                  setVisuOpen(true)
+                  setVisuUrl(null)
+                  try {
+                    const base = await fetchVisuUrl(id!, me?.email ? { remoteUser: me.email } : undefined)
+                    const extras = buildExtraParams()
+                    const url = new URL(base, window.location.origin)
+                    for (const [k, v] of Object.entries(extras)) url.searchParams.set(k, v)
+                    setVisuUrl(url.pathname + url.search)
+                  } catch (err) {
+                    console.error('[Visu] Ticket fehlgeschlagen:', err)
+                  }
+                }
+                const handleOpenInNewTab = async () => {
+                  try {
+                    const base = await fetchVisuUrl(id!, me?.email ? { remoteUser: me.email } : undefined)
+                    const extras = buildExtraParams()
+                    const url = new URL(base, window.location.origin)
+                    for (const [k, v] of Object.entries(extras)) url.searchParams.set(k, v)
+                    window.open(url.pathname + url.search, '_blank')
+                  } catch (err) {
+                    console.error('[Visu] Ticket fehlgeschlagen:', err)
+                  }
+                }
                 return (
                   <>
                     <Box display="flex" gap={1} mb={2} flexWrap="wrap">
                       <Button
                         variant="contained"
                         startIcon={<OpenInBrowserIcon />}
-                        onClick={() => setVisuOpen((v) => !v)}
+                        onClick={handleTogglePreview}
                       >
                         {visuOpen ? 'Vorschau schliessen' : 'Vorschau anzeigen'}
                       </Button>
                       <Button
                         variant="outlined"
                         startIcon={<OpenInNewIcon />}
-                        onClick={() => window.open(visuUrl, '_blank')}
+                        onClick={handleOpenInNewTab}
                       >
                         In neuem Fenster öffnen
                       </Button>
@@ -547,8 +578,8 @@ export function DeviceDetailPage() {
                     {visuOpen && (
                       <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden', height: 600 }}>
                         <iframe
-                          key={visuUrl}
-                          src={visuUrl}
+                          key={visuUrl ?? 'empty'}
+                          src={visuUrl ?? 'about:blank'}
                           style={{ width: '100%', height: '100%', border: 'none' }}
                           title={`Visualisierung – ${device.name}`}
                         />

@@ -31,6 +31,11 @@ model User {
   lastName     String   @map("last_name")
   address      String?
   isActive     Boolean  @default(true) @map("is_active")
+  /// Zählt aufeinanderfolgende fehlgeschlagene Login-Versuche. Wird bei
+  /// erfolgreichem Login auf 0 zurückgesetzt.
+  failedLoginCount Int    @default(0) @map("failed_login_count")
+  /// Wenn gesetzt und in der Zukunft: Account ist bis dahin gesperrt.
+  lockedUntil      DateTime? @map("locked_until")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -106,6 +111,9 @@ model Role {
   id          String   @id @default(uuid()) @db.Uuid
   name        String   @unique
   description String?
+  /// System-Rolle: darf NICHT editiert oder gelöscht werden (z.B. Admin).
+  /// Nur durch Seed gesetzt. Wenn true → Role hat automatisch alle Permissions.
+  isSystem    Boolean  @default(false) @map("is_system")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

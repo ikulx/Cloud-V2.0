@@ -1,4 +1,6 @@
 import './config/env' // load env first
+import { validateProdSecrets } from './config/env'
+validateProdSecrets()  // exit 1 wenn Prod mit Dev-Secrets läuft
 import http from 'http'
 import dns from 'dns'
 import { execSync } from 'child_process'

@@ -2,8 +2,10 @@ import { Request, Response, NextFunction } from 'express'
 import { logActivity } from '../services/activity-log.service'
 
 /**
- * Admin-Rolle hat IMMER Zugriff auf alles. Andere Rollen brauchen die explizite
- * Permission. So müssen neue Permissions nicht für den Admin nachgetragen werden.
+ * System-Rollen (Admin) haben IMMER Zugriff auf alles. Andere Rollen brauchen
+ * die explizite Permission. isSystemRole wird nur durch den Seed gesetzt, nicht
+ * über die normale Rollen-API — das verhindert Privilege-Escalation durch
+ * Erstellen einer Rolle "admin" mit Namen-Match.
  */
 export function requirePermission(...permissions: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -11,7 +13,7 @@ export function requirePermission(...permissions: string[]) {
       res.status(401).json({ message: 'Authentifizierung erforderlich' })
       return
     }
-    if (req.user.roleName === 'admin') {
+    if (req.user.isSystemRole) {
       next()
       return
     }

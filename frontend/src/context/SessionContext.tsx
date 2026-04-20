@@ -81,7 +81,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const hasPermission = (permission: string) => {
     if (!me) return false
-    // Admin hat IMMER Zugriff auf alles — unabhängig vom permissions-Array
+    // System-Rolle (nur vom Seed gesetzt) hat IMMER Zugriff auf alles.
+    // Fallback auf roleName-Match für API-Antworten die isSystemRole noch nicht liefern.
+    if (me.isSystemRole === true) return true
     if (me.roleName === 'admin') return true
     return me.permissions.includes(permission)
   }

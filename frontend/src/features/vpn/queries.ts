@@ -121,6 +121,21 @@ export function useDeployVpnToDevice() {
   })
 }
 
+// ─── Visu-Ticket (sicherer Iframe-Access) ────────────────────────────────────
+
+/**
+ * Holt ein Single-Use-Ticket (30s gültig) vom Backend und baut daraus die
+ * Visu-URL. Damit landet kein JWT mehr im URL/History/Referer.
+ */
+export async function fetchVisuUrl(deviceId: string, opts?: { remoteUser?: string }): Promise<string> {
+  const { ticket } = await apiPost<{ ticket: string; expiresAt: number }>(
+    `/vpn/devices/${deviceId}/visu-ticket`, {}
+  )
+  const params = new URLSearchParams({ t: ticket })
+  if (opts?.remoteUser) params.set('remoteUser', opts.remoteUser)
+  return `/api/vpn/devices/${deviceId}/visu/?${params.toString()}`
+}
+
 // ─── Peers ────────────────────────────────────────────────────────────────────
 
 export function useVpnPeers() {

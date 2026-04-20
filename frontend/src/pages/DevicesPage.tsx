@@ -29,6 +29,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import { Link } from 'react-router-dom'
 import { useDevices, useCreateDevice, useUpdateDevice, useDeleteDevice } from '../features/devices/queries'
+import { fetchVisuUrl } from '../features/vpn/queries'
 import { useAnlagen } from '../features/anlagen/queries'
 import { useUsers } from '../features/users/queries'
 import { useGroups } from '../features/groups/queries'
@@ -113,16 +114,33 @@ export function DevicesPage() {
     }
   }
 
-  const buildVisuUrl = (deviceId: string) => {
-    const token = localStorage.getItem('accessToken') ?? ''
-    const params = new URLSearchParams({ access_token: token })
-    if (me?.email) params.set('remoteUser', me.email)
-    return `/api/vpn/devices/${deviceId}/visu/?${params.toString()}`
+  // Visu-Ticket pro aktuell expandiertem Device (iframe-URL)
+  const [visuUrl, setVisuUrl] = useState<string | null>(null)
+
+  const handleRowClick = async (device: Device) => {
+    if (!device.vpnDevice) return
+    if (expandedDeviceId === device.id) {
+      setExpandedDeviceId(null)
+      setVisuUrl(null)
+      return
+    }
+    setExpandedDeviceId(device.id)
+    setVisuUrl(null)
+    try {
+      const url = await fetchVisuUrl(device.id, me?.email ? { remoteUser: me.email } : undefined)
+      setVisuUrl(url)
+    } catch {
+      setVisuUrl(null)
+    }
   }
 
-  const handleRowClick = (device: Device) => {
-    if (!device.vpnDevice) return
-    setExpandedDeviceId((prev) => (prev === device.id ? null : device.id))
+  const openVisuInNewTab = async (deviceId: string) => {
+    try {
+      const url = await fetchVisuUrl(deviceId, me?.email ? { remoteUser: me.email } : undefined)
+      window.open(url, '_blank')
+    } catch (err) {
+      console.error('[Visu] Ticket fehlgeschlagen:', err)
+    }
   }
 
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
@@ -230,14 +248,14 @@ export function DevicesPage() {
                 <Box sx={{ p: 2, bgcolor: 'action.hover' }}>
                   <Box display="flex" justifyContent="flex-end" mb={1}>
                     <Button variant="outlined" size="small" startIcon={<OpenInNewIcon />}
-                      onClick={() => window.open(buildVisuUrl(device.id), '_blank')}>
+                      onClick={() => openVisuInNewTab(device.id)}>
                       {t('devices.openNewTab', 'In neuem Tab öffnen')}
                     </Button>
                   </Box>
                   {device.visuVersion ? (
                     <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1,
                       overflow: 'hidden', height: 600, bgcolor: 'background.paper' }}>
-                      <iframe src={buildVisuUrl(device.id)}
+                      <iframe src={visuUrl ?? 'about:blank'}
                         style={{ width: '100%', height: '100%', border: 'none' }}
                         title={`Visualisierung – ${device.name}`} />
                     </Box>

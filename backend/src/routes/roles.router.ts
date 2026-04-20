@@ -38,6 +38,12 @@ router.post('/', authenticate, requirePermission('roles:create'), async (req, re
   const parsed = roleSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
 
+  // Schutz: Name "admin" ist reserviert (um Name-basierte Escalation zu verhindern).
+  if (parsed.data.name.toLowerCase() === 'admin') {
+    res.status(403).json({ message: 'Rollenname "admin" ist reserviert.' })
+    return
+  }
+
   const { name, description, permissionIds } = parsed.data
   const role = await prisma.role.create({
     data: {
@@ -65,6 +71,17 @@ router.patch('/:id', authenticate, requirePermission('roles:update'), async (req
     where: { id: roleId },
     include: { permissions: { include: { permission: { select: { key: true } } } } },
   })
+
+  // Schutz: System-Rollen können nicht verändert werden
+  if (before?.isSystem) {
+    res.status(403).json({ message: 'System-Rollen können nicht geändert werden.' })
+    return
+  }
+  // Schutz: Rollen-Name kann nicht auf "admin" umbenannt werden
+  if (data.name && data.name.toLowerCase() === 'admin') {
+    res.status(403).json({ message: 'Rollenname "admin" ist reserviert.' })
+    return
+  }
   const beforeKeys = before?.permissions.map((p) => p.permission.key).sort() ?? []
 
   const role = await prisma.role.update({
@@ -107,7 +124,13 @@ router.patch('/:id', authenticate, requirePermission('roles:update'), async (req
 
 // DELETE /api/roles/:id
 router.delete('/:id', authenticate, requirePermission('roles:delete'), async (req, res) => {
-  await prisma.role.delete({ where: { id: req.params.id as string } })
+  const role = await prisma.role.findUnique({ where: { id: req.params.id as string } })
+  if (!role) { res.status(404).json({ message: 'Rolle nicht gefunden' }); return }
+  if (role.isSystem) {
+    res.status(403).json({ message: 'System-Rollen können nicht gelöscht werden.' })
+    return
+  }
+  await prisma.role.delete({ where: { id: role.id } })
   res.status(204).send()
 })
 

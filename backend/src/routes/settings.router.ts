@@ -6,6 +6,7 @@ import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import { cleanupOldActivityLogs } from '../services/activity-log-cleanup.service'
 import { env } from '../config/env'
+import { testMailRateLimiter } from '../middleware/rate-limit'
 
 const router = Router()
 
@@ -210,7 +211,7 @@ router.delete('/activity-log/all', authenticate, requirePermission('roles:read')
 })
 
 // POST /api/settings/test-mail  –  Test-E-Mail senden
-router.post('/test-mail', authenticate, requirePermission('roles:read'), async (req, res) => {
+router.post('/test-mail', testMailRateLimiter, authenticate, requirePermission('roles:read'), async (req, res) => {
   // roles:read = nur admin (verwalter hat diese Permission nicht)
   const { sendTestMail } = await import('../services/mail.service')
   const email = req.user!.email

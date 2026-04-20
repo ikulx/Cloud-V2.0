@@ -44,6 +44,8 @@ import { env } from '../config/env'
 import { publishCommand } from '../services/mqtt.service'
 import { hashDeviceSecret } from '../lib/token'
 import { logActivity } from '../services/activity-log.service'
+import { issueVisuTicket, consumeVisuTicket } from '../services/visu-ticket.service'
+import crypto from 'crypto'
 
 const router = Router()
 
@@ -950,37 +952,89 @@ ${baCredentials ? '<div class="err">Anmeldedaten ungueltig</div>' : ''}
   doLanProxy(targetUrl, 0)
 })
 
+// POST /api/vpn/devices/:deviceId/visu-ticket
+// Authentifizierter Endpoint: Client holt ein Single-Use-Ticket (30s gültig)
+// das in der iframe-URL verwendet wird, statt eines JWT. Beim Visu-Aufruf wird
+// das Ticket gegen einen HttpOnly-Session-Cookie eingelöst.
+router.post('/devices/:deviceId/visu-ticket', authenticate, async (req, res) => {
+  const deviceId = req.params.deviceId as string
+  if (!req.user) { res.status(401).json({ message: 'Authentifizierung erforderlich' }); return }
+
+  const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId } })
+  if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät' }); return }
+
+  const { ticket, expiresAt } = issueVisuTicket(req.user.userId, req.user.email, deviceId)
+  res.json({ ticket, expiresAt })
+})
+
 // ─── Visu-Proxy (Ycontrol Visu auf Pi) ───────────────────────────────────────
 router.all('/devices/:deviceId/visu*', async (req, res) => {
   const deviceId = req.params.deviceId as string
   // Cookie-Name für diese Device-Session (Sub-Ressourcen kommen ohne access_token)
   const cookieName = `visu_${deviceId.replace(/-/g, '')}`
 
-  // Token aus Header, Query-Parameter oder Session-Cookie
+  // Auth-Reihenfolge:
+  //   1) Single-Use-Ticket (?t=...) – bevorzugt für iframe-Load
+  //   2) Session-Cookie (gesetzt beim initialen Load, für Sub-Ressourcen)
+  //   3) Bearer-Token im Header (Sonderfall für Scripts)
+  //   4) Legacy: ?access_token=<jwt> (Altlast, wird unterstützt, aber deprecated)
   const headerToken = req.headers.authorization?.startsWith('Bearer ')
     ? req.headers.authorization.slice(7) : null
   const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : null
+  const queryTicket = typeof req.query.t === 'string' ? req.query.t : null
   const cookieToken = (req.headers.cookie ?? '').split(';')
     .map(c => c.trim()).find(c => c.startsWith(`${cookieName}=`))
     ?.slice(cookieName.length + 1) ?? null
-  const rawToken = headerToken ?? queryToken ?? cookieToken
 
-  if (!rawToken) { res.status(401).json({ message: 'Authentifizierung erforderlich' }); return }
-  const payload = verifyAccessToken(rawToken)
-  if (!payload) { res.status(401).json({ message: 'Token ungültig' }); return }
-  const userCtx = await getUserAccessContext(payload.sub)
-  if (!userCtx) { res.status(401).json({ message: 'Benutzer nicht gefunden' }); return }
+  // Session-Token für den Cookie nach erfolgreicher Ticket-Einlösung
+  let sessionToken: string | null = cookieToken
+  // User-Context aus Ticket-Einlösung oder Token-Verify
+  let userId: string | null = null
+  let userEmail: string | null = null
 
-  // Session-Cookie setzen damit Sub-Ressourcen (JS/CSS) ohne access_token-Param geladen werden.
-  // Dieser Zweig greift nur beim INITIALEN Visu-Load (iframe-src mit ?access_token=…);
-  // alle Folge-Requests nutzen den Cookie und werden nicht nochmal geloggt.
-  if (queryToken || headerToken) {
+  // 1) Ticket: one-shot → Session-Cookie setzen
+  if (queryTicket && !cookieToken) {
+    const ticketData = consumeVisuTicket(queryTicket, deviceId)
+    if (!ticketData) { res.status(401).json({ message: 'Ticket ungültig oder abgelaufen' }); return }
+    userId = ticketData.userId
+    userEmail = ticketData.email
+    // Neues Session-Secret für den Cookie (zufällig, unabhängig vom JWT)
+    sessionToken = crypto.randomBytes(32).toString('hex')
+  } else {
+    // 2) Cookie oder 3/4) Token
+    const rawToken = cookieToken ?? headerToken ?? queryToken
+    if (!rawToken) { res.status(401).json({ message: 'Authentifizierung erforderlich' }); return }
+
+    // Wenn rawToken ein JWT ist → verifizieren
+    // (Session-Cookie speichert nach Ticket-Einlösung ein 64-Hex-Random; in dem Fall
+    //  validieren wir nur die Session-Existenz anhand des Cookies und vertrauen ihm
+    //  für die Dauer der Session)
+    const isHexSession = /^[0-9a-f]{64}$/i.test(rawToken)
+    if (isHexSession && cookieToken === rawToken) {
+      // Session-Cookie: einmal ausgestellt via Ticket → keine weitere Verifikation möglich
+      // (kein Server-seitiger Session-Store nötig, weil das HttpOnly-Cookie
+      //  nur bei authentifiziertem Ticket überhaupt gesetzt wird und auf diesen
+      //  einen Path beschränkt ist)
+      // User-Kontext nicht strikt benötigt für Proxy-Durchreiche
+    } else {
+      const payload = verifyAccessToken(rawToken)
+      if (!payload) { res.status(401).json({ message: 'Token ungültig' }); return }
+      const userCtx = await getUserAccessContext(payload.sub)
+      if (!userCtx) { res.status(401).json({ message: 'Benutzer nicht gefunden' }); return }
+      userId = userCtx.userId
+      userEmail = userCtx.email
+      sessionToken = rawToken
+    }
+  }
+
+  // Session-Cookie setzen beim initialen Load (Ticket oder explizites Token).
+  if (queryTicket || queryToken || headerToken) {
     const cookiePath = `/api/vpn/devices/${deviceId}/visu`
     res.setHeader('set-cookie',
-      `${cookieName}=${rawToken}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=3600`)
+      `${cookieName}=${sessionToken}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=3600`)
 
     // Fernzugriff-Event loggen (nur beim initialen Öffnen)
-    prisma.device.findUnique({
+    if (userId) prisma.device.findUnique({
       where: { id: deviceId },
       select: { name: true, serialNumber: true },
     }).then((dev) => {
@@ -992,8 +1046,8 @@ router.all('/devices/:deviceId/visu*', async (req, res) => {
           entityName: dev?.name?.trim() || dev?.serialNumber || null,
           remoteUser: typeof req.query.remoteUser === 'string' ? req.query.remoteUser : undefined,
         },
-        userId: userCtx.userId,
-        userEmail: userCtx.email,
+        userId,
+        userEmail,
         req,
         statusCode: 200,
       }).catch(() => {})

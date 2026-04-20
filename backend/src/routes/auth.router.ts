@@ -7,6 +7,7 @@ import { comparePassword } from '../lib/password'
 import { getUserAccessContext } from '../services/user-context.service'
 import { authenticate } from '../middleware/authenticate'
 import { logActivity } from '../services/activity-log.service'
+import { loginRateLimiter, refreshRateLimiter } from '../middleware/rate-limit'
 
 const router = Router()
 
@@ -19,18 +20,22 @@ const refreshSchema = z.object({
   refreshToken: z.string().min(1),
 })
 
-function mapUser(user: { id: string; email: string; firstName: string; lastName: string; role: { name: string } | null }) {
+function mapUser(user: { id: string; email: string; firstName: string; lastName: string; role: { name: string; isSystem?: boolean } | null }) {
   return {
     id: user.id,
     email: user.email,
     firstName: user.firstName,
     lastName: user.lastName,
     roleName: user.role?.name ?? null,
+    isSystemRole: user.role?.isSystem === true,
   }
 }
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+const MAX_FAILED_LOGINS = 10
+const LOCKOUT_MINUTES = 30
+
+router.post('/login', loginRateLimiter, async (req, res) => {
   const parsed = loginSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() })
@@ -41,19 +46,70 @@ router.post('/login', async (req, res) => {
 
   const user = await prisma.user.findUnique({
     where: { email, isActive: true },
-    include: { role: { select: { name: true } } },
+    include: { role: { select: { name: true, isSystem: true } } },
   })
 
+  // Lockout-Check: wenn User existiert und lockedUntil in der Zukunft → blockieren
+  if (user?.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+    const remainingMs = user.lockedUntil.getTime() - Date.now()
+    const remainingMin = Math.ceil(remainingMs / 60_000)
+    logActivity({
+      action: 'auth.login.blocked',
+      entityType: 'users',
+      entityId: user.id,
+      details: { email, remainingMin },
+      req,
+      statusCode: 423,
+    }).catch(() => {})
+    res.status(423).json({
+      message: `Account wegen zu vieler fehlgeschlagener Anmeldungen gesperrt. Bitte in ${remainingMin} Min erneut versuchen.`,
+    })
+    return
+  }
+
   if (!user || !(await comparePassword(password, user.passwordHash))) {
+    // Fehlversuch: Counter erhöhen + ggf. sperren
+    if (user) {
+      const newCount = user.failedLoginCount + 1
+      const shouldLock = newCount >= MAX_FAILED_LOGINS
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginCount: newCount,
+          lockedUntil: shouldLock
+            ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000)
+            : null,
+        },
+      })
+      if (shouldLock) {
+        logActivity({
+          action: 'auth.account.locked',
+          entityType: 'users',
+          entityId: user.id,
+          details: { email, failedAttempts: newCount, lockedForMinutes: LOCKOUT_MINUTES },
+          req,
+          statusCode: 423,
+        }).catch(() => {})
+      }
+    }
     logActivity({
       action: 'auth.login.failed',
-      entityType: 'user',
+      entityType: 'users',
+      entityId: user?.id ?? null,
       details: { email },
       req,
       statusCode: 401,
     }).catch(() => {})
     res.status(401).json({ message: 'E-Mail oder Passwort falsch' })
     return
+  }
+
+  // Erfolgreicher Login: Fail-Counter zurücksetzen
+  if (user.failedLoginCount > 0 || user.lockedUntil) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginCount: 0, lockedUntil: null },
+    })
   }
 
   const accessToken = issueAccessToken({ sub: user.id, email: user.email })
@@ -72,7 +128,7 @@ router.post('/login', async (req, res) => {
 
   logActivity({
     action: 'auth.login',
-    entityType: 'user',
+    entityType: 'users',
     entityId: user.id,
     details: { email: user.email },
     req,
@@ -87,7 +143,7 @@ router.post('/login', async (req, res) => {
 })
 
 // POST /api/auth/refresh
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', refreshRateLimiter, async (req, res) => {
   const parsed = refreshSchema.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({ message: 'Ungültige Eingabe' })
