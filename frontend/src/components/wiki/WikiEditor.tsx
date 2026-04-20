@@ -30,6 +30,26 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
 
   const editor: Editor | null = useEditor(
     {
+      editorProps: {
+        handlePaste: (view, event) => {
+          if (!editable) return false
+          const files = Array.from(event.clipboardData?.files ?? [])
+          const images = files.filter((f) => f.type.startsWith('image/'))
+          if (images.length === 0) return false
+          event.preventDefault()
+          void uploadAndInsert(images, view)
+          return true
+        },
+        handleDrop: (view, event) => {
+          if (!editable) return false
+          const files = Array.from(event.dataTransfer?.files ?? [])
+          const images = files.filter((f) => f.type.startsWith('image/'))
+          if (images.length === 0) return false
+          event.preventDefault()
+          void uploadAndInsert(images, view, event as DragEvent)
+          return true
+        },
+      },
       extensions: [
         StarterKit.configure({
           codeBlock: false, // ersetzt durch CodeBlockLowlight
@@ -79,4 +99,44 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
 
 function isValidDoc(c: unknown): c is object {
   return !!c && typeof c === 'object' && (c as { type?: string }).type === 'doc'
+}
+
+/** Lädt Bilder zum Backend hoch und fügt sie als Image-Nodes in das Dokument ein.
+ *  Bei einem Drop-Event wird an der Drop-Position eingefügt, sonst an der
+ *  aktuellen Auswahl. */
+async function uploadAndInsert(
+  files: File[],
+  view: import('@tiptap/pm/view').EditorView,
+  dropEvent?: DragEvent,
+) {
+  const token = localStorage.getItem('accessToken')
+  for (const file of files) {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/wiki/upload', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      })
+      if (!res.ok) throw new Error('Upload fehlgeschlagen')
+      const data = await res.json() as { url: string }
+
+      const { schema } = view.state
+      const node = schema.nodes.image?.create({ src: data.url })
+      if (!node) continue
+
+      if (dropEvent) {
+        const pos = view.posAtCoords({ left: dropEvent.clientX, top: dropEvent.clientY })
+        const tr = view.state.tr.insert(pos?.pos ?? view.state.selection.from, node)
+        view.dispatch(tr)
+      } else {
+        const tr = view.state.tr.replaceSelectionWith(node)
+        view.dispatch(tr)
+      }
+    } catch (err) {
+      console.error('[WikiEditor] Bild-Upload fehlgeschlagen:', err)
+      window.alert(err instanceof Error ? err.message : 'Bild-Upload fehlgeschlagen')
+    }
+  }
 }
