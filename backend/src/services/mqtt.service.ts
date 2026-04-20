@@ -65,9 +65,22 @@ async function handleStat(serial: string, payload: string, io: SocketServer) {
 
   if (device.status === status) return // keine Änderung
 
+  // Bei OFFLINE: VPN- und HTTP-Flags ebenfalls zurücksetzen. Diese Flags
+  // werden vom Pi via MQTT-Tele gemeldet – ohne MQTT-Verbindung kann die
+  // Cloud den realen Zustand nicht mehr kennen; der zuletzt gemeldete
+  // "aktiv"-Zustand ist dann nicht mehr aussagekräftig.
+  const updateData: Record<string, unknown> = {
+    status,
+    lastSeen: isOnline ? new Date() : undefined,
+  }
+  if (!isOnline) {
+    updateData.vpnActive = false
+    updateData.httpActive = false
+  }
+
   await prisma.device.update({
     where: { id: device.id },
-    data: { status, lastSeen: isOnline ? new Date() : undefined },
+    data: updateData,
   })
 
   console.log(`[MQTT] ${serial} → ${status}`)
@@ -76,6 +89,7 @@ async function handleStat(serial: string, payload: string, io: SocketServer) {
     deviceId: device.id,
     status,
     lastSeen: isOnline ? new Date() : undefined,
+    ...(isOnline ? {} : { vpnActive: false, httpActive: false }),
   })
 }
 

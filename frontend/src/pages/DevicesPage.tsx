@@ -204,11 +204,11 @@ export function DevicesPage() {
                 variant={device.isApproved ? 'filled' : 'outlined'}
                 sx={{ fontSize: '0.65rem', height: 20 }} />
               <Chip label="VPN" size="small"
-                color={device.vpnDevice ? (device.vpnActive ? 'success' : 'error') : 'default'}
+                color={device.vpnDevice ? (device.mqttConnected && device.vpnActive ? 'success' : 'error') : 'default'}
                 variant={device.vpnDevice ? 'filled' : 'outlined'}
                 sx={{ fontSize: '0.65rem', height: 20 }} />
               <Chip label="HTTP" size="small"
-                color={device.vpnDevice ? (device.httpActive ? 'success' : 'error') : 'default'}
+                color={device.vpnDevice ? (device.mqttConnected && device.httpActive ? 'success' : 'error') : 'default'}
                 variant={device.vpnDevice ? 'filled' : 'outlined'}
                 sx={{ fontSize: '0.65rem', height: 20 }} />
             </Box>
