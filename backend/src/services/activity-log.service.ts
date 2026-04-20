@@ -117,6 +117,35 @@ export async function fetchEntitySnapshot(
   }
 }
 
+/**
+ * Relationale Felder, die beim Diff nur auf ihre "Identität" reduziert
+ * verglichen werden sollen. Dadurch verschluckt der Diff technisches
+ * Beiwerk (z.B. `assignedAt`-Timestamps bei Re-Linking) und zeigt nur die
+ * tatsächlich relevante Menge an Verknüpfungen.
+ *
+ * Wert = Funktion, die einen Join-Eintrag auf seine Identität reduziert.
+ */
+const RELATION_FIELD_IDENTITY: Record<string, (item: Record<string, unknown>) => string> = {
+  anlageDevices: (x) => {
+    const a = x.anlage as Record<string, unknown> | undefined
+    return (typeof a?.name === 'string' && a.name) ? a.name : String(x.anlageId ?? '')
+  },
+  anlageUsers: (x) => String((x as { userId?: string }).userId ?? ''),
+  userGroups: (x) => String((x as { groupId?: string }).groupId ?? ''),
+  groupMembers: (x) => String((x as { userId?: string }).userId ?? ''),
+  rolePermissions: (x) => String((x as { permissionId?: string }).permissionId ?? ''),
+}
+
+function normalizeForDiff(key: string, value: unknown): unknown {
+  const identityFn = RELATION_FIELD_IDENTITY[key]
+  if (identityFn && Array.isArray(value)) {
+    return value
+      .map((item) => (item && typeof item === 'object' ? identityFn(item as Record<string, unknown>) : String(item)))
+      .sort()
+  }
+  return value
+}
+
 /** Vergleicht zwei Snapshots und gibt geänderte Felder als { from, to } zurück. */
 export function computeDiff(
   before: Record<string, unknown>,
@@ -127,8 +156,10 @@ export function computeDiff(
   for (const key of keys) {
     if (SENSITIVE_FIELDS.has(key) || NOISY_FIELDS.has(key)) continue
     if (key.toLowerCase().includes('hash')) continue
-    const from = before[key]
-    const to = after[key]
+    const rawFrom = before[key]
+    const rawTo = after[key]
+    const from = normalizeForDiff(key, rawFrom)
+    const to = normalizeForDiff(key, rawTo)
     if (JSON.stringify(from) !== JSON.stringify(to)) {
       changes[key] = { from, to }
     }
