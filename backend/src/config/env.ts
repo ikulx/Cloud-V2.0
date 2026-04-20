@@ -43,11 +43,31 @@ export const env = {
  * bekannte Dev-Defaults aktiv sind. Das verhindert versehentliches Deployment
  * mit öffentlich bekannten Secrets.
  */
+type SecretIssue = 'too_short' | 'dev_placeholder' | 'identical'
+
+/** Klassifiziert ein Secret OHNE es selbst weiterzureichen. */
+function classifySecret(value: string | undefined): SecretIssue | null {
+  if (!value || value.length < 24) return 'too_short'
+  const DEV_MARKERS = ['change-me', 'dev-', 'change_me', 'your-', 'secret-here']
+  const lower = value.toLowerCase()
+  if (DEV_MARKERS.some((m) => lower.includes(m))) return 'dev_placeholder'
+  return null
+}
+
+/** Renderbare, NICHT-sensible Beschreibung eines Issues. */
+function describeIssue(name: string, issue: SecretIssue): string {
+  switch (issue) {
+    case 'too_short':       return `${name}: zu kurz (min 24 Zeichen erforderlich)`
+    case 'dev_placeholder': return `${name}: enthält Dev-Platzhalter. Muss in Prod ein starkes, zufälliges Secret sein.`
+    case 'identical':       return 'JWT_ACCESS_SECRET und JWT_REFRESH_SECRET dürfen nicht identisch sein'
+  }
+}
+
 export function validateProdSecrets(): void {
   if (env.nodeEnv !== 'production') return
 
-  const problems: string[] = []
-  const DEV_MARKERS = ['change-me', 'dev-', 'CHANGE_ME', 'your-', 'secret-here']
+  // Tupel (name, issue) – Werte fließen NICHT in den Log-Output.
+  const issues: Array<[string, SecretIssue]> = []
 
   const checks: Array<[string, string]> = [
     ['JWT_ACCESS_SECRET', env.jwt.accessSecret],
@@ -56,22 +76,21 @@ export function validateProdSecrets(): void {
     ['MQTT_BACKEND_PASSWORD', env.mqttBackendPassword],
   ]
   for (const [name, value] of checks) {
-    if (!value || value.length < 24) {
-      problems.push(`${name}: zu kurz (min 24 Zeichen erforderlich, aktuell ${value.length})`)
-    } else if (DEV_MARKERS.some((m) => value.toLowerCase().includes(m.toLowerCase()))) {
-      problems.push(`${name}: enthält Dev-Platzhalter. Muss in Prod ein starkes, zufälliges Secret sein.`)
-    }
+    const issue = classifySecret(value)
+    if (issue) issues.push([name, issue])
   }
 
   if (env.jwt.accessSecret === env.jwt.refreshSecret) {
-    problems.push('JWT_ACCESS_SECRET und JWT_REFRESH_SECRET dürfen nicht identisch sein')
+    issues.push(['JWT_*_SECRET', 'identical'])
   }
 
-  if (problems.length > 0) {
+  if (issues.length > 0) {
     console.error('═══════════════════════════════════════════════════════════════')
     console.error('  🚨 SECURITY: Produktions-Start abgebrochen')
     console.error('═══════════════════════════════════════════════════════════════')
-    for (const p of problems) console.error(`  ✗ ${p}`)
+    for (const [name, issue] of issues) {
+      console.error('  ✗ %s', describeIssue(name, issue))
+    }
     console.error('')
     console.error('  Bitte in der .env sichere, zufällige Secrets setzen, z.B.:')
     console.error('  JWT_ACCESS_SECRET=$(openssl rand -hex 32)')

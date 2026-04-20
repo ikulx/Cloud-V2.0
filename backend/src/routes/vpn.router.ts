@@ -42,9 +42,10 @@ import {
 } from '../services/vpn.service'
 import { env } from '../config/env'
 import { publishCommand } from '../services/mqtt.service'
-import { hashDeviceSecret } from '../lib/token'
+import { verifyDeviceSecret } from '../lib/token'
 import { logActivity } from '../services/activity-log.service'
 import { issueVisuTicket, consumeVisuTicket } from '../services/visu-ticket.service'
+import { storeLanBasicAuth, getLanBasicAuth, removeLanBasicAuth } from '../services/lan-basic-auth-session.service'
 import crypto from 'crypto'
 
 const router = Router()
@@ -387,7 +388,7 @@ router.get('/device-config', async (req, res) => {
     select: { id: true, isApproved: true, deviceSecret: true },
   })
   if (!device?.isApproved || !device.deviceSecret) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
-  if (hashDeviceSecret(secret) !== device.deviceSecret) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
+  if (!verifyDeviceSecret(secret, device.deviceSecret)) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
 
   const vpnDevice = await prisma.vpnDevice.findUnique({ where: { deviceId: device.id } })
   if (!vpnDevice) { res.status(404).json({ message: 'Kein VPN für dieses Gerät konfiguriert' }); return }
@@ -602,6 +603,16 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
   const lanPortStr = req.params[2] as string
   const lanPort = parseInt(lanPortStr) || 80
 
+  // Strikte Validierung aller Pfad-Parameter: verhindert XSS über URL-Params,
+  // die später in injizierten Scripts/Cookies landen würden.
+  if (!UUID_RE.test(deviceId)) { res.status(400).json({ message: 'Ungültige Device-ID' }); return }
+  if (!/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(lanIp)) {
+    res.status(400).json({ message: 'Ungültige LAN-IP' }); return
+  }
+  if (lanPort < 1 || lanPort > 65535) {
+    res.status(400).json({ message: 'Ungültiger LAN-Port' }); return
+  }
+
   // Auth (gleich wie Visu-Route)
   const cookieName = `lan_${deviceId.replace(/-/g, '')}_${lanIp.replace(/\./g, '')}`
   const headerToken = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : null
@@ -627,11 +638,13 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     : null
   console.log(`[VPN-LAN] Auth: query=${!!queryToken} cookie=${!!cookieToken} header=${!!headerToken} → token=${!!rawToken}`)
 
-  // Basic-Auth-Cookie: gespeicherte Credentials für Geräte mit HTTP Basic Auth
+  // Basic-Auth-Session-Cookie: enthält nur eine Session-ID, die Credentials
+  // bleiben server-seitig in einem in-memory Store (24h TTL).
   const baCookieName = `lanba_${deviceId.replace(/-/g, '').slice(0, 8)}_${lanIp.replace(/\./g, '')}`
-  const baCredentials = (req.headers.cookie ?? '').split(';')
+  const baSessionId = (req.headers.cookie ?? '').split(';')
     .map(c => c.trim()).find(c => c.startsWith(`${baCookieName}=`))
     ?.slice(baCookieName.length + 1) ?? null
+  const baCredentials = baSessionId ? getLanBasicAuth(baSessionId) : null
 
   // Pfad nach /lan/:ip/:port weitergeben (Regex-Gruppe [3] = restlicher Pfad)
   const rawPath = (req.params[3] as string) || '/'
@@ -646,8 +659,9 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
       const params = new URLSearchParams(body)
       const user = params.get('username') ?? ''
       const pass = params.get('password') ?? ''
-      const b64 = Buffer.from(`${user}:${pass}`).toString('base64')
-      const baCookie = `${baCookieName}=${b64}; Path=${proxyBase}/; HttpOnly; SameSite=Lax; Max-Age=86400`
+      // Credentials im Server-Speicher ablegen, Cookie bekommt nur die Session-ID.
+      const sessionId = storeLanBasicAuth(user, pass)
+      const baCookie = `${baCookieName}=${sessionId}; Path=${proxyBase}/; HttpOnly; SameSite=Lax; Max-Age=86400`
       const cookies: string[] = [baCookie]
       if (authCookie) cookies.push(authCookie)
       res.setHeader('set-cookie', cookies)
@@ -656,8 +670,9 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     return
   }
 
-  // GET /_logout: Basic-Auth-Cookie löschen
+  // GET /_logout: Basic-Auth-Session löschen
   if (targetPath === '/_logout') {
+    if (baSessionId) removeLanBasicAuth(baSessionId)
     const baCookie = `${baCookieName}=; Path=${proxyBase}/; HttpOnly; SameSite=Lax; Max-Age=0`
     const cookies: string[] = [baCookie]
     if (authCookie) cookies.push(authCookie)
@@ -745,12 +760,17 @@ router.all(/^\/devices\/([^/]+)\/lan\/([^/]+)\/(\d+)(\/.*)?$/, async (req, res) 
     }
 
     const isHttpsReq = parsed.protocol === 'https:'
+    // TLS-Cert-Validierung ist im LAN-Kontext bewusst nachsichtig: LAN-Geräte
+    // haben typisch self-signed oder keine Zertifikate, und wir erreichen sie
+    // nur über den verschlüsselten WireGuard-Tunnel. Wir deaktivieren die
+    // Verifikation nur wenn die Ziel-IP im privaten Adressbereich liegt (RFC
+    // 1918 + 10.0.0.0/8 VPN). Bei öffentlichen Zielen bleibt sie aktiv.
     const reqOpts: https.RequestOptions = {
       hostname: parsed.hostname, port: portNum,
       path: parsed.pathname + parsed.search, method: req.method,
       headers: fwdHeaders,
       timeout: 15000,
-      rejectUnauthorized: false,
+      rejectUnauthorized: !isPrivateIp(parsed.hostname),
     }
     if (isHttpsReq) {
       reqOpts.minVersion = 'TLSv1'
@@ -914,6 +934,11 @@ ${baCredentials ? '<div class="err">Anmeldedaten ungueltig</div>' : ''}
 
           res.removeHeader('content-length')
           res.removeHeader('content-encoding')
+          // Defence-in-Depth gegen XSS im LAN-Forward:
+          // - X-Content-Type-Options: nosniff → Browser respektiert Content-Type strikt
+          // - X-Frame-Options: SAMEORIGIN → keine Einbettung aus fremden Domains
+          res.setHeader('x-content-type-options', 'nosniff')
+          res.setHeader('x-frame-options', 'SAMEORIGIN')
           appendAuthCookie()
           res.send(body)
         })
@@ -966,6 +991,22 @@ router.post('/devices/:deviceId/visu-ticket', authenticate, async (req, res) => 
   const { ticket, expiresAt } = issueVisuTicket(req.user.userId, req.user.email, deviceId)
   res.json({ ticket, expiresAt })
 })
+
+/**
+ * Prüft ob eine IPv4-Adresse im privaten Bereich liegt (RFC 1918 + VPN/Loopback).
+ * Wird für LAN/VPN-Proxy genutzt, um TLS-Cert-Validierung selektiv zu lockern.
+ */
+function isPrivateIp(host: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (!m) return false
+  const a = parseInt(m[1]), b = parseInt(m[2])
+  if (a === 10) return true                          // 10.0.0.0/8 (incl. VPN)
+  if (a === 127) return true                         // 127.0.0.0/8 loopback
+  if (a === 192 && b === 168) return true            // 192.168.0.0/16
+  if (a === 172 && b >= 16 && b <= 31) return true   // 172.16.0.0/12
+  if (a === 169 && b === 254) return true            // link-local
+  return false
+}
 
 // ─── Visu-Proxy (Ycontrol Visu auf Pi) ───────────────────────────────────────
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

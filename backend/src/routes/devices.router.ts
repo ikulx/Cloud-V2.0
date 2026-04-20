@@ -4,7 +4,7 @@ import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import { buildVisibleDevicesWhere } from '../lib/access-filter'
-import { generateDeviceSecret, hashDeviceSecret } from '../lib/token'
+import { generateDeviceSecret, verifyDeviceSecret } from '../lib/token'
 import { publishCommand, kickMqttClient, clearRetainedMessages } from '../services/mqtt.service'
 import { env } from '../config/env'
 import { getSetting } from './settings.router'
@@ -968,9 +968,8 @@ router.post('/mqtt-auth', async (req, res) => {
     res.status(403).end(); return
   }
 
-  const inputHash = hashDeviceSecret(password)
-  if (inputHash !== device.deviceSecret) {
-    console.warn(`[MQTT-Auth] DENY – Falsches Secret: "${username}"`)
+  if (!verifyDeviceSecret(password, device.deviceSecret)) {
+    console.warn('[MQTT-Auth] DENY – Falsches Secret: %s', username)
     res.status(403).end(); return
   }
 
@@ -1013,7 +1012,7 @@ router.get('/agent-update', async (req, res) => {
     select: { id: true, isApproved: true, deviceSecret: true },
   })
   if (!device?.isApproved || !device.deviceSecret) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
-  if (hashDeviceSecret(secret) !== device.deviceSecret) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
+  if (!verifyDeviceSecret(secret, device.deviceSecret)) { res.status(403).json({ message: 'Nicht autorisiert' }); return }
 
   const [serverUrl, mqttHost, mqttPort] = await Promise.all([
     getSetting('pi.serverUrl'),
