@@ -4,12 +4,18 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../db/prisma'
 import { issueAccessToken, issueRefreshToken, verifyRefreshToken } from '../lib/token'
-import { comparePassword } from '../lib/password'
+import { comparePassword, hashPassword } from '../lib/password'
 import { getUserAccessContext } from '../services/user-context.service'
 import { authenticate } from '../middleware/authenticate'
 import { logActivity } from '../services/activity-log.service'
-import { loginRateLimiter, refreshRateLimiter, verify2faRateLimiter } from '../middleware/rate-limit'
-import { sendLoginCodeMail } from '../services/mail.service'
+import {
+  loginRateLimiter,
+  refreshRateLimiter,
+  verify2faRateLimiter,
+  forgotPasswordRateLimiter,
+  resetPasswordRateLimiter,
+} from '../middleware/rate-limit'
+import { sendLoginCodeMail, sendPasswordResetMail } from '../services/mail.service'
 
 const router = Router()
 
@@ -26,6 +32,18 @@ const verify2faSchema = z.object({
   challengeId: z.string().uuid(),
   code: z.string().regex(/^\d{6}$/, 'Code muss 6 Ziffern haben'),
 })
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+})
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(10),
+  password: z.string().min(8, 'Passwort muss mindestens 8 Zeichen haben'),
+})
+
+// Passwort-Reset-Parameter
+const PASSWORD_RESET_TTL_MINUTES = 60
 
 // 2FA-Parameter
 const TWO_FA_TTL_MINUTES = 10
@@ -359,6 +377,154 @@ router.post('/refresh', refreshRateLimiter, async (req, res) => {
   })
 
   res.json({ accessToken: newAccessToken, refreshToken: newRefreshTokenRaw })
+})
+
+// POST /api/auth/forgot-password
+// Antwortet IMMER 200, auch wenn die Adresse unbekannt ist (keine User-Enumeration).
+router.post('/forgot-password', forgotPasswordRateLimiter, async (req, res) => {
+  const parsed = forgotPasswordSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ message: 'Ungültige Eingabe' })
+    return
+  }
+
+  const { email } = parsed.data
+  const user = await prisma.user.findUnique({
+    where: { email, isActive: true },
+  })
+
+  if (user) {
+    // Alte, ungenutzte Reset-Tokens des Users invalidieren
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, consumedAt: null },
+      data: { consumedAt: new Date() },
+    })
+
+    // 32 Byte Zufall → URL-safe hex (64 chars)
+    const rawToken = crypto.randomBytes(32).toString('hex')
+    const tokenHash = await bcrypt.hash(rawToken, 10)
+
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60_000),
+        ipAddress: req.ip ?? null,
+      },
+    })
+
+    sendPasswordResetMail(user.email, rawToken).catch((err) => {
+      console.error('[auth/forgot-password] Mail-Versand fehlgeschlagen:', err)
+    })
+
+    logActivity({
+      action: 'auth.password.reset.requested',
+      entityType: 'users',
+      entityId: user.id,
+      details: { email: user.email },
+      req,
+      statusCode: 200,
+    }).catch(() => {})
+  } else {
+    // Trotzdem loggen – interessant für Audit
+    logActivity({
+      action: 'auth.password.reset.requested.unknown',
+      entityType: 'users',
+      entityId: null,
+      details: { email },
+      req,
+      statusCode: 200,
+    }).catch(() => {})
+  }
+
+  res.json({
+    message: 'Falls ein Konto mit dieser E-Mail existiert, haben wir einen Link zum Zurücksetzen geschickt.',
+  })
+})
+
+// POST /api/auth/reset-password
+router.post('/reset-password', resetPasswordRateLimiter, async (req, res) => {
+  const parsed = resetPasswordSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({
+      message: 'Ungültige Eingabe',
+      errors: parsed.error.flatten(),
+    })
+    return
+  }
+
+  const { token, password } = parsed.data
+
+  // Alle aktiven Tokens holen und bcrypt-vergleichen (Tokens sind nicht im
+  // Klartext in der DB, daher kein direkter lookup möglich).
+  const candidates = await prisma.passwordResetToken.findMany({
+    where: {
+      consumedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  })
+
+  let matched: (typeof candidates)[0] | null = null
+  for (const c of candidates) {
+    if (await bcrypt.compare(token, c.tokenHash)) {
+      matched = c
+      break
+    }
+  }
+
+  if (!matched) {
+    res.status(401).json({ message: 'Link ist ungültig oder abgelaufen' })
+    return
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: matched.userId, isActive: true },
+  })
+  if (!user) {
+    res.status(401).json({ message: 'Benutzer nicht mehr verfügbar' })
+    return
+  }
+
+  const newHash = await hashPassword(password)
+
+  // Passwort setzen, Reset-Token verbrauchen, Lockout zurücksetzen und
+  // alle laufenden Sessions (Refresh-Tokens) widerrufen.
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: newHash,
+        failedLoginCount: 0,
+        lockedUntil: null,
+      },
+    }),
+    prisma.passwordResetToken.update({
+      where: { id: matched.id },
+      data: { consumedAt: new Date() },
+    }),
+    prisma.refreshToken.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+    // Laufende 2FA-Challenges ebenfalls invalidieren
+    prisma.authChallenge.updateMany({
+      where: { userId: user.id, consumedAt: null },
+      data: { consumedAt: new Date() },
+    }),
+  ])
+
+  logActivity({
+    action: 'auth.password.reset.completed',
+    entityType: 'users',
+    entityId: user.id,
+    details: { email: user.email },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
+
+  res.json({ message: 'Passwort wurde erfolgreich zurückgesetzt.' })
 })
 
 // POST /api/auth/logout

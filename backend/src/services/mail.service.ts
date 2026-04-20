@@ -177,3 +177,45 @@ export async function sendLoginCodeMail(email: string, code: string): Promise<vo
 
   await sendMail(email, `YControl Cloud – Ihr Anmeldecode: ${code}`, html)
 }
+
+/**
+ * Passwort-Reset-Link. Der Token ist im Link enthalten und darf nur einmal
+ * verwendet werden.
+ */
+export async function sendPasswordResetMail(email: string, token: string): Promise<void> {
+  const { config } = await getTransporter()
+  const link = `${config.appUrl}/reset-password/${token}`
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #333;">
+  <div style="background: #1976d2; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
+    <h1 style="color: white; margin: 0; font-size: 22px;">YControl Cloud</h1>
+  </div>
+  <div style="border: 1px solid #e0e0e0; border-top: none; padding: 32px 24px; border-radius: 0 0 8px 8px;">
+    <p>Hallo,</p>
+    <p>es wurde ein neues Passwort für Ihr Konto bei der YControl Cloud angefordert.</p>
+    <p>Klicken Sie auf den folgenden Button, um ein neues Passwort zu vergeben:</p>
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="${link}"
+         style="display: inline-block; padding: 14px 32px; background: #1976d2; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
+        Passwort zurücksetzen
+      </a>
+    </div>
+    <p style="font-size: 13px; color: #666;">
+      Oder kopieren Sie diesen Link in Ihren Browser:<br>
+      <a href="${link}" style="color: #1976d2; word-break: break-all;">${link}</a>
+    </p>
+    <p style="font-size: 13px; color: #999; margin-top: 32px;">
+      Der Link ist <strong>1 Stunde</strong> gültig und kann nur einmal verwendet werden.
+      Falls Sie kein neues Passwort angefordert haben, ignorieren Sie diese E-Mail –
+      Ihr aktuelles Passwort bleibt unverändert.
+    </p>
+  </div>
+</body>
+</html>`
+
+  await sendMail(email, 'YControl Cloud – Passwort zurücksetzen', html)
+}

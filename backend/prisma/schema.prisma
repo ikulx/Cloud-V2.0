@@ -47,6 +47,7 @@ model User {
   directDevices    UserDirectDevice[]
   refreshTokens    RefreshToken[]
   authChallenges   AuthChallenge[]
+  passwordResets   PasswordResetToken[]
   vpnPeers         VpnPeer[]
 
   createdAnlageTodos  AnlageTodo[]     @relation("AnlageTodoAuthor")
@@ -90,6 +91,24 @@ model AuthChallenge {
   @@index([userId])
   @@index([expiresAt])
   @@map("auth_challenges")
+}
+
+/// Passwort-Reset-Token. Wird per E-Mail verschickt (Link), ist einmalig und
+/// kurzlebig. Nur der bcrypt-Hash wird gespeichert – das Klartext-Token
+/// existiert nur in der E-Mail bzw. im Browser des Benutzers.
+model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  ipAddress  String?   @map("ip_address")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // ─── Activity Log (Audit-Trail) ────────────────────────────────────────────────

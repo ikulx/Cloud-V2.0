@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link as RouterLink } from 'react-router-dom'
+import Link from '@mui/material/Link'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
@@ -187,6 +188,11 @@ export function LoginPage() {
               >
                 {loading ? t('login.loading') : t('login.submit')}
               </Button>
+              <Box textAlign="center">
+                <Link component={RouterLink} to="/forgot-password" variant="body2">
+                  Passwort vergessen?
+                </Link>
+              </Box>
             </Box>
           )}
         </CardContent>

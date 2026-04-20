@@ -74,6 +74,29 @@ export const verify2faRateLimiter = rateLimit({
 })
 
 /**
+ * Passwort-Vergessen: 5 Versuche pro Stunde pro IP.
+ * Verhindert E-Mail-Flood + User-Enumeration-Stress.
+ */
+export const forgotPasswordRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Zu viele Versuche. Bitte in einer Stunde erneut.' },
+})
+
+/**
+ * Passwort-Reset (Token einlösen): 20 pro Stunde pro IP.
+ */
+export const resetPasswordRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Zu viele Versuche, bitte später erneut.' },
+})
+
+/**
  * Test-Mail: 5 pro Stunde.
  */
 export const testMailRateLimiter = rateLimit({
