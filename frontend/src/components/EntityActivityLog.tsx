@@ -7,14 +7,22 @@ import { useActivityLog } from '../features/activity-log/queries'
 import { ActivityTable } from './ActivityTable'
 
 interface Props {
-  entityId: string
+  /** Filter: nur Einträge die DIESE Entität betreffen (Standard). */
+  entityId?: string
+  /** Filter: nur Einträge die DIESER Benutzer ausgelöst hat. */
+  userId?: string
   /** Limit der angezeigten Einträge (default 100) */
   limit?: number
 }
 
-export function EntityActivityLog({ entityId, limit = 100 }: Props) {
+/**
+ * Zeigt Activity-Log-Einträge für eine Entität ODER für einen Benutzer.
+ * - entityId: Änderungen AN der Entität (z.B. "Anlage bearbeitet")
+ * - userId: Änderungen DURCH den Benutzer (z.B. Benutzer X hat Anlage Y bearbeitet)
+ */
+export function EntityActivityLog({ entityId, userId, limit = 100 }: Props) {
   const { t } = useTranslation()
-  const { data, isLoading } = useActivityLog({ entityId, limit })
+  const { data, isLoading } = useActivityLog({ entityId, userId, limit })
 
   if (isLoading) {
     return <Box display="flex" justifyContent="center" py={4}><CircularProgress size={28} /></Box>

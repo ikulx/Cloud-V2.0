@@ -255,7 +255,7 @@ export function UsersPage() {
             )}
 
             {tab === 2 && editUser && canReadActivityLog && (
-              <EntityActivityLog entityId={editUser.id} limit={50} />
+              <EntityActivityLog userId={editUser.id} limit={50} />
             )}
           </Box>
 
