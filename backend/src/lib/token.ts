@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import jwt from 'jsonwebtoken'
+import bcrypt from 'bcryptjs'
 import { env } from '../config/env'
 
 interface TokenPayload {
@@ -38,43 +39,61 @@ export function verifyRefreshToken(token: string): TokenPayload | null {
 /**
  * Device-Secret-Hashing.
  *
- * Device-Secrets sind kryptografisch zufällige 32-Byte-Werte (hex = 64 chars),
- * die vom Server generiert und einmalig an den Pi übergeben werden.
- * Sie sind KEINE Passwörter (kein low-entropy user-input), daher ist bcrypt/argon2
- * nicht nötig (und wäre bei jeder MQTT-Verbindung zu langsam).
+ * Device-Secrets sind 32-Byte-Zufall (hex, 64 chars) — kryptografisch bereits
+ * unbruteforcebar. Aber wir verwenden bcrypt, um auch automatisierte Audit-Scans
+ * (CodeQL js/insufficient-password-hash) zu befriedigen und Defense-in-Depth
+ * für den Fall eines DB-Leaks zu haben.
  *
- * Stattdessen: HMAC-SHA256 mit dem server-seitigen MQTT_AUTH_SECRET.
- * Vorteile gegenüber blank SHA-256:
- *   - Angreifer der DB-Hash stiehlt kann ohne MQTT_AUTH_SECRET nichts
- *     vorberechnen (keyed hash, keine Rainbow-Tables anwendbar).
- *   - Konstante Ausführungszeit (timingSafeEqual beim Vergleich).
+ * Cost-Faktor 10 → ~50ms pro Verify auf modernen CPUs. Akzeptabel, da Pi's
+ * nur selten (re-)verbinden.
  */
-function serverHmacKey(): Buffer {
-  return Buffer.from(env.mqttAuthSecret, 'utf-8')
-}
+const BCRYPT_ROUNDS = 10
 
 export function generateDeviceSecret(): { secret: string; hash: string } {
   const secret = crypto.randomBytes(32).toString('hex')
-  const hash = hashDeviceSecret(secret)
+  const hash = bcrypt.hashSync(secret, BCRYPT_ROUNDS)
   return { secret, hash }
 }
 
+/** Erzeugt einen neuen bcrypt-Hash für ein bereits bekanntes Secret. */
 export function hashDeviceSecret(secret: string): string {
-  return crypto.createHmac('sha256', serverHmacKey()).update(secret).digest('hex')
+  return bcrypt.hashSync(secret, BCRYPT_ROUNDS)
 }
 
-/** Constant-time Vergleich. Prüft sowohl neuen HMAC-Hash als auch das
- *  alte SHA-256-Schema (für bereits deployed'e Pis). */
+/**
+ * Constant-time Vergleich. Unterstützt:
+ *   - bcrypt (neue Secrets, Hash beginnt mit $2)
+ *   - HMAC-SHA256 mit MQTT_AUTH_SECRET (Legacy 1, hex)
+ *   - plain SHA-256 (Legacy 2, hex — älteste Pis)
+ *
+ * Legacy-Pfade sind für Graceful Migration: bereits deployed'e Pis funktionieren
+ * weiter, ohne Re-Provisioning. CodeQL-Suppressions sind explizit gesetzt, da die
+ * veralteten Algorithmen NUR zum Vergleich mit existierenden DB-Hashes dienen,
+ * nicht zur Neu-Erstellung.
+ */
 export function verifyDeviceSecret(plainSecret: string, storedHash: string): boolean {
-  // Neuer HMAC-Hash
-  const hmac = hashDeviceSecret(plainSecret)
+  // Neuer bcrypt-Hash
+  if (storedHash.startsWith('$2')) {
+    return bcrypt.compareSync(plainSecret, storedHash)
+  }
+
+  // Legacy 1: HMAC-SHA256 (keyed mit MQTT_AUTH_SECRET) – hex output (64 chars)
+  // lgtm[js/insufficient-password-hash]
+  const hmac = crypto.createHmac('sha256', Buffer.from(env.mqttAuthSecret, 'utf-8'))
+    .update(plainSecret)
+    .digest('hex')
   if (hmac.length === storedHash.length && crypto.timingSafeEqual(
-    Buffer.from(hmac, 'utf-8'), Buffer.from(storedHash, 'utf-8'),
+    Buffer.from(hmac, 'utf-8'),
+    Buffer.from(storedHash, 'utf-8'),
   )) return true
-  // Legacy-Fallback: altes SHA-256 ohne Schlüssel
+
+  // Legacy 2: plain SHA-256 (älteste Pis aus Vor-HMAC-Zeit) – hex output
+  // lgtm[js/insufficient-password-hash]
   const legacy = crypto.createHash('sha256').update(plainSecret).digest('hex')
   if (legacy.length === storedHash.length && crypto.timingSafeEqual(
-    Buffer.from(legacy, 'utf-8'), Buffer.from(storedHash, 'utf-8'),
+    Buffer.from(legacy, 'utf-8'),
+    Buffer.from(storedHash, 'utf-8'),
   )) return true
+
   return false
 }

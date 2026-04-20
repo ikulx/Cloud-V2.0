@@ -1,0 +1,27 @@
+# Codacy-Konfiguration
+#
+# Wir nutzen moderne Toolchains (TypeScript, ESLint mit Flat Config, Vite, MUI).
+# Die veralteten Codacy-Default-Engines (JSHint, CSSLint) kennen ES-Module,
+# CSS Variables, ES2020+ Syntax und moderne CSS-Features nicht und produzieren
+# False-Positives. Sie werden deaktiviert; CodeQL + Stylelint bleiben aktiv.
+---
+engines:
+  # JSHint: kann keine ESM (eslint.config.js ist ein ES-Module)
+  jshint:
+    enabled: false
+  # CSSLint: aus 2014, flagged "IE6 box-sizing" und universal selectors
+  csslint:
+    enabled: false
+  # Prospector (Python) – nicht relevant, wir haben kein Python
+  prospector:
+    enabled: false
+  # CodeQL / Stylelint / ESLint bleiben aktiv (sinnvolle, moderne Tools)
+
+exclude_paths:
+  # Generiertes / vendored
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.next/**"
+  - "**/coverage/**"
+  - "backend/prisma/migrations/**"
