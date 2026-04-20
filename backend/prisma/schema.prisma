@@ -46,6 +46,7 @@ model User {
   directAnlagen    UserDirectAnlage[]
   directDevices    UserDirectDevice[]
   refreshTokens    RefreshToken[]
+  authChallenges   AuthChallenge[]
   vpnPeers         VpnPeer[]
 
   createdAnlageTodos  AnlageTodo[]     @relation("AnlageTodoAuthor")
@@ -69,6 +70,26 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+/// 2FA-Challenge für privilegierte Rollen (Admin + Verwalter).
+/// Nach Login mit korrektem Passwort wird ein 6-stelliger Code per E-Mail
+/// gesendet und hier als bcrypt-Hash gespeichert. Ungenutzt/abgelaufen wird
+/// er vom Cleanup-Job gelöscht.
+model AuthChallenge {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  codeHash    String   @map("code_hash")
+  attempts    Int      @default(0)
+  consumedAt  DateTime? @map("consumed_at")
+  expiresAt   DateTime  @map("expires_at")
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("auth_challenges")
 }
 
 // ─── Activity Log (Audit-Trail) ────────────────────────────────────────────────

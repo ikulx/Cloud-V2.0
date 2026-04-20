@@ -10,7 +10,7 @@ import Alert from '@mui/material/Alert'
 import CircularProgress from '@mui/material/CircularProgress'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
-import { useSession } from '../context/SessionContext'
+import { useSession, type TwoFAChallenge } from '../context/SessionContext'
 import { useTranslation } from 'react-i18next'
 import i18n from '../i18n/index'
 
@@ -22,26 +22,54 @@ const LANGUAGES = [
 ]
 
 export function LoginPage() {
-  const { login } = useSession()
+  const { login, verify2FA } = useSession()
   const navigate = useNavigate()
   const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [challenge, setChallenge] = useState<TwoFAChallenge | null>(null)
+  const [code, setCode] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
+      const challengeResult = await login(email, password)
+      if (challengeResult) {
+        setChallenge(challengeResult)
+        setCode('')
+      } else {
+        navigate('/')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('login.failed'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!challenge) return
+    setError('')
+    setLoading(true)
+    try {
+      await verify2FA(challenge.challengeId, code)
       navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : t('login.failed'))
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleBackToLogin = () => {
+    setChallenge(null)
+    setCode('')
+    setError('')
   }
 
   const handleLangChange = (code: string) => {
@@ -86,35 +114,81 @@ export function LoginPage() {
 
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-          <Box component="form" onSubmit={handleSubmit} display="flex" flexDirection="column" gap={2}>
-            <TextField
-              label={t('common.email')}
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoFocus
-              fullWidth
-            />
-            <TextField
-              label={t('login.password')}
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              fullWidth
-            />
-            <Button
-              type="submit"
-              variant="contained"
-              size="large"
-              fullWidth
-              disabled={loading}
-              startIcon={loading ? <CircularProgress size={16} /> : null}
-            >
-              {loading ? t('login.loading') : t('login.submit')}
-            </Button>
-          </Box>
+          {challenge ? (
+            <Box component="form" onSubmit={handleVerify} display="flex" flexDirection="column" gap={2}>
+              <Alert severity="info" sx={{ mb: 1 }}>
+                Wir haben einen 6-stelligen Bestätigungscode an <strong>{challenge.email}</strong> gesendet.
+                Der Code ist 10 Minuten gültig.
+              </Alert>
+              <TextField
+                label="Bestätigungscode"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                required
+                autoFocus
+                fullWidth
+                inputProps={{
+                  inputMode: 'numeric',
+                  pattern: '[0-9]{6}',
+                  maxLength: 6,
+                  style: {
+                    fontSize: 28,
+                    letterSpacing: 10,
+                    textAlign: 'center',
+                    fontFamily: 'monospace',
+                  },
+                }}
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                size="large"
+                fullWidth
+                disabled={loading || code.length !== 6}
+                startIcon={loading ? <CircularProgress size={16} /> : null}
+              >
+                {loading ? t('login.loading') : 'Code bestätigen'}
+              </Button>
+              <Button
+                variant="text"
+                size="small"
+                onClick={handleBackToLogin}
+                disabled={loading}
+              >
+                Zurück zur Anmeldung
+              </Button>
+            </Box>
+          ) : (
+            <Box component="form" onSubmit={handleSubmit} display="flex" flexDirection="column" gap={2}>
+              <TextField
+                label={t('common.email')}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+                fullWidth
+              />
+              <TextField
+                label={t('login.password')}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                fullWidth
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                size="large"
+                fullWidth
+                disabled={loading}
+                startIcon={loading ? <CircularProgress size={16} /> : null}
+              >
+                {loading ? t('login.loading') : t('login.submit')}
+              </Button>
+            </Box>
+          )}
         </CardContent>
       </Card>
     </Box>

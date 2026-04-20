@@ -62,6 +62,18 @@ export const inviteAcceptRateLimiter = rateLimit({
 })
 
 /**
+ * 2FA-Verify: 20 Versuche pro 15 Min pro IP (pro Challenge gibt es zusätzlich
+ * eine DB-basierte Attempts-Sperre nach 5 Fehlversuchen).
+ */
+export const verify2faRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Zu viele Code-Versuche. Bitte neu anmelden.' },
+})
+
+/**
  * Test-Mail: 5 pro Stunde.
  */
 export const testMailRateLimiter = rateLimit({
