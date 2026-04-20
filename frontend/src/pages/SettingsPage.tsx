@@ -27,9 +27,11 @@ import DownloadIcon from '@mui/icons-material/Download'
 import SendIcon from '@mui/icons-material/Send'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import StorageIcon from '@mui/icons-material/Storage'
 import MemoryIcon from '@mui/icons-material/Memory'
-import { useSettings, useUpdateSettings, useSystemInfo, useCleanupActivityLog, type SystemInfo } from '../features/settings/queries'
+import { useSettings, useUpdateSettings, useSystemInfo, useCleanupActivityLog, useDeleteAllActivityLog, type SystemInfo } from '../features/settings/queries'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { apiFetch, apiPatch, apiPost } from '../lib/api'
 import { useTranslation } from 'react-i18next'
 import { useSession } from '../context/SessionContext'
@@ -62,6 +64,8 @@ export function SettingsPage() {
   const [retentionSaved, setRetentionSaved] = useState(false)
   const [cleanupMsg, setCleanupMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const cleanupMutation = useCleanupActivityLog()
+  const deleteAllMutation = useDeleteAllActivityLog()
+  const [deleteAllConfirmOpen, setDeleteAllConfirmOpen] = useState(false)
 
   // Account-Form
   const [account, setAccount] = useState({
@@ -207,6 +211,20 @@ export function SettingsPage() {
       })
     } catch (err) {
       setCleanupMsg({ type: 'error', text: err instanceof Error ? err.message : 'Cleanup fehlgeschlagen' })
+    }
+  }
+
+  const handleDeleteAll = async () => {
+    setCleanupMsg(null)
+    setDeleteAllConfirmOpen(false)
+    try {
+      const result = await deleteAllMutation.mutateAsync()
+      setCleanupMsg({
+        type: 'success',
+        text: `Alle ${result.deleted} Einträge wurden gelöscht.`,
+      })
+    } catch (err) {
+      setCleanupMsg({ type: 'error', text: err instanceof Error ? err.message : 'Löschen fehlgeschlagen' })
     }
   }
 
@@ -456,8 +474,24 @@ export function SettingsPage() {
           cleanupMsg={cleanupMsg}
           onRefresh={() => refetchSystem()}
           updatePending={updateSettings.isPending}
+          onDeleteAllRequest={() => setDeleteAllConfirmOpen(true)}
+          deleteAllPending={deleteAllMutation.isPending}
         />
       )}
+
+      <ConfirmDialog
+        open={deleteAllConfirmOpen}
+        title="Alle Log-Einträge löschen?"
+        message={
+          sysInfo
+            ? `Wirklich ALLE ${sysInfo.activityLog.totalCount.toLocaleString()} Aktivitätslog-Einträge unwiderruflich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`
+            : 'Wirklich ALLE Aktivitätslog-Einträge unwiderruflich löschen?'
+        }
+        confirmLabel="Alle löschen"
+        onConfirm={handleDeleteAll}
+        onClose={() => setDeleteAllConfirmOpen(false)}
+        loading={deleteAllMutation.isPending}
+      />
     </Box>
   )
 }
@@ -476,11 +510,14 @@ interface SystemTabProps {
   cleanupMsg: { type: 'success' | 'error'; text: string } | null
   onRefresh: () => void
   updatePending: boolean
+  onDeleteAllRequest: () => void
+  deleteAllPending: boolean
 }
 
 function SystemTab({
   sysInfo, loading, retentionDays, onRetentionChange, onSaveRetention, retentionSaved,
   onCleanup, cleanupPending, cleanupMsg, onRefresh, updatePending,
+  onDeleteAllRequest, deleteAllPending,
 }: SystemTabProps) {
   if (loading && !sysInfo) {
     return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>
@@ -653,6 +690,16 @@ function SystemTab({
               sx={{ height: 40 }}
             >
               Jetzt bereinigen
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<DeleteForeverIcon />}
+              onClick={onDeleteAllRequest}
+              disabled={deleteAllPending}
+              sx={{ height: 40 }}
+            >
+              Alle Logs löschen
             </Button>
           </Box>
 

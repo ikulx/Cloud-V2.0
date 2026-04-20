@@ -196,6 +196,19 @@ router.post('/activity-log/cleanup', authenticate, requirePermission('roles:read
   }
 })
 
+// DELETE /api/settings/activity-log/all
+// Löscht ALLE Activity-Log-Einträge (destruktiv, nur Admin)
+router.delete('/activity-log/all', authenticate, requirePermission('roles:read'), async (req, res) => {
+  try {
+    const result = await prisma.activityLog.deleteMany({})
+    console.log(`[ActivityLog] Alle Einträge gelöscht (${result.count}) von ${req.user?.email}`)
+    res.json({ deleted: result.count })
+  } catch (e) {
+    console.error('[settings/activity-log/all]', e)
+    res.status(500).json({ message: 'Löschen fehlgeschlagen' })
+  }
+})
+
 // POST /api/settings/test-mail  –  Test-E-Mail senden
 router.post('/test-mail', authenticate, requirePermission('roles:read'), async (req, res) => {
   // roles:read = nur admin (verwalter hat diese Permission nicht)
