@@ -25,6 +25,7 @@ import SendIcon from '@mui/icons-material/Send'
 import InfoIcon from '@mui/icons-material/Info'
 import ErrorIcon from '@mui/icons-material/Error'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { ActivityLogEntry } from '../features/activity-log/queries'
 import {
   formatActionTitle,
@@ -273,7 +274,7 @@ function groupByDate(entries: ActivityLogEntry[]): DateGroup[] {
   return groups
 }
 
-function formatDateHeader(date: Date, t: (k: string, d?: string) => string): string {
+function formatDateHeader(date: Date, t: TFunction): string {
   const now = new Date()
   const isToday = date.getDate() === now.getDate()
                 && date.getMonth() === now.getMonth()
