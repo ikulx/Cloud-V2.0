@@ -88,18 +88,16 @@ router.get('/system-info', authenticate, requirePermission('roles:read'), async 
       dbUser = u.username
     } catch { /* ignore */ }
 
-    // Postgres Version
-    const [{ version }] = await prisma.$queryRawUnsafe<Array<{ version: string }>>(
-      'SELECT version()',
-    )
+    // Postgres Version (Template-Literal → parametrisierte Query, SQL-Injection-sicher)
+    const [{ version }] = await prisma.$queryRaw<Array<{ version: string }>>`SELECT version()`
 
     // Tabellen-Grössen (inkl. activity_logs)
-    const tableSizes = await prisma.$queryRawUnsafe<Array<{
+    const tableSizes = await prisma.$queryRaw<Array<{
       table_name: string
       row_count: bigint
       total_bytes: bigint
       pretty: string
-    }>>(`
+    }>>`
       SELECT
         c.relname                            AS table_name,
         c.reltuples::bigint                  AS row_count,
@@ -110,16 +108,16 @@ router.get('/system-info', authenticate, requirePermission('roles:read'), async 
       WHERE n.nspname = 'public' AND c.relkind = 'r'
       ORDER BY pg_total_relation_size(c.oid) DESC
       LIMIT 30
-    `)
+    `
 
     // Gesamtgrösse der DB
-    const [{ db_size_pretty, db_size_bytes }] = await prisma.$queryRawUnsafe<Array<{
+    const [{ db_size_pretty, db_size_bytes }] = await prisma.$queryRaw<Array<{
       db_size_pretty: string
       db_size_bytes: bigint
-    }>>(`
+    }>>`
       SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size_pretty,
              pg_database_size(current_database())::bigint          AS db_size_bytes
-    `)
+    `
 
     // ActivityLog-Statistiken
     const [logCount, oldestLog, newestLog] = await Promise.all([

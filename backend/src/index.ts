@@ -3,7 +3,6 @@ import { validateProdSecrets } from './config/env'
 validateProdSecrets()  // exit 1 wenn Prod mit Dev-Secrets läuft
 import http from 'http'
 import dns from 'dns'
-import { execSync } from 'child_process'
 import { createApp } from './app'
 import { createSocketServer } from './socket/socket-server'
 import { initMqttService } from './services/mqtt.service'
@@ -16,13 +15,27 @@ import { deriveVpnLanPrefix } from './services/vpn.service'
 
 /** VPN-Route setzen: 10.0.0.0/8 via ycontrol_wireguard
  *  Damit kann der Backend-Container den Pi direkt über den WireGuard-Tunnel erreichen.
- *  Benötigt NET_ADMIN Capability im Docker-Container. */
+ *  Benötigt NET_ADMIN Capability im Docker-Container.
+ *  Die IP wird strikt validiert (IPv4-Format), dann via spawnSync ohne Shell übergeben
+ *  → kein Command-Injection-Risiko, auch bei kompromittiertem DNS. */
 async function setupVpnRoute() {
   if (env.nodeEnv !== 'production') return
   try {
     const { address: wgIp } = await dns.promises.lookup('ycontrol_wireguard')
-    execSync(`ip route replace 10.0.0.0/8 via ${wgIp}`, { stdio: 'pipe' })
-    console.log(`✓ VPN-Route 10.0.0.0/8 via ${wgIp} (ycontrol_wireguard) gesetzt`)
+    // Strikte IPv4-Validierung (verhindert Command-Injection bei manipuliertem DNS)
+    if (!/^(?:\d{1,3}\.){3}\d{1,3}$/.test(wgIp)) {
+      console.warn(`⚠ VPN-Route: DNS lieferte ungültiges IP-Format "${wgIp}", abgebrochen`)
+      return
+    }
+    const { spawnSync } = await import('child_process')
+    const result = spawnSync('ip', ['route', 'replace', '10.0.0.0/8', 'via', wgIp], {
+      stdio: 'pipe',
+    })
+    if (result.status === 0) {
+      console.log(`✓ VPN-Route 10.0.0.0/8 via ${wgIp} (ycontrol_wireguard) gesetzt`)
+    } else {
+      console.warn(`⚠ VPN-Route konnte nicht gesetzt werden (exit ${result.status}): ${result.stderr}`)
+    }
   } catch (e: unknown) {
     console.warn('⚠ VPN-Route konnte nicht gesetzt werden:', (e as Error).message,
       '(NET_ADMIN fehlt oder wireguard-Container nicht bereit)')

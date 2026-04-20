@@ -60,7 +60,10 @@
       "Bash(xxd wireguard/entrypoint.sh)",
       "Bash(npx vite:*)",
       "Bash(ls -d \"D:/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0\"/*/)",
-      "Bash(tasklist)"
+      "Bash(tasklist)",
+      "Bash(gh repo *)",
+      "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" --version)",
+      "Bash(npm audit *)"
     ]
   }
 }
