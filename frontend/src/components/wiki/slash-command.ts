@@ -47,6 +47,15 @@ const ITEMS: SlashItem[] = [
     command: ({ editor, range }) => editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
   },
   {
+    title: 'Diagramm', description: 'drawio-Diagramm einfügen', keywords: ['diagram', 'drawio', 'flowchart', 'uml'],
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).insertContent({
+        type: 'drawio',
+        attrs: { xml: '', png: '', width: 600 },
+      }).run()
+    },
+  },
+  {
     title: 'Bild', description: 'Bild hochladen', keywords: ['image', 'img', 'upload'],
     command: ({ editor, range }) => {
       const input = document.createElement('input')

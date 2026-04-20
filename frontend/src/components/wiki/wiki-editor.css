@@ -223,3 +223,68 @@
 }
 .wiki-editor .wiki-img-toolbar button:hover { background: rgba(255,255,255,0.12); }
 .wiki-editor .wiki-img-toolbar button.active { background: #1976d2; }
+
+/* drawio Node */
+.wiki-editor .wiki-drawio-wrapper {
+  margin: 1em 0;
+  display: flex;
+}
+.wiki-editor .wiki-drawio {
+  position: relative;
+  max-width: 100%;
+  cursor: pointer;
+}
+.wiki-editor .wiki-drawio-wrapper.selected .wiki-drawio {
+  outline: 2px solid #1976d2;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.wiki-editor .wiki-drawio-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border-radius: 4px;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.wiki-editor .wiki-drawio-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  background: rgba(0,0,0,0.04);
+  border: 2px dashed rgba(0,0,0,0.2);
+  border-radius: 6px;
+  color: rgba(0,0,0,0.6);
+  font-size: 13px;
+}
+[data-mui-color-scheme='dark'] .wiki-editor .wiki-drawio-placeholder {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.7);
+}
+.wiki-editor .wiki-drawio-toolbar {
+  position: absolute;
+  top: -34px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e1e1e;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  z-index: 3;
+}
+.wiki-editor .wiki-drawio-toolbar button {
+  border: none;
+  background: transparent;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.wiki-editor .wiki-drawio-toolbar button:hover { background: rgba(255,255,255,0.12); }

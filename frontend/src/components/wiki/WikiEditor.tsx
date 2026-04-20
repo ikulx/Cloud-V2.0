@@ -4,6 +4,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import { ResizableImage } from './ResizableImage'
+import { Drawio } from './Drawio'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
@@ -71,6 +72,7 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
         Table.configure({ resizable: true }),
         TableRow, TableHeader, TableCell,
         CodeBlockLowlight.configure({ lowlight }),
+        Drawio,
         SlashCommand,
       ],
       content: isValidDoc(content) ? content : { type: 'doc', content: [] },
