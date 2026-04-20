@@ -302,4 +302,23 @@ router.post('/upload', authenticate, requirePermission('wiki:update'), upload.si
   res.status(201).json({ url: `/uploads/wiki/${req.file.filename}` })
 })
 
+// POST /api/wiki/reindex – alle Seiten erneut in den searchText extrahieren.
+// Sinnvoll wenn extractText geändert wurde (z.B. drawio-Support ergänzt) und
+// alte Seiten noch den alten Index haben.
+router.post('/reindex', authenticate, requirePermission('wiki:update'), async (_req, res) => {
+  const pages = await prisma.wikiPage.findMany({
+    select: { id: true, title: true, content: true },
+  })
+  let count = 0
+  for (const p of pages) {
+    const newSearchText = `${p.title} ${extractText(p.content)}`.trim()
+    await prisma.wikiPage.update({
+      where: { id: p.id },
+      data: { searchText: newSearchText },
+    })
+    count++
+  }
+  res.json({ reindexed: count })
+})
+
 export default router
