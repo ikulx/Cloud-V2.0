@@ -47,6 +47,14 @@ export function createApp() {
 
   app.use('/api', apiRouter)
 
+  // Hochgeladene Dateien (Wiki-Bilder etc.) ausliefern.
+  // Dateien liegen unter `uploads/` im Backend-Arbeitsverzeichnis.
+  app.use('/uploads', express.static('uploads', {
+    maxAge: '7d',
+    index: false,
+    fallthrough: true,
+  }))
+
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   })

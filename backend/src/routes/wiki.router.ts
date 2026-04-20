@@ -1,10 +1,30 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import path from 'path'
+import fs from 'fs'
+import crypto from 'crypto'
+import multer from 'multer'
 import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 
 const router = Router()
+
+/** Extrahiert reinen Text aus einem TipTap-Dokument. Wird für die
+ *  Volltextsuche in die Spalte `searchText` gespeichert. */
+function extractText(node: unknown): string {
+  if (!node || typeof node !== 'object') return ''
+  const n = node as { text?: string; content?: unknown[] }
+  let out = ''
+  if (typeof n.text === 'string') out += n.text
+  if (Array.isArray(n.content)) {
+    for (const c of n.content) {
+      const sub = extractText(c)
+      if (sub) out += (out && !out.endsWith(' ') ? ' ' : '') + sub
+    }
+  }
+  return out
+}
 
 const authorSelect = {
   id: true, firstName: true, lastName: true, email: true,
@@ -88,13 +108,15 @@ router.post('/pages', authenticate, requirePermission('wiki:create'), async (req
   })
 
   const slug = await uniqueSlug(parsed.data.title)
+  const contentJson = (parsed.data.content ?? { type: 'doc', content: [] }) as object
 
   const page = await prisma.wikiPage.create({
     data: {
       title: parsed.data.title,
       icon: parsed.data.icon ?? null,
       parentId: parsed.data.parentId ?? null,
-      content: (parsed.data.content ?? { type: 'doc', content: [] }) as object,
+      content: contentJson,
+      searchText: `${parsed.data.title} ${extractText(contentJson)}`.trim(),
       slug,
       sortOrder: (last?.sortOrder ?? 0) + 10,
       createdById: userId,
@@ -134,6 +156,21 @@ router.patch('/pages/:id', authenticate, requirePermission('wiki:update'), async
   }
 
   try {
+    // Wenn Titel ODER Content geändert wurde → searchText neu berechnen.
+    // Wir brauchen dafür die jeweils "andere" Seite des Pärchens.
+    let searchText: string | undefined
+    if (parsed.data.title !== undefined || parsed.data.content !== undefined) {
+      const existing = await prisma.wikiPage.findUnique({
+        where: { id: req.params.id as string },
+        select: { title: true, content: true },
+      })
+      if (existing) {
+        const newTitle = parsed.data.title ?? existing.title
+        const newContent = parsed.data.content ?? existing.content
+        searchText = `${newTitle} ${extractText(newContent)}`.trim()
+      }
+    }
+
     const page = await prisma.wikiPage.update({
       where: { id: req.params.id as string },
       data: {
@@ -142,6 +179,7 @@ router.patch('/pages/:id', authenticate, requirePermission('wiki:update'), async
         ...(parsed.data.parentId !== undefined && { parentId: parsed.data.parentId }),
         ...(parsed.data.content !== undefined && { content: parsed.data.content as object }),
         ...(parsed.data.sortOrder !== undefined && { sortOrder: parsed.data.sortOrder }),
+        ...(searchText !== undefined && { searchText }),
         updatedById: userId,
       },
       include: {
@@ -163,6 +201,69 @@ router.delete('/pages/:id', authenticate, requirePermission('wiki:delete'), asyn
   } catch {
     res.status(404).json({ message: 'Seite nicht gefunden' })
   }
+})
+
+// GET /api/wiki/search?q=... – einfache Volltextsuche in Titel + Inhalt
+router.get('/search', authenticate, requirePermission('wiki:read'), async (req, res) => {
+  const q = String(req.query.q ?? '').trim()
+  if (q.length < 2) { res.json([]); return }
+
+  const results = await prisma.wikiPage.findMany({
+    where: {
+      OR: [
+        { title: { contains: q, mode: 'insensitive' } },
+        { searchText: { contains: q, mode: 'insensitive' } },
+      ],
+    },
+    select: { id: true, slug: true, title: true, icon: true, parentId: true, searchText: true },
+    orderBy: { updatedAt: 'desc' },
+    take: 20,
+  })
+
+  // Kurzen Textauszug um den Treffer herum erzeugen
+  const lower = q.toLowerCase()
+  const excerpts = results.map((r) => {
+    const body = r.searchText ?? ''
+    const idx = body.toLowerCase().indexOf(lower)
+    let excerpt = ''
+    if (idx >= 0) {
+      const start = Math.max(0, idx - 40)
+      const end = Math.min(body.length, idx + q.length + 40)
+      excerpt = (start > 0 ? '… ' : '') + body.slice(start, end) + (end < body.length ? ' …' : '')
+    }
+    return {
+      id: r.id, slug: r.slug, title: r.title, icon: r.icon, parentId: r.parentId, excerpt,
+    }
+  })
+  res.json(excerpts)
+})
+
+// ─── Bild-Upload für den Editor ───────────────────────────────────────────────
+
+const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'wiki')
+fs.mkdirSync(UPLOAD_DIR, { recursive: true })
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase().slice(0, 8)
+      const safeExt = /^\.[a-z0-9]+$/i.test(ext) ? ext : ''
+      cb(null, `${crypto.randomBytes(16).toString('hex')}${safeExt}`)
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => {
+    const ok = /^image\/(png|jpe?g|gif|webp|svg\+xml)$/i.test(file.mimetype)
+    if (ok) cb(null, true)
+    else cb(new Error('Nur Bilddateien erlaubt'))
+  },
+})
+
+// POST /api/wiki/upload – gibt { url } zurück, vom Editor konsumiert
+router.post('/upload', authenticate, requirePermission('wiki:update'), upload.single('file'), (req, res) => {
+  if (!req.file) { res.status(400).json({ message: 'Keine Datei' }); return }
+  res.status(201).json({ url: `/uploads/wiki/${req.file.filename}` })
 })
 
 export default router

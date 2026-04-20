@@ -47,11 +47,31 @@ const ITEMS: SlashItem[] = [
     command: ({ editor, range }) => editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
   },
   {
-    title: 'Bild', description: 'Bild per URL einfügen', keywords: ['image', 'img'],
+    title: 'Bild', description: 'Bild hochladen', keywords: ['image', 'img', 'upload'],
     command: ({ editor, range }) => {
-      const url = window.prompt('Bild-URL:')
-      if (!url) return
-      editor.chain().focus().deleteRange(range).setImage({ src: url }).run()
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = 'image/*'
+      input.onchange = async () => {
+        const file = input.files?.[0]
+        if (!file) return
+        try {
+          const formData = new FormData()
+          formData.append('file', file)
+          const token = localStorage.getItem('accessToken')
+          const res = await fetch('/api/wiki/upload', {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+          })
+          if (!res.ok) throw new Error('Upload fehlgeschlagen')
+          const data = await res.json() as { url: string }
+          editor.chain().focus().deleteRange(range).setImage({ src: data.url }).run()
+        } catch (err) {
+          window.alert(err instanceof Error ? err.message : 'Upload fehlgeschlagen')
+        }
+      }
+      input.click()
     },
   },
 ]

@@ -6,6 +6,12 @@ import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import AddIcon from '@mui/icons-material/Add'
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  type DragEndEvent, type DragOverEvent,
+} from '@dnd-kit/core'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 import type { WikiPageNode } from '../../features/wiki/queries'
 
 interface WikiTreeProps {
@@ -13,7 +19,9 @@ interface WikiTreeProps {
   selectedId: string | null
   onSelect: (id: string) => void
   onAddChild?: (parentId: string | null) => void
+  onMove?: (id: string, newParentId: string | null, newSortOrder: number) => void
   canCreate: boolean
+  canUpdate: boolean
 }
 
 interface Node extends WikiPageNode {
@@ -31,94 +39,230 @@ function buildTree(pages: WikiPageNode[]): Node[] {
       roots.push(p)
     }
   }
+  const sortRec = (list: Node[]) => {
+    list.sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title))
+    list.forEach((n) => sortRec(n.children))
+  }
+  sortRec(roots)
   return roots
 }
 
-export function WikiTree({ pages, selectedId, onSelect, onAddChild, canCreate }: WikiTreeProps) {
+export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, canCreate, canUpdate }: WikiTreeProps) {
   const tree = useMemo(() => buildTree(pages), [pages])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [overId, setOverId] = useState<string | null>(null)
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   const toggle = (id: string) => {
-    setExpanded((s) => {
-      const n = new Set(s)
-      if (n.has(id)) n.delete(id); else n.add(id)
-      return n
-    })
+    setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
+  const handleDragOver = (e: DragOverEvent) => {
+    setOverId(e.over?.id ? String(e.over.id) : null)
+  }
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setOverId(null)
+    const { active, over } = e
+    if (!over || !onMove) return
+    const draggedId = String(active.id)
+    const overKey = String(over.id)
+
+    if (draggedId === overKey) return
+
+    // Drop-Zones: "inside:<id>" oder "root"
+    let newParentId: string | null
+    let newSortOrder: number
+
+    if (overKey === 'root') {
+      newParentId = null
+      const rootSiblings = pages.filter((p) => !p.parentId && p.id !== draggedId)
+      const maxOrder = rootSiblings.reduce((m, p) => Math.max(m, p.sortOrder), 0)
+      newSortOrder = maxOrder + 10
+    } else if (overKey.startsWith('inside:')) {
+      const parentId = overKey.slice('inside:'.length)
+      if (parentId === draggedId) return
+      // Zyklus-Schutz: darf nicht auf eigenen Nachfahren abgelegt werden
+      if (isDescendant(pages, parentId, draggedId)) return
+      newParentId = parentId
+      const siblings = pages.filter((p) => p.parentId === parentId && p.id !== draggedId)
+      const maxOrder = siblings.reduce((m, p) => Math.max(m, p.sortOrder), 0)
+      newSortOrder = maxOrder + 10
+    } else {
+      return
+    }
+
+    onMove(draggedId, newParentId, newSortOrder)
   }
 
   const renderNode = (node: Node, depth: number): React.ReactNode => {
     const hasChildren = node.children.length > 0
     const isOpen = expanded.has(node.id)
     const isSelected = node.id === selectedId
-
     return (
       <Box key={node.id}>
-        <Box
-          onClick={() => onSelect(node.id)}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.5,
-            pl: 0.5 + depth * 1.25,
-            pr: 0.5,
-            py: 0.5,
-            borderRadius: 1,
-            cursor: 'pointer',
-            bgcolor: isSelected ? 'action.selected' : 'transparent',
-            '&:hover': { bgcolor: isSelected ? 'action.selected' : 'action.hover' },
-            '&:hover .wiki-tree-add': { opacity: 1 },
-          }}
-        >
-          <IconButton
-            size="small"
-            onClick={(e) => { e.stopPropagation(); toggle(node.id) }}
-            sx={{ p: 0.25, visibility: hasChildren ? 'visible' : 'hidden' }}
-          >
-            {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
-          </IconButton>
-          <Typography sx={{ flex: 1, fontSize: 14, userSelect: 'none' }} noWrap>
-            {node.icon && <span style={{ marginRight: 6 }}>{node.icon}</span>}
-            {node.title || 'Unbenannt'}
-          </Typography>
-          {canCreate && onAddChild && (
-            <Tooltip title="Unterseite">
-              <IconButton
-                size="small"
-                className="wiki-tree-add"
-                sx={{ p: 0.25, opacity: 0, transition: 'opacity 120ms' }}
-                onClick={(e) => { e.stopPropagation(); onAddChild(node.id); setExpanded((s) => new Set(s).add(node.id)) }}
-              >
-                <AddIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
-        {isOpen && hasChildren && (
-          <Box>{node.children.map((c) => renderNode(c, depth + 1))}</Box>
-        )}
+        <TreeRow
+          node={node}
+          depth={depth}
+          hasChildren={hasChildren}
+          isOpen={isOpen}
+          isSelected={isSelected}
+          isOver={overId === `inside:${node.id}`}
+          canUpdate={canUpdate}
+          canCreate={canCreate}
+          onSelect={onSelect}
+          onToggle={toggle}
+          onAddChild={onAddChild ? (id) => { onAddChild(id); setExpanded((s) => new Set(s).add(id)) } : undefined}
+        />
+        {isOpen && hasChildren && <Box>{node.children.map((c) => renderNode(c, depth + 1))}</Box>}
       </Box>
     )
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, px: 0.5 }}>
-        <Typography variant="overline" color="text.secondary">Seiten</Typography>
-        {canCreate && onAddChild && (
-          <Tooltip title="Neue Seite auf oberster Ebene">
-            <IconButton size="small" onClick={() => onAddChild(null)}>
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+    >
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, px: 0.5 }}>
+          <Typography variant="overline" color="text.secondary">Seiten</Typography>
+          {canCreate && onAddChild && (
+            <Tooltip title="Neue Seite auf oberster Ebene">
+              <IconButton size="small" onClick={() => onAddChild(null)}>
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+
+        {tree.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 2 }}>
+            Noch keine Seiten.
+          </Typography>
+        ) : (
+          tree.map((n) => renderNode(n, 0))
         )}
+
+        {/* Drop-Zone für "auf Wurzel-Ebene verschieben" */}
+        {canUpdate && <RootDropzone active={overId === 'root'} />}
       </Box>
-      {tree.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 2 }}>
-          Noch keine Seiten.
-        </Typography>
-      ) : (
-        tree.map((n) => renderNode(n, 0))
+    </DndContext>
+  )
+}
+
+function isDescendant(pages: WikiPageNode[], candidateChildId: string, ancestorId: string): boolean {
+  let cursor: string | null = candidateChildId
+  while (cursor) {
+    if (cursor === ancestorId) return true
+    const p = pages.find((x) => x.id === cursor)
+    cursor = p?.parentId ?? null
+  }
+  return false
+}
+
+interface TreeRowProps {
+  node: Node
+  depth: number
+  hasChildren: boolean
+  isOpen: boolean
+  isSelected: boolean
+  isOver: boolean
+  canUpdate: boolean
+  canCreate: boolean
+  onSelect: (id: string) => void
+  onToggle: (id: string) => void
+  onAddChild?: (id: string) => void
+}
+
+function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, canUpdate, canCreate, onSelect, onToggle, onAddChild }: TreeRowProps) {
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: node.id, disabled: !canUpdate })
+  const { setNodeRef: setDropRef } = useDroppable({ id: `inside:${node.id}`, disabled: !canUpdate })
+
+  // Ein DOM-Knoten muss sowohl draggable (für Listener) als auch droppable sein.
+  const combinedRef = (el: HTMLDivElement | null) => { setDragRef(el); setDropRef(el) }
+
+  return (
+    <Box
+      ref={combinedRef}
+      onClick={() => onSelect(node.id)}
+      {...attributes}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.5,
+        pl: 0.5 + depth * 1.25,
+        pr: 0.5,
+        py: 0.5,
+        borderRadius: 1,
+        cursor: 'pointer',
+        opacity: isDragging ? 0.4 : 1,
+        bgcolor: isOver ? 'action.focus' : isSelected ? 'action.selected' : 'transparent',
+        outline: isOver ? '2px solid' : 'none',
+        outlineColor: 'primary.main',
+        '&:hover': { bgcolor: isSelected ? 'action.selected' : 'action.hover' },
+        '&:hover .wiki-tree-action': { opacity: 1 },
+      }}
+    >
+      {canUpdate && (
+        <Box
+          {...listeners}
+          className="wiki-tree-action"
+          sx={{ display: 'flex', alignItems: 'center', cursor: 'grab', opacity: 0, transition: 'opacity 120ms' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DragIndicatorIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+        </Box>
       )}
+      <IconButton
+        size="small"
+        onClick={(e) => { e.stopPropagation(); onToggle(node.id) }}
+        sx={{ p: 0.25, visibility: hasChildren ? 'visible' : 'hidden' }}
+      >
+        {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+      </IconButton>
+      <Typography sx={{ flex: 1, fontSize: 14, userSelect: 'none' }} noWrap>
+        {node.icon && <span style={{ marginRight: 6 }}>{node.icon}</span>}
+        {node.title || 'Unbenannt'}
+      </Typography>
+      {canCreate && onAddChild && (
+        <Tooltip title="Unterseite">
+          <IconButton
+            size="small"
+            className="wiki-tree-action"
+            sx={{ p: 0.25, opacity: 0, transition: 'opacity 120ms' }}
+            onClick={(e) => { e.stopPropagation(); onAddChild(node.id) }}
+          >
+            <AddIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Box>
+  )
+}
+
+function RootDropzone({ active }: { active: boolean }) {
+  const { setNodeRef } = useDroppable({ id: 'root' })
+  return (
+    <Box
+      ref={setNodeRef}
+      sx={{
+        mt: 1,
+        px: 1,
+        py: 1,
+        borderRadius: 1,
+        border: '1px dashed',
+        borderColor: active ? 'primary.main' : 'transparent',
+        color: 'text.disabled',
+        fontSize: 12,
+        textAlign: 'center',
+        minHeight: 28,
+      }}
+    >
+      {active ? 'Loslassen für oberste Ebene' : ''}
     </Box>
   )
 }

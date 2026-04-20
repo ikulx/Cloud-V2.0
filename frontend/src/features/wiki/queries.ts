@@ -74,3 +74,21 @@ export function useDeleteWikiPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree }),
   })
 }
+
+export interface WikiSearchHit {
+  id: string
+  slug: string
+  title: string
+  icon: string | null
+  parentId: string | null
+  excerpt: string
+}
+
+export function useWikiSearch(q: string) {
+  return useQuery({
+    queryKey: ['wiki', 'search', q] as const,
+    queryFn: () => apiGet<WikiSearchHit[]>(`/wiki/search?q=${encodeURIComponent(q)}`),
+    enabled: q.trim().length >= 2,
+    staleTime: 30_000,
+  })
+}

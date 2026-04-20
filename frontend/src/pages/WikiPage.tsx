@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import InputBase from '@mui/material/InputBase'
@@ -7,9 +7,12 @@ import IconButton from '@mui/material/IconButton'
 import Tooltip from '@mui/material/Tooltip'
 import Divider from '@mui/material/Divider'
 import CircularProgress from '@mui/material/CircularProgress'
+import Popover from '@mui/material/Popover'
+import Button from '@mui/material/Button'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutline'
 import CloudSyncIcon from '@mui/icons-material/CloudSync'
+import SearchIcon from '@mui/icons-material/Search'
 import { useSession } from '../context/SessionContext'
 import {
   useWikiTree, useWikiPage, useCreateWikiPage, useUpdateWikiPage, useDeleteWikiPage,
@@ -17,7 +20,12 @@ import {
 } from '../features/wiki/queries'
 import { WikiTree } from '../components/wiki/WikiTree'
 import { WikiEditor } from '../components/wiki/WikiEditor'
+import { WikiSearchDialog } from '../components/wiki/WikiSearchDialog'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { apiFetch } from '../lib/api'
+
+// Emoji-Picker ist groß → lazy, damit die Hauptseite schnell öffnet
+const EmojiPicker = lazy(() => import('emoji-picker-react'))
 
 export function WikiPage() {
   const { hasPermission } = useSession()
@@ -30,7 +38,6 @@ export function WikiPage() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  // Initial-Auswahl: erste Wurzel-Seite, sobald der Baum geladen ist
   useEffect(() => {
     if (selectedId || pages.length === 0) return
     const firstRoot = pages.find((p) => !p.parentId) ?? pages[0]
@@ -41,9 +48,16 @@ export function WikiPage() {
   const createMut = useCreateWikiPage()
   const updateMut = useUpdateWikiPage(selectedId ?? '')
   const deleteMut = useDeleteWikiPage()
+  // Getrennte Mutation für Moves (andere ID als die aktuell selektierte)
+  const moveWikiPage = async (id: string, parentId: string | null, sortOrder: number) => {
+    await apiFetch(`/wiki/pages/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ parentId, sortOrder }),
+    })
+  }
 
-  // Lokaler Titel + Content-Buffer für Autosave
   const [title, setTitle] = useState('')
+  const [icon, setIcon] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const contentBufferRef = useRef<unknown>(null)
@@ -52,6 +66,7 @@ export function WikiPage() {
   useEffect(() => {
     if (page) {
       setTitle(page.title)
+      setIcon(page.icon)
       contentBufferRef.current = page.content
       setDirty(false)
       setSavedAt(new Date(page.updatedAt))
@@ -65,6 +80,7 @@ export function WikiPage() {
     saveTimerRef.current = window.setTimeout(async () => {
       await updateMut.mutateAsync({
         title,
+        icon,
         content: contentBufferRef.current,
       })
       setDirty(false)
@@ -72,17 +88,16 @@ export function WikiPage() {
     }, 800) as unknown as number
   }
 
-  // Auch speichern, wenn die Seite wechselt / Fenster schließt
   useEffect(() => {
     const handler = () => {
       if (dirty && selectedId && canUpdate) {
-        updateMut.mutate({ title, content: contentBufferRef.current })
+        updateMut.mutate({ title, icon, content: contentBufferRef.current })
       }
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, title, selectedId])
+  }, [dirty, title, icon, selectedId])
 
   const handleAddChild = async (parentId: string | null) => {
     const newPage = await createMut.mutateAsync({ title: 'Neue Seite', parentId })
@@ -97,9 +112,24 @@ export function WikiPage() {
     setConfirmDelete(false)
   }
 
+  // ⌘K / Ctrl+K öffnet die Suche
+  const [searchOpen, setSearchOpen] = useState(false)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  // Emoji-Picker
+  const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null)
+
   return (
     <Box sx={{ display: 'flex', height: 'calc(100vh - 112px)', gap: 0 }}>
-      {/* Sidebar */}
       <Paper
         elevation={0}
         sx={{
@@ -113,16 +143,28 @@ export function WikiPage() {
           bgcolor: 'background.paper',
         }}
       >
+        <Button
+          variant="outlined"
+          size="small"
+          fullWidth
+          startIcon={<SearchIcon />}
+          onClick={() => setSearchOpen(true)}
+          sx={{ justifyContent: 'flex-start', mb: 1, textTransform: 'none', color: 'text.secondary' }}
+        >
+          Suchen <Box component="span" sx={{ ml: 'auto', fontSize: 11, opacity: 0.7 }}>⌘K</Box>
+        </Button>
+
         <WikiTree
           pages={pages}
           selectedId={selectedId}
           onSelect={(id) => setSelectedId(id)}
           onAddChild={canCreate ? handleAddChild : undefined}
+          onMove={canUpdate ? moveWikiPage : undefined}
           canCreate={canCreate}
+          canUpdate={canUpdate}
         />
       </Paper>
 
-      {/* Content */}
       <Box sx={{ flex: 1, overflowY: 'auto', px: { xs: 2, md: 6 }, py: 4 }}>
         {!selectedId ? (
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary' }}>
@@ -138,8 +180,15 @@ export function WikiPage() {
           </Box>
         ) : (
           <Box sx={{ maxWidth: 820, mx: 'auto' }}>
-            {/* Titel + Actions */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <IconButton
+                size="small"
+                onClick={(e) => canUpdate && setEmojiAnchor(e.currentTarget)}
+                sx={{ fontSize: 28, width: 44, height: 44, p: 0 }}
+                disabled={!canUpdate}
+              >
+                {icon || <Box sx={{ color: 'text.disabled', fontSize: 20 }}>＋</Box>}
+              </IconButton>
               <InputBase
                 value={title}
                 onChange={(e) => { setTitle(e.target.value); scheduleSave() }}
@@ -182,6 +231,33 @@ export function WikiPage() {
           </Box>
         )}
       </Box>
+
+      <Popover
+        open={Boolean(emojiAnchor)}
+        anchorEl={emojiAnchor}
+        onClose={() => setEmojiAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        <Box sx={{ p: 1 }}>
+          <Button size="small" onClick={() => { setIcon(null); scheduleSave(); setEmojiAnchor(null) }}>
+            Entfernen
+          </Button>
+          <Suspense fallback={<Box sx={{ p: 3 }}><CircularProgress size={20} /></Box>}>
+            <EmojiPicker
+              onEmojiClick={(data) => { setIcon(data.emoji); scheduleSave(); setEmojiAnchor(null) }}
+              lazyLoadEmojis
+              width={320}
+              height={380}
+            />
+          </Suspense>
+        </Box>
+      </Popover>
+
+      <WikiSearchDialog
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSelect={(id) => setSelectedId(id)}
+      />
 
       <ConfirmDialog
         open={confirmDelete}

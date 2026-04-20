@@ -540,6 +540,9 @@ model WikiPage {
   icon        String?
   /// TipTap-Dokument (ProseMirror-JSON) als Json gespeichert
   content     Json     @default("{}")
+  /// Extrahierter Reintext aus `content` für Volltextsuche. Wird bei jedem
+  /// Write aus dem TipTap-Dokument generiert.
+  searchText  String   @default("") @map("search_text")
   /// Eltern-Seite für die Baumstruktur (NULL = Root-Level)
   parentId    String?  @map("parent_id") @db.Uuid
   parent      WikiPage?  @relation("WikiTree", fields: [parentId], references: [id], onDelete: Cascade)
