@@ -149,15 +149,21 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
         console.log(`[MQTT] ${serial}: Projektnummer-Mismatch ('${actual}' → '${expected}'), sende setProjectNumber`)
         publishCommand(serial, { action: 'setProjectNumber', value: expected })
 
-        // Audit-Log NUR schreiben wenn dies ein NEUER Mismatch ist – sonst entsteht
-        // bei nicht reagierenden Pis alle 10 Min ein Eintrag. Wir merken uns das
-        // zuletzt gesendete Paar (device, expected, actual) und loggen nur einmal
-        // pro Kombination innerhalb von 24 h.
-        const cacheKey = `${device.id}:${actual}→${expected}`
-        const prev = autoSyncLogCache.get(cacheKey)
-        const nowMs = Date.now()
-        if (!prev || (nowMs - prev) > 24 * 60 * 60 * 1000) {
-          autoSyncLogCache.set(cacheKey, nowMs)
+        // Audit-Log: nur schreiben, wenn sich der "erwartete" Wert seit dem letzten
+        // Log für dieses Gerät geändert hat. Ein stumpf wiederholter Sync ändert
+        // nichts am DB-Stand und muss daher nicht erneut protokolliert werden.
+        const lastLog = await prisma.activityLog.findFirst({
+          where: {
+            action: 'system.projectNumber.autoSync',
+            entityType: 'devices',
+            entityId: device.id,
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { details: true },
+        })
+
+        const lastExpected = extractLastExpected(lastLog?.details)
+        if (lastExpected !== expected) {
           void prisma.device.findUnique({ where: { id: device.id }, select: { name: true } })
             .then((dev) => logActivity({
               action: 'system.projectNumber.autoSync',
@@ -171,13 +177,6 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
             }))
             .catch(() => {})
         }
-      } else {
-        // Kein Mismatch mehr → Cache-Eintrag löschen, damit bei erneutem Drift
-        // wieder geloggt wird.
-        const prefix = `${device.id}:`
-        for (const k of autoSyncLogCache.keys()) {
-          if (k.startsWith(prefix)) autoSyncLogCache.delete(k)
-        }
       }
     }
   } catch (e) {
@@ -185,8 +184,18 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
   }
 }
 
-/** Cache: welche Projektnummer-Auto-Sync-Kombination wurde zuletzt wann geloggt. */
-const autoSyncLogCache = new Map<string, number>()
+/** Extrahiert den zuletzt als "expected" geloggten Projektnummer-Wert aus
+ *  einem activityLog.details JSON. Robust gegen fehlende/malformed Daten. */
+function extractLastExpected(details: unknown): string | null {
+  if (!details || typeof details !== 'object') return null
+  const d = details as Record<string, unknown>
+  const changes = d.changes
+  if (!changes || typeof changes !== 'object') return null
+  const pn = (changes as Record<string, unknown>).projectNumber
+  if (!pn || typeof pn !== 'object') return null
+  const to = (pn as Record<string, unknown>).to
+  return typeof to === 'string' ? to : null
+}
 
 function handleResp(serial: string, payload: string, io: SocketServer) {
   console.log(`[MQTT] Resp ${serial}: ${payload}`)
