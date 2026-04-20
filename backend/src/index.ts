@@ -5,6 +5,7 @@ import { execSync } from 'child_process'
 import { createApp } from './app'
 import { createSocketServer } from './socket/socket-server'
 import { initMqttService } from './services/mqtt.service'
+import { startActivityLogCleanupScheduler } from './services/activity-log-cleanup.service'
 import { env } from './config/env'
 import { prisma } from './db/prisma'
 import { verifyAccessToken } from './lib/token'
@@ -129,6 +130,8 @@ async function main() {
     console.log(`  Environment: ${env.nodeEnv}`)
     initMqttService(io)
     console.log('✓ MQTT service initializing...')
+    startActivityLogCleanupScheduler()
+    console.log('✓ Activity-Log cleanup scheduler started (daily at 03:00)')
   })
 
   process.on('SIGTERM', async () => {

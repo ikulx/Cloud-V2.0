@@ -12,9 +12,24 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Divider from '@mui/material/Divider'
 import Switch from '@mui/material/Switch'
 import FormControlLabel from '@mui/material/FormControlLabel'
+import Stack from '@mui/material/Stack'
+import Paper from '@mui/material/Paper'
+import LinearProgress from '@mui/material/LinearProgress'
+import Table from '@mui/material/Table'
+import TableBody from '@mui/material/TableBody'
+import TableCell from '@mui/material/TableCell'
+import TableContainer from '@mui/material/TableContainer'
+import TableHead from '@mui/material/TableHead'
+import TableRow from '@mui/material/TableRow'
+import IconButton from '@mui/material/IconButton'
+import Tooltip from '@mui/material/Tooltip'
 import DownloadIcon from '@mui/icons-material/Download'
 import SendIcon from '@mui/icons-material/Send'
-import { useSettings, useUpdateSettings } from '../features/settings/queries'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import StorageIcon from '@mui/icons-material/Storage'
+import MemoryIcon from '@mui/icons-material/Memory'
+import { useSettings, useUpdateSettings, useSystemInfo, useCleanupActivityLog, type SystemInfo } from '../features/settings/queries'
 import { apiFetch, apiPatch, apiPost } from '../lib/api'
 import { useTranslation } from 'react-i18next'
 import { useSession } from '../context/SessionContext'
@@ -41,6 +56,12 @@ export function SettingsPage() {
   const [mailSaved, setMailSaved] = useState(false)
   const [testMailMsg, setTestMailMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [testMailSending, setTestMailSending] = useState(false)
+
+  // System-Tab Retention
+  const [retentionDays, setRetentionDays] = useState('90')
+  const [retentionSaved, setRetentionSaved] = useState(false)
+  const [cleanupMsg, setCleanupMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const cleanupMutation = useCleanupActivityLog()
 
   // Account-Form
   const [account, setAccount] = useState({
@@ -70,6 +91,7 @@ export function SettingsPage() {
         'smtp.from': settings['smtp.from'] ?? '',
         'app.url': settings['app.url'] ?? '',
       })
+      setRetentionDays(settings['activityLog.retentionDays'] ?? '90')
     }
   }, [settings])
 
@@ -167,6 +189,27 @@ export function SettingsPage() {
     }
   }
 
+  const { data: sysInfo, isLoading: sysLoading, refetch: refetchSystem } = useSystemInfo(isAdmin)
+
+  const handleSaveRetention = async () => {
+    await updateSettings.mutateAsync({ 'activityLog.retentionDays': retentionDays })
+    setRetentionSaved(true)
+    setTimeout(() => setRetentionSaved(false), 3000)
+  }
+
+  const handleCleanup = async () => {
+    setCleanupMsg(null)
+    try {
+      const result = await cleanupMutation.mutateAsync()
+      setCleanupMsg({
+        type: 'success',
+        text: `${result.deleted} Einträge gelöscht (älter als ${result.retentionDays} Tage)`,
+      })
+    } catch (err) {
+      setCleanupMsg({ type: 'error', text: err instanceof Error ? err.message : 'Cleanup fehlgeschlagen' })
+    }
+  }
+
   if ((canSeePiSetup || isAdmin) && isLoading) {
     return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
   }
@@ -175,6 +218,7 @@ export function SettingsPage() {
   const tabs: { label: string; key: string }[] = [{ label: 'Account', key: 'account' }]
   if (canSeePiSetup) tabs.push({ label: t('settings.tabPiSetup'), key: 'pi' })
   if (isAdmin) tabs.push({ label: 'E-Mail', key: 'mail' })
+  if (isAdmin) tabs.push({ label: 'System', key: 'system' })
   const activeKey = tabs[tab]?.key ?? 'account'
 
   return (
@@ -398,6 +442,251 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {activeKey === 'system' && (
+        <SystemTab
+          sysInfo={sysInfo}
+          loading={sysLoading}
+          retentionDays={retentionDays}
+          onRetentionChange={setRetentionDays}
+          onSaveRetention={handleSaveRetention}
+          retentionSaved={retentionSaved}
+          onCleanup={handleCleanup}
+          cleanupPending={cleanupMutation.isPending}
+          cleanupMsg={cleanupMsg}
+          onRefresh={() => refetchSystem()}
+          updatePending={updateSettings.isPending}
+        />
+      )}
     </Box>
   )
+}
+
+// ─── System-Tab ────────────────────────────────────────────────────────────────
+
+interface SystemTabProps {
+  sysInfo?: SystemInfo
+  loading: boolean
+  retentionDays: string
+  onRetentionChange: (v: string) => void
+  onSaveRetention: () => void | Promise<void>
+  retentionSaved: boolean
+  onCleanup: () => void | Promise<void>
+  cleanupPending: boolean
+  cleanupMsg: { type: 'success' | 'error'; text: string } | null
+  onRefresh: () => void
+  updatePending: boolean
+}
+
+function SystemTab({
+  sysInfo, loading, retentionDays, onRetentionChange, onSaveRetention, retentionSaved,
+  onCleanup, cleanupPending, cleanupMsg, onRefresh, updatePending,
+}: SystemTabProps) {
+  if (loading && !sysInfo) {
+    return <Box display="flex" justifyContent="center" mt={4}><CircularProgress /></Box>
+  }
+  if (!sysInfo) return null
+
+  const s = sysInfo.server
+  const d = sysInfo.db
+  const log = sysInfo.activityLog
+
+  return (
+    <Stack spacing={3} sx={{ maxWidth: 900 }}>
+      <Box display="flex" justifyContent="space-between" alignItems="center">
+        <Typography variant="h6">System-Information</Typography>
+        <Tooltip title="Aktualisieren">
+          <IconButton size="small" onClick={onRefresh}><RefreshIcon /></IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* Server-Auslastung */}
+      <Card>
+        <CardContent>
+          <Box display="flex" alignItems="center" gap={1} mb={2}>
+            <MemoryIcon color="primary" fontSize="small" />
+            <Typography variant="h6">Server-Auslastung</Typography>
+          </Box>
+
+          <Stack spacing={2}>
+            {/* CPU Load */}
+            <Box>
+              <Box display="flex" justifyContent="space-between" alignItems="baseline">
+                <Typography variant="caption" color="text.secondary">
+                  CPU-Last (1 Min) · {s.cpus} Kerne
+                </Typography>
+                <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                  {s.loadAvg.map((l) => l.toFixed(2)).join(' / ')}  ·  {s.loadPercent[0].toFixed(1)}%
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(100, s.loadPercent[0])}
+                color={s.loadPercent[0] > 80 ? 'error' : s.loadPercent[0] > 50 ? 'warning' : 'success'}
+                sx={{ height: 8, borderRadius: 1, mt: 0.5 }}
+              />
+            </Box>
+
+            {/* Memory System */}
+            <Box>
+              <Box display="flex" justifyContent="space-between" alignItems="baseline">
+                <Typography variant="caption" color="text.secondary">
+                  RAM (System)
+                </Typography>
+                <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                  {formatBytes(s.memUsed)} / {formatBytes(s.memTotal)} ({s.memPercent.toFixed(1)}%)
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={s.memPercent}
+                color={s.memPercent > 85 ? 'error' : s.memPercent > 70 ? 'warning' : 'success'}
+                sx={{ height: 8, borderRadius: 1, mt: 0.5 }}
+              />
+            </Box>
+
+            {/* Process Heap */}
+            <Box>
+              <Box display="flex" justifyContent="space-between" alignItems="baseline">
+                <Typography variant="caption" color="text.secondary">
+                  Backend-Prozess (Heap)
+                </Typography>
+                <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                  {formatBytes(s.processMemHeapUsed)} / {formatBytes(s.processMemHeapTotal)}  ·  RSS {formatBytes(s.processMemRss)}
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={s.processMemHeapTotal > 0 ? (s.processMemHeapUsed / s.processMemHeapTotal) * 100 : 0}
+                sx={{ height: 6, borderRadius: 1, mt: 0.5 }}
+              />
+            </Box>
+          </Stack>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Box display="grid" gridTemplateColumns="auto 1fr" columnGap={2} rowGap={0.5} sx={{ fontSize: '0.8rem' }}>
+            <InfoRow label="Hostname" value={s.hostname} mono />
+            <InfoRow label="Platform" value={`${s.platform} (${s.arch})`} />
+            <InfoRow label="Node.js" value={s.nodeVersion} mono />
+            <InfoRow label="Prozess-Uptime" value={formatUptime(s.uptimeProcessSec)} />
+            <InfoRow label="System-Uptime" value={formatUptime(s.uptimeSystemSec)} />
+          </Box>
+        </CardContent>
+      </Card>
+
+      {/* Datenbank */}
+      <Card>
+        <CardContent>
+          <Box display="flex" alignItems="center" gap={1} mb={2}>
+            <StorageIcon color="primary" fontSize="small" />
+            <Typography variant="h6">Datenbank</Typography>
+          </Box>
+
+          <Box display="grid" gridTemplateColumns="auto 1fr" columnGap={2} rowGap={0.5} mb={2} sx={{ fontSize: '0.85rem' }}>
+            <InfoRow label="Host" value={d.host ?? '—'} mono />
+            <InfoRow label="Datenbank" value={d.name ?? '—'} mono />
+            <InfoRow label="User" value={d.user ?? '—'} mono />
+            <InfoRow label="Version" value={d.version} />
+            <InfoRow label="Gesamtgrösse" value={d.sizePretty} />
+          </Box>
+
+          <Typography variant="caption" color="text.secondary">Tabellen (Top-{d.tables.length})</Typography>
+          <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider', mt: 0.5 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Tabelle</TableCell>
+                  <TableCell align="right">Zeilen</TableCell>
+                  <TableCell align="right">Grösse</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {d.tables.map((tbl) => (
+                  <TableRow key={tbl.name} hover>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{tbl.name}</TableCell>
+                    <TableCell align="right" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                      {tbl.rowCount.toLocaleString()}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{tbl.pretty}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+
+      {/* Activity-Log Retention */}
+      <Card>
+        <CardContent>
+          <Typography variant="h6" mb={1}>Aktivitätslog-Aufbewahrung</Typography>
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            Einträge älter als {retentionDays} Tage werden täglich um 03:00 Uhr automatisch gelöscht.
+          </Typography>
+
+          <Box display="grid" gridTemplateColumns="auto 1fr" columnGap={2} rowGap={0.5} mb={2} sx={{ fontSize: '0.85rem' }}>
+            <InfoRow label="Einträge gesamt" value={log.totalCount.toLocaleString()} />
+            {log.oldestAt && <InfoRow label="Ältester Eintrag" value={new Date(log.oldestAt).toLocaleString()} />}
+            {log.newestAt && <InfoRow label="Neuester Eintrag" value={new Date(log.newestAt).toLocaleString()} />}
+          </Box>
+
+          <Box display="flex" gap={2} alignItems="flex-start" flexWrap="wrap">
+            <TextField
+              label="Aufbewahrung (Tage)"
+              size="small"
+              type="number"
+              value={retentionDays}
+              onChange={(e) => onRetentionChange(e.target.value)}
+              inputProps={{ min: 1, max: 3650 }}
+              sx={{ width: 180 }}
+            />
+            <Button variant="contained" onClick={onSaveRetention} disabled={updatePending} sx={{ height: 40 }}>
+              Speichern
+            </Button>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteSweepIcon />}
+              onClick={onCleanup}
+              disabled={cleanupPending}
+              sx={{ height: 40 }}
+            >
+              Jetzt bereinigen
+            </Button>
+          </Box>
+
+          {retentionSaved && <Alert severity="success" sx={{ mt: 2 }}>Einstellung gespeichert.</Alert>}
+          {cleanupMsg && <Alert severity={cleanupMsg.type} sx={{ mt: 2 }}>{cleanupMsg.text}</Alert>}
+        </CardContent>
+      </Card>
+    </Stack>
+  )
+}
+
+function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <>
+      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>{label}</Typography>
+      <Typography variant="caption" sx={{ fontFamily: mono ? 'monospace' : undefined }}>{value}</Typography>
+    </>
+  )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${kb.toFixed(1)} KB`
+  const mb = kb / 1024
+  if (mb < 1024) return `${mb.toFixed(1)} MB`
+  return `${(mb / 1024).toFixed(2)} GB`
+}
+
+function formatUptime(sec: number): string {
+  const d = Math.floor(sec / 86400)
+  const h = Math.floor((sec % 86400) / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
 }

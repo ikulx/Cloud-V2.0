@@ -1,8 +1,11 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import os from 'os'
 import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
+import { cleanupOldActivityLogs } from '../services/activity-log-cleanup.service'
+import { env } from '../config/env'
 
 const router = Router()
 
@@ -17,6 +20,7 @@ export const SETTING_KEYS = [
   'smtp.password',
   'smtp.from',
   'app.url',
+  'activityLog.retentionDays',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -32,6 +36,7 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'smtp.password': '',
   'smtp.from': 'YControl Cloud <noreply@ycontrol.local>',
   'app.url': 'http://localhost:5173',
+  'activityLog.retentionDays': '90',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {
@@ -63,6 +68,132 @@ router.patch('/', authenticate, requirePermission('devices:update'), async (req,
   const result: Record<string, string> = { ...DEFAULT_SETTINGS }
   for (const row of rows) result[row.key] = row.value
   res.json(result)
+})
+
+// GET /api/settings/system-info
+// Liefert DB-Statistiken und Server-Auslastung.
+// Nur für Admins (roles:read = nur Admin).
+router.get('/system-info', authenticate, requirePermission('roles:read'), async (_req, res) => {
+  try {
+    // DB-Verbindung: Host + DB-Name aus der DATABASE_URL extrahieren (Password maskiert)
+    const dbUrl = env.databaseUrl ?? ''
+    let dbHost: string | null = null
+    let dbName: string | null = null
+    let dbUser: string | null = null
+    try {
+      const u = new URL(dbUrl)
+      dbHost = u.hostname + (u.port ? `:${u.port}` : '')
+      dbName = u.pathname.replace(/^\//, '')
+      dbUser = u.username
+    } catch { /* ignore */ }
+
+    // Postgres Version
+    const [{ version }] = await prisma.$queryRawUnsafe<Array<{ version: string }>>(
+      'SELECT version()',
+    )
+
+    // Tabellen-Grössen (inkl. activity_logs)
+    const tableSizes = await prisma.$queryRawUnsafe<Array<{
+      table_name: string
+      row_count: bigint
+      total_bytes: bigint
+      pretty: string
+    }>>(`
+      SELECT
+        c.relname                            AS table_name,
+        c.reltuples::bigint                  AS row_count,
+        pg_total_relation_size(c.oid)        AS total_bytes,
+        pg_size_pretty(pg_total_relation_size(c.oid)) AS pretty
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relkind = 'r'
+      ORDER BY pg_total_relation_size(c.oid) DESC
+      LIMIT 30
+    `)
+
+    // Gesamtgrösse der DB
+    const [{ db_size_pretty, db_size_bytes }] = await prisma.$queryRawUnsafe<Array<{
+      db_size_pretty: string
+      db_size_bytes: bigint
+    }>>(`
+      SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size_pretty,
+             pg_database_size(current_database())::bigint          AS db_size_bytes
+    `)
+
+    // ActivityLog-Statistiken
+    const [logCount, oldestLog, newestLog] = await Promise.all([
+      prisma.activityLog.count(),
+      prisma.activityLog.findFirst({ orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+      prisma.activityLog.findFirst({ orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
+    ])
+
+    // Server-Info
+    const mem = process.memoryUsage()
+    const totalMem = os.totalmem()
+    const freeMem = os.freemem()
+    const loadAvg = os.loadavg()  // [1min, 5min, 15min]
+    const cpuCount = os.cpus().length
+    const uptimeProcess = process.uptime()
+    const uptimeSystem  = os.uptime()
+
+    res.json({
+      db: {
+        host: dbHost,
+        name: dbName,
+        user: dbUser,
+        version: version.split(',')[0],  // "PostgreSQL 16.x …"
+        sizeBytes: Number(db_size_bytes),
+        sizePretty: db_size_pretty,
+        tables: tableSizes.map((t) => ({
+          name: t.table_name,
+          rowCount: Number(t.row_count),
+          totalBytes: Number(t.total_bytes),
+          pretty: t.pretty,
+        })),
+      },
+      activityLog: {
+        totalCount: logCount,
+        oldestAt: oldestLog?.createdAt ?? null,
+        newestAt: newestLog?.createdAt ?? null,
+      },
+      server: {
+        platform: process.platform,
+        arch: process.arch,
+        nodeVersion: process.version,
+        hostname: os.hostname(),
+        cpus: cpuCount,
+        loadAvg: loadAvg,  // [1m, 5m, 15m]
+        // LoadAvg als Prozent pro Kern (relativ zur CPU-Zahl)
+        loadPercent: loadAvg.map((l) => Math.min(100, (l / cpuCount) * 100)),
+        memTotal: totalMem,
+        memFree: freeMem,
+        memUsed: totalMem - freeMem,
+        memPercent: ((totalMem - freeMem) / totalMem) * 100,
+        processMemRss: mem.rss,
+        processMemHeapUsed: mem.heapUsed,
+        processMemHeapTotal: mem.heapTotal,
+        uptimeProcessSec: Math.floor(uptimeProcess),
+        uptimeSystemSec: Math.floor(uptimeSystem),
+      },
+    })
+  } catch (e) {
+    console.error('[settings/system-info]', e)
+    res.status(500).json({ message: 'System-Info konnte nicht gelesen werden' })
+  }
+})
+
+// POST /api/settings/activity-log/cleanup
+// Manueller Cleanup-Trigger für alte Activity-Log-Einträge
+router.post('/activity-log/cleanup', authenticate, requirePermission('roles:read'), async (_req, res) => {
+  try {
+    const retentionStr = await getSetting('activityLog.retentionDays')
+    const retentionDays = parseInt(retentionStr) || 90
+    const deleted = await cleanupOldActivityLogs(retentionDays)
+    res.json({ deleted, retentionDays })
+  } catch (e) {
+    console.error('[settings/activity-log/cleanup]', e)
+    res.status(500).json({ message: 'Cleanup fehlgeschlagen' })
+  }
 })
 
 // POST /api/settings/test-mail  –  Test-E-Mail senden
