@@ -55,6 +55,8 @@ model User {
   createdDeviceTodos  DeviceTodo[]     @relation("DeviceTodoAuthor")
   createdDeviceLogs   DeviceLogEntry[] @relation("DeviceLogAuthor")
   sentInvitations     Invitation[]     @relation("InvitationAuthor")
+  createdWikiPages    WikiPage[]       @relation("WikiPageAuthor")
+  updatedWikiPages    WikiPage[]       @relation("WikiPageEditor")
 
   @@index([roleId])
   @@map("users")
@@ -523,4 +525,37 @@ model VpnPeer {
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@map("vpn_peers")
+}
+
+// ─── Wiki ─────────────────────────────────────────────────────────────────────
+//
+// Einfaches hierarchisches Wiki. Seiten haben einen Titel, Icon (Emoji),
+// eine Baumstruktur via parentId und einen TipTap/ProseMirror JSON-Inhalt.
+model WikiPage {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// URL-freundlicher Slug (einzigartig, für Deep-Links und Erwähnungen)
+  slug        String   @unique
+  title       String
+  /// Optionales Emoji, das im Seitenbaum vor dem Titel angezeigt wird
+  icon        String?
+  /// TipTap-Dokument (ProseMirror-JSON) als Json gespeichert
+  content     Json     @default("{}")
+  /// Eltern-Seite für die Baumstruktur (NULL = Root-Level)
+  parentId    String?  @map("parent_id") @db.Uuid
+  parent      WikiPage?  @relation("WikiTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    WikiPage[] @relation("WikiTree")
+  /// Reihenfolge innerhalb der Geschwister-Ebene
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdBy   User     @relation("WikiPageAuthor", fields: [createdById], references: [id])
+  updatedById String   @map("updated_by_id") @db.Uuid
+  updatedBy   User     @relation("WikiPageEditor", fields: [updatedById], references: [id])
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([parentId])
+  @@index([slug])
+  @@map("wiki_pages")
 }

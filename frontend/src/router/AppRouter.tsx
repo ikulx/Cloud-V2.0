@@ -19,6 +19,7 @@ import { AcceptInvitePage } from '../pages/AcceptInvitePage'
 import { ForgotPasswordPage } from '../pages/ForgotPasswordPage'
 import { ResetPasswordPage } from '../pages/ResetPasswordPage'
 import { ActivityLogPage } from '../pages/ActivityLogPage'
+import { WikiPage } from '../pages/WikiPage'
 
 function PrivateRoutes() {
   const { me, isLoading } = useSession()
@@ -74,6 +75,9 @@ export function AppRouter() {
           } />
           <Route path="/activity-log" element={
             <RequirePermission permission="activityLog:read"><ActivityLogPage /></RequirePermission>
+          } />
+          <Route path="/wiki" element={
+            <RequirePermission permission="wiki:read"><WikiPage /></RequirePermission>
           } />
         </Route>
       </Routes>

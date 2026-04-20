@@ -1,0 +1,135 @@
+.wiki-editor {
+  min-height: 400px;
+}
+
+.wiki-editor .ProseMirror {
+  outline: none;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1.7;
+  color: inherit;
+  caret-color: #1976d2;
+}
+
+.wiki-editor .ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+
+.wiki-editor .ProseMirror h1 { font-size: 2rem; font-weight: 700; margin-top: 1.2em; }
+.wiki-editor .ProseMirror h2 { font-size: 1.5rem; font-weight: 700; margin-top: 1.1em; }
+.wiki-editor .ProseMirror h3 { font-size: 1.2rem; font-weight: 600; margin-top: 1em; }
+
+.wiki-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #8a8a8a;
+  pointer-events: none;
+  height: 0;
+}
+
+.wiki-editor .ProseMirror p.is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #8a8a8a;
+  pointer-events: none;
+  height: 0;
+}
+
+.wiki-editor .ProseMirror blockquote {
+  border-left: 3px solid rgba(0,0,0,0.2);
+  padding-left: 1em;
+  font-style: italic;
+  color: rgba(0,0,0,0.65);
+}
+
+[data-mui-color-scheme='dark'] .wiki-editor .ProseMirror blockquote {
+  border-left-color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.7);
+}
+
+.wiki-editor .ProseMirror code {
+  background: rgba(135,131,120,0.15);
+  color: inherit;
+  padding: 0.15em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: 'Fira Mono', 'Courier New', monospace;
+}
+
+.wiki-editor .ProseMirror pre {
+  background: #0d1117;
+  color: #c9d1d9;
+  padding: 14px 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: 'Fira Mono', 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.wiki-editor .ProseMirror pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+
+.wiki-editor .ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding: 0;
+}
+.wiki-editor .ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.wiki-editor .ProseMirror ul[data-type='taskList'] li > label {
+  margin-top: 4px;
+}
+.wiki-editor .ProseMirror ul[data-type='taskList'] li > div {
+  flex: 1;
+}
+
+.wiki-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid rgba(0,0,0,0.15);
+  margin: 1.5em 0;
+}
+[data-mui-color-scheme='dark'] .wiki-editor .ProseMirror hr {
+  border-top-color: rgba(255,255,255,0.15);
+}
+
+.wiki-editor .ProseMirror table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  overflow: hidden;
+  table-layout: fixed;
+  width: 100%;
+}
+.wiki-editor .ProseMirror th,
+.wiki-editor .ProseMirror td {
+  border: 1px solid rgba(0,0,0,0.2);
+  padding: 6px 10px;
+  vertical-align: top;
+  position: relative;
+}
+[data-mui-color-scheme='dark'] .wiki-editor .ProseMirror th,
+[data-mui-color-scheme='dark'] .wiki-editor .ProseMirror td {
+  border-color: rgba(255,255,255,0.2);
+}
+.wiki-editor .ProseMirror th {
+  background: rgba(0,0,0,0.04);
+  font-weight: 600;
+}
+[data-mui-color-scheme='dark'] .wiki-editor .ProseMirror th {
+  background: rgba(255,255,255,0.06);
+}
+
+.wiki-editor .ProseMirror a {
+  color: #1976d2;
+  text-decoration: underline;
+}
+
+.wiki-editor .wiki-img {
+  max-width: 100%;
+  border-radius: 6px;
+}

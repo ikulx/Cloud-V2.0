@@ -35,6 +35,7 @@ const de = {
     settings: 'Einstellungen',
     vpn: 'VPN',
     activityLog: 'Aktivitätslog',
+    wiki: 'Wiki',
   },
   login: {
     subtitle: 'Raspberry Pi Management',

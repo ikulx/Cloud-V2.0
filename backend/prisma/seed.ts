@@ -32,6 +32,10 @@ const PERMISSION_CATALOG = [
   { key: 'logbook:create', description: 'Logbuch-Einträge erstellen' },
   { key: 'activityLog:read', description: 'Server-Aktivitätslog anzeigen' },
   { key: 'vpn:manage', description: 'VPN-Geräte konfigurieren' },
+  { key: 'wiki:read', description: 'Wiki-Seiten anzeigen' },
+  { key: 'wiki:create', description: 'Wiki-Seiten erstellen' },
+  { key: 'wiki:update', description: 'Wiki-Seiten bearbeiten' },
+  { key: 'wiki:delete', description: 'Wiki-Seiten löschen' },
 ]
 
 async function main() {
@@ -69,7 +73,7 @@ async function main() {
   console.log('✓ 3 roles seeded (admin, verwalter, benutzer)')
 
   // Benutzer-Rolle: minimale Permissions – sieht nur User-Dashboard mit seinen Visus
-  const benutzerPerms = ['devices:read', 'anlagen:read', 'todos:read', 'logbook:read']
+  const benutzerPerms = ['devices:read', 'anlagen:read', 'todos:read', 'logbook:read', 'wiki:read']
   const benutzerPermIds = await prisma.permission.findMany({
     where: { key: { in: benutzerPerms } },
     select: { id: true },

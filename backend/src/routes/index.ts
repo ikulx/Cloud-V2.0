@@ -11,6 +11,7 @@ import settingsRouter from './settings.router'
 import vpnRouter from './vpn.router'
 import invitationsRouter from './invitations.router'
 import activityLogRouter from './activity-log.router'
+import wikiRouter from './wiki.router'
 
 const router = Router()
 
@@ -26,5 +27,6 @@ router.use('/settings', settingsRouter)
 router.use('/vpn', vpnRouter)
 router.use('/invitations', invitationsRouter)
 router.use('/activity-log', activityLogRouter)
+router.use('/wiki', wikiRouter)
 
 export default router

@@ -35,6 +35,7 @@ const fr = {
     settings: 'Paramètres',
     vpn: 'VPN',
     activityLog: 'Journal d\'activité',
+    wiki: 'Wiki',
   },
   login: {
     subtitle: 'Gestion Raspberry Pi',
