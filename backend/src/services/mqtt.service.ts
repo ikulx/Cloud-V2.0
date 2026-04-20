@@ -148,25 +148,45 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
       if (expected !== actual) {
         console.log(`[MQTT] ${serial}: Projektnummer-Mismatch ('${actual}' → '${expected}'), sende setProjectNumber`)
         publishCommand(serial, { action: 'setProjectNumber', value: expected })
-        // Als System-Event loggen
-        void prisma.device.findUnique({ where: { id: device.id }, select: { name: true } })
-          .then((dev) => logActivity({
-            action: 'system.projectNumber.autoSync',
-            entityType: 'devices',
-            entityId: device.id,
-            details: {
-              entityName: dev?.name?.trim() || serial,
-              changes: { projectNumber: { from: actual, to: expected } },
-              anlageName: assignments[0].anlage.name,
-            },
-          }))
-          .catch(() => {})
+
+        // Audit-Log NUR schreiben wenn dies ein NEUER Mismatch ist – sonst entsteht
+        // bei nicht reagierenden Pis alle 10 Min ein Eintrag. Wir merken uns das
+        // zuletzt gesendete Paar (device, expected, actual) und loggen nur einmal
+        // pro Kombination innerhalb von 24 h.
+        const cacheKey = `${device.id}:${actual}→${expected}`
+        const prev = autoSyncLogCache.get(cacheKey)
+        const nowMs = Date.now()
+        if (!prev || (nowMs - prev) > 24 * 60 * 60 * 1000) {
+          autoSyncLogCache.set(cacheKey, nowMs)
+          void prisma.device.findUnique({ where: { id: device.id }, select: { name: true } })
+            .then((dev) => logActivity({
+              action: 'system.projectNumber.autoSync',
+              entityType: 'devices',
+              entityId: device.id,
+              details: {
+                entityName: dev?.name?.trim() || serial,
+                changes: { projectNumber: { from: actual, to: expected } },
+                anlageName: assignments[0].anlage.name,
+              },
+            }))
+            .catch(() => {})
+        }
+      } else {
+        // Kein Mismatch mehr → Cache-Eintrag löschen, damit bei erneutem Drift
+        // wieder geloggt wird.
+        const prefix = `${device.id}:`
+        for (const k of autoSyncLogCache.keys()) {
+          if (k.startsWith(prefix)) autoSyncLogCache.delete(k)
+        }
       }
     }
   } catch (e) {
     console.warn(`[MQTT] Projektnummer-Check fehlgeschlagen für ${serial}:`, (e as Error).message)
   }
 }
+
+/** Cache: welche Projektnummer-Auto-Sync-Kombination wurde zuletzt wann geloggt. */
+const autoSyncLogCache = new Map<string, number>()
 
 function handleResp(serial: string, payload: string, io: SocketServer) {
   console.log(`[MQTT] Resp ${serial}: ${payload}`)

@@ -21,6 +21,18 @@ const KNOWN_SUBRESOURCES = new Set([
 /** Entitäten für die wir einen Before/After-Diff machen. */
 const DIFFABLE_ENTITIES = new Set(['anlagen', 'devices', 'users', 'groups', 'roles'])
 
+/**
+ * Pfade die NIE geloggt werden (interne System-Flows, Health-Checks, Pi-Callbacks).
+ * Match erfolgt mit startsWith (lowercase).
+ */
+const SILENCED_PATHS = [
+  '/api/devices/register',        // Pi-Selbstregistrierung (alle 30 Min)
+  '/api/vpn/device-config',       // Pi pulled seine eigene VPN-Config
+  '/api/auth/refresh',            // Automatischer Token-Refresh alle paar Minuten
+  '/api/me',                      // Me-Request beim Seiten-Load
+  '/health',                      // Health-Check
+]
+
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 
 interface PathInfo {
@@ -107,6 +119,16 @@ export async function activityLogMiddleware(
 
     // Duplikat-Logging für Auth vermeiden (dort explizit)
     if (entityType === 'auth' || action.startsWith('auth.')) return
+
+    // System-/Pi-Aufrufe ohne authentifizierten User werden NICHT geloggt.
+    // Das betrifft z.B. Pi-Selbstregistrierung (alle 30 Min) und Pi-VPN-Config-Pull.
+    // Wichtige sicherheitsrelevante Events (Login-fail, 403) gehen durch explizite
+    // logActivity-Aufrufe, nicht die Middleware.
+    if (!req.user) return
+
+    // Explizit ignorierte Pfade (nicht audit-relevant, aber vollständigkeitshalber)
+    const lowerPath = (req.originalUrl || '').toLowerCase()
+    if (SILENCED_PATHS.some((p) => lowerPath.startsWith(p))) return
 
     // Sensitive Payload-Felder entfernen
     const body = (req.body && typeof req.body === 'object') ? req.body as Record<string, unknown> : {}
