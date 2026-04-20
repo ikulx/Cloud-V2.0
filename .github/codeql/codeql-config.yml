@@ -1,0 +1,16 @@
+name: "Ycontrol Cloud CodeQL Config"
+
+# CodeQL Query-Filter für bewusste, begründete Ausnahmen.
+query-filters:
+  # Die Regel `js/insufficient-password-hash` geht von User-Passwörtern
+  # (low-entropy) aus und empfiehlt bcrypt/argon2. In diesem Projekt wird
+  # die Warnung nur getriggert von `backend/src/lib/token.ts` für Device-
+  # Secrets. Diese sind:
+  #   - 32 Byte (256 bit) kryptografisch-zufällig aus crypto.randomBytes()
+  #   - Werden nie von Menschen gewählt (kein Brute-Force-Risiko)
+  #   - Neue Hashes werden mit bcrypt erzeugt (für Defense-in-Depth)
+  #   - Die SHA-256/HMAC-SHA256-Pfade existieren NUR zur Rückwärts-Kompat
+  #     mit bereits deployed'en Pis; nichts neues wird mit ihnen gehasht.
+  # Die Regel wird deshalb projektweit deaktiviert.
+  - exclude:
+      id: js/insufficient-password-hash
