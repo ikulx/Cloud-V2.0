@@ -82,16 +82,39 @@ export function WikiPage() {
   const canUpdate = page?.canEdit === true
   const isTranslationView = Boolean(page && viewLang && viewLang !== page.sourceLang)
 
-  // Beim ersten Laden einer Seite: wenn UI-Sprache vom sourceLang abweicht
-  // UND eine Übersetzung in dieser Sprache existiert, direkt umschalten.
+  /** Liefert zur aktuellen UI-Sprache den passenden viewLang-Wert, d.h.
+   *  null falls UI == sourceLang (zeigt Original), sonst den Code oder
+   *  null als Fallback wenn keine Übersetzung da ist. */
+  const preferredViewLang = (p: typeof page): string | null => {
+    if (!p) return null
+    const ui = (i18n.language || 'de').slice(0, 2).toLowerCase()
+    if (ui === p.sourceLang) return null
+    if (p.availableLangs?.includes(ui)) return ui
+    return null
+  }
+
+  // Erster Load einer Seite → auf UI-Sprache umstellen (falls verfügbar).
   useEffect(() => {
     if (!page || viewLangInitialized) return
     setViewLangInitialized(true)
-    const ui = (i18n.language || 'de').slice(0, 2).toLowerCase()
-    if (ui !== page.sourceLang && page.availableLangs?.includes(ui)) {
-      setViewLang(ui)
-    }
+    setViewLang(preferredViewLang(page))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, viewLangInitialized])
+
+  // Auf UI-Sprachwechsel im Header reagieren: auch in einer geöffneten Seite
+  // auf die neue Sprache umstellen. Der Benutzer kann danach via
+  // Sprach-Switcher weiterhin manuell auf eine andere Sprache wechseln.
+  useEffect(() => {
+    const handler = () => {
+      setViewLang((prev) => {
+        const next = preferredViewLang(page)
+        return prev === next ? prev : next
+      })
+    }
+    i18n.on('languageChanged', handler)
+    return () => { i18n.off('languageChanged', handler) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page?.sourceLang, page?.availableLangs?.join(',')])
 
   // Bearbeitungsmodus: Standardmäßig Lese-Modus, damit man nicht aus Versehen
   // etwas ändert. Über den Stift-Button wechselt man in den Schreib-Modus.
