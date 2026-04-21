@@ -3,6 +3,7 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
+import Link from '@mui/material/Link'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import TextField from '@mui/material/TextField'
@@ -59,6 +60,12 @@ export function SettingsPage() {
   const [testMailMsg, setTestMailMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [testMailSending, setTestMailSending] = useState(false)
 
+  // DeepL-Form
+  const [deeplForm, setDeeplForm] = useState({ 'deepl.apiKey': '', 'deepl.tier': 'free' })
+  const [deeplSaved, setDeeplSaved] = useState(false)
+  const [deeplTestMsg, setDeeplTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [deeplTesting, setDeeplTesting] = useState(false)
+
   // System-Tab Retention
   const [retentionDays, setRetentionDays] = useState('90')
   const [retentionSaved, setRetentionSaved] = useState(false)
@@ -96,6 +103,10 @@ export function SettingsPage() {
         'app.url': settings['app.url'] ?? '',
       })
       setRetentionDays(settings['activityLog.retentionDays'] ?? '90')
+      setDeeplForm({
+        'deepl.apiKey': settings['deepl.apiKey'] ?? '',
+        'deepl.tier': settings['deepl.tier'] ?? 'free',
+      })
     }
   }, [settings])
 
@@ -144,6 +155,25 @@ export function SettingsPage() {
       setTestMailMsg({ type: 'error', text: err instanceof Error ? err.message : 'Test fehlgeschlagen' })
     } finally {
       setTestMailSending(false)
+    }
+  }
+
+  const handleSaveDeepl = async () => {
+    await updateSettings.mutateAsync(deeplForm)
+    setDeeplSaved(true)
+    setTimeout(() => setDeeplSaved(false), 3000)
+  }
+
+  const handleTestDeepl = async () => {
+    setDeeplTestMsg(null)
+    setDeeplTesting(true)
+    try {
+      const result = await apiPost<{ message: string }>('/settings/test-deepl', {})
+      setDeeplTestMsg({ type: 'success', text: result.message })
+    } catch (err) {
+      setDeeplTestMsg({ type: 'error', text: err instanceof Error ? err.message : 'Test fehlgeschlagen' })
+    } finally {
+      setDeeplTesting(false)
     }
   }
 
@@ -236,6 +266,7 @@ export function SettingsPage() {
   const tabs: { label: string; key: string }[] = [{ label: 'Account', key: 'account' }]
   if (canSeePiSetup) tabs.push({ label: t('settings.tabPiSetup'), key: 'pi' })
   if (isAdmin) tabs.push({ label: 'E-Mail', key: 'mail' })
+  if (isAdmin) tabs.push({ label: 'Übersetzung', key: 'deepl' })
   if (isAdmin) tabs.push({ label: 'System', key: 'system' })
   const activeKey = tabs[tab]?.key ?? 'account'
 
@@ -455,6 +486,66 @@ export function SettingsPage() {
                 disabled={testMailSending || !mailForm['smtp.host']}
               >
                 Test-Mail senden
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeKey === 'deepl' && (
+        <Card sx={{ maxWidth: 720 }}>
+          <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 3 }}>
+            <Typography variant="h6">Automatische Übersetzung (DeepL)</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Wenn ein API-Key hinterlegt ist, werden Wiki-Seiten beim Speichern
+              automatisch in alle unterstützten Sprachen (EN, FR, IT) übersetzt.
+              Einen kostenlosen Key (500.000 Zeichen/Monat) gibt es unter{' '}
+              <Link href="https://www.deepl.com/de/pro-api" target="_blank" rel="noopener">
+                deepl.com/pro-api
+              </Link>.
+            </Typography>
+
+            <TextField
+              label="API-Key"
+              value={deeplForm['deepl.apiKey']}
+              onChange={(e) => setDeeplForm((f) => ({ ...f, 'deepl.apiKey': e.target.value }))}
+              type="password"
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx"
+              helperText={'Leer lassen → Wiki-Übersetzung deaktiviert'}
+              fullWidth
+              autoComplete="off"
+            />
+
+            <TextField
+              select
+              label="Tier"
+              value={deeplForm['deepl.tier']}
+              onChange={(e) => setDeeplForm((f) => ({ ...f, 'deepl.tier': e.target.value }))}
+              helperText="Free = api-free.deepl.com · Pro = api.deepl.com"
+              SelectProps={{ native: true }}
+              fullWidth
+            >
+              <option value="free">Free (Standard)</option>
+              <option value="pro">Pro (kostenpflichtig)</option>
+            </TextField>
+
+            {deeplSaved && <Alert severity="success">DeepL-Einstellungen gespeichert.</Alert>}
+            {deeplTestMsg && <Alert severity={deeplTestMsg.type}>{deeplTestMsg.text}</Alert>}
+
+            <Box display="flex" gap={2}>
+              <Button
+                variant="contained"
+                onClick={handleSaveDeepl}
+                disabled={updateSettings.isPending}
+              >
+                Speichern
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={handleTestDeepl}
+                disabled={deeplTesting || !deeplForm['deepl.apiKey']}
+              >
+                Verbindung testen
               </Button>
             </Box>
           </CardContent>

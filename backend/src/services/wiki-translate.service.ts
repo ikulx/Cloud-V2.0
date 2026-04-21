@@ -48,7 +48,7 @@ export async function translatePage(
   sourceLang: string,
   targetLang: string,
 ): Promise<{ title: string; content: unknown } | null> {
-  if (!isDeeplEnabled()) return null
+  if (!(await isDeeplEnabled())) return null
   if (sourceLang.toLowerCase() === targetLang.toLowerCase()) {
     return { title, content }
   }
@@ -91,7 +91,7 @@ function extractPlainText(node: TipTapNode | unknown): string {
  * Läuft idempotent und nicht-blockierend (bei Fehlern wird nur geloggt).
  */
 export async function refreshTranslationsForPage(pageId: string): Promise<void> {
-  if (!isDeeplEnabled()) return
+  if (!(await isDeeplEnabled())) return
 
   const page = await prisma.wikiPage.findUnique({
     where: { id: pageId },

@@ -217,7 +217,7 @@ router.get('/pages/:id', authenticate, async (req, res) => {
     activeLang,
     availableLangs: Array.from(new Set(availableLangs)),
     translation: translationMeta,
-    translatable: isDeeplEnabled(),
+    translatable: await isDeeplEnabled(),
     autoTargets: AUTO_TRANSLATE_TARGETS,
     canEdit: a.edit,
   })

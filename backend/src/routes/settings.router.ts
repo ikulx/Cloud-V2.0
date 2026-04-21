@@ -7,6 +7,7 @@ import { requirePermission } from '../middleware/require-permission'
 import { cleanupOldActivityLogs } from '../services/activity-log-cleanup.service'
 import { env } from '../config/env'
 import { testMailRateLimiter } from '../middleware/rate-limit'
+import { invalidateDeeplConfigCache, testDeepl } from '../services/deepl.service'
 
 const router = Router()
 
@@ -22,6 +23,8 @@ export const SETTING_KEYS = [
   'smtp.from',
   'app.url',
   'activityLog.retentionDays',
+  'deepl.apiKey',
+  'deepl.tier',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -38,6 +41,8 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'smtp.from': 'YControl Cloud <noreply@ycontrol.local>',
   'app.url': 'http://localhost:5173',
   'activityLog.retentionDays': '90',
+  'deepl.apiKey': '',
+  'deepl.tier': 'free',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {
@@ -65,10 +70,32 @@ router.patch('/', authenticate, requirePermission('devices:update'), async (req,
     prisma.systemSetting.upsert({ where: { key }, update: { value }, create: { key, value } })
   ))
 
+  // DeepL-Konfig-Cache sofort verwerfen, damit die nächste Übersetzung den
+  // neuen Key verwendet.
+  if (updates.some(([k]) => k.startsWith('deepl.'))) {
+    invalidateDeeplConfigCache()
+  }
+
   const rows = await prisma.systemSetting.findMany()
   const result: Record<string, string> = { ...DEFAULT_SETTINGS }
   for (const row of rows) result[row.key] = row.value
   res.json(result)
+})
+
+// POST /api/settings/test-deepl – prüft API-Key + gibt Kontingent zurück
+router.post('/test-deepl', authenticate, requirePermission('roles:read'), async (_req, res) => {
+  const result = await testDeepl()
+  if (result.ok) {
+    res.json({
+      ok: true,
+      message: result.usage
+        ? `OK – genutzt: ${result.usage.count.toLocaleString('de-CH')} / ${result.usage.limit.toLocaleString('de-CH')} Zeichen`
+        : 'OK – Übersetzung funktioniert',
+      usage: result.usage ?? null,
+    })
+  } else {
+    res.status(400).json({ ok: false, message: result.message })
+  }
 })
 
 // GET /api/settings/system-info
