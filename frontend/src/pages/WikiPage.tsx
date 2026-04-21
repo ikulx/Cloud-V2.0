@@ -169,12 +169,18 @@ export function WikiPage() {
     [pages, permPageId],
   )
 
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  // Löschen kann sowohl die gerade offene Seite betreffen als auch eine
+  // andere Seite/einen Ordner aus dem Kontextmenü des Baums.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const deleteTarget = useMemo(
+    () => pages.find((p) => p.id === confirmDeleteId) ?? null,
+    [pages, confirmDeleteId],
+  )
   const handleDelete = async () => {
-    if (!selectedId) return
-    await deleteMut.mutateAsync(selectedId)
-    setSelectedId(null)
-    setConfirmDelete(false)
+    if (!confirmDeleteId) return
+    await deleteMut.mutateAsync(confirmDeleteId)
+    if (confirmDeleteId === selectedId) setSelectedId(null)
+    setConfirmDeleteId(null)
   }
 
   // ⌘K / Ctrl+K öffnet die Suche
@@ -230,6 +236,7 @@ export function WikiPage() {
             const copy = await duplicateMut.mutateAsync(id)
             setSelectedId(copy.id)
           } : undefined}
+          onDelete={canDelete ? (id) => setConfirmDeleteId(id) : undefined}
           canCreate={canCreate}
           canUpdate={canUpdate}
         />
@@ -303,7 +310,7 @@ export function WikiPage() {
               )}
               {canDelete && canUpdate && (
                 <Tooltip title={page.type === 'FOLDER' ? 'Ordner löschen' : 'Seite löschen'}>
-                  <IconButton onClick={() => setConfirmDelete(true)} size="small">
+                  <IconButton onClick={() => setConfirmDeleteId(page.id)} size="small">
                     <DeleteIcon />
                   </IconButton>
                 </Tooltip>
@@ -372,10 +379,14 @@ export function WikiPage() {
 
       {/* Delete confirm */}
       <ConfirmDialog
-        open={confirmDelete}
-        title="Seite löschen?"
-        message="Die Seite und alle Unterseiten werden unwiderruflich gelöscht."
-        onClose={() => setConfirmDelete(false)}
+        open={Boolean(confirmDeleteId)}
+        title={deleteTarget?.type === 'FOLDER' ? 'Ordner löschen?' : 'Seite löschen?'}
+        message={
+          deleteTarget
+            ? `"${deleteTarget.title}" und alle Unterseiten werden unwiderruflich gelöscht.`
+            : 'Element und alle Unterseiten werden unwiderruflich gelöscht.'
+        }
+        onClose={() => setConfirmDeleteId(null)}
         onConfirm={handleDelete}
         confirmLabel="Löschen"
       />

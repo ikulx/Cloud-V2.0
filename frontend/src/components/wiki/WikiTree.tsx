@@ -14,6 +14,7 @@ import LockIcon from '@mui/icons-material/Lock'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
@@ -33,6 +34,7 @@ interface WikiTreeProps {
   onMove?: (id: string, newParentId: string | null, newSortOrder: number) => void
   onOpenPermissions?: (pageId: string) => void
   onDuplicate?: (pageId: string) => void
+  onDelete?: (pageId: string) => void
   canCreate: boolean
   canUpdate: boolean
 }
@@ -60,7 +62,7 @@ function buildTree(pages: WikiPageNode[]): Node[] {
   return roots
 }
 
-export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOpenPermissions, onDuplicate, canCreate, canUpdate }: WikiTreeProps) {
+export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOpenPermissions, onDuplicate, onDelete, canCreate, canUpdate }: WikiTreeProps) {
   const tree = useMemo(() => buildTree(pages), [pages])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [overId, setOverId] = useState<string | null>(null)
@@ -127,6 +129,7 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOp
           onAddChild={onAddChild ? (id, type) => { onAddChild(id, type); setExpanded((s) => new Set(s).add(id)) } : undefined}
           onOpenPermissions={onOpenPermissions}
           onDuplicate={onDuplicate}
+          onDelete={onDelete}
         />
         {isOpen && hasChildren && <Box>{node.children.map((c) => renderNode(c, depth + 1))}</Box>}
       </Box>
@@ -196,9 +199,10 @@ interface TreeRowProps {
   onAddChild?: (id: string, type: 'PAGE' | 'FOLDER') => void
   onOpenPermissions?: (id: string) => void
   onDuplicate?: (id: string) => void
+  onDelete?: (id: string) => void
 }
 
-function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelect, onToggle, onAddChild, onOpenPermissions, onDuplicate }: TreeRowProps) {
+function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelect, onToggle, onAddChild, onOpenPermissions, onDuplicate, onDelete }: TreeRowProps) {
   const canEdit = node.canEdit
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: node.id, disabled: !canEdit })
   const { setNodeRef: setDropRef } = useDroppable({ id: `inside:${node.id}`, disabled: !canEdit })
@@ -312,6 +316,15 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelec
           <MenuItem onClick={() => { onOpenPermissions(node.id); setMenuAnchor(null) }}>
             <ListItemIcon><LockIcon fontSize="small" /></ListItemIcon>
             <ListItemText>Zugriff …</ListItemText>
+          </MenuItem>
+        )}
+        {onDelete && (
+          <MenuItem
+            onClick={() => { onDelete(node.id); setMenuAnchor(null) }}
+            sx={{ color: 'error.main' }}
+          >
+            <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+            <ListItemText>Löschen</ListItemText>
           </MenuItem>
         )}
       </Menu>
