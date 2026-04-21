@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Table from '@mui/material/Table'
@@ -13,6 +13,11 @@ import CircularProgress from '@mui/material/CircularProgress'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
+import MenuItem from '@mui/material/MenuItem'
+import Select from '@mui/material/Select'
+import Drawer from '@mui/material/Drawer'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { useTheme } from '@mui/material/styles'
 import AddIcon from '@mui/icons-material/Add'
 import MapIcon from '@mui/icons-material/Map'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -20,13 +25,20 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
 import WarningIcon from '@mui/icons-material/Warning'
 import AssignmentLateIcon from '@mui/icons-material/AssignmentLate'
+import FilterListIcon from '@mui/icons-material/FilterList'
+import CloseIcon from '@mui/icons-material/Close'
 import { useNavigate } from 'react-router-dom'
 import { useAnlagen, useDeleteAnlage } from '../features/anlagen/queries'
 import { useUsers } from '../features/users/queries'
 import { useGroups } from '../features/groups/queries'
 import { useDevices } from '../features/devices/queries'
+import { useErzeugerCategories } from '../features/erzeuger-types/queries'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { AnlageCreateWizard } from '../components/AnlageCreateWizard'
+import {
+  AnlagenFilterPanel, EMPTY_FILTERS, isFiltersEmpty,
+  useAnlagenFacets, type AnlagenFilters,
+} from '../components/anlagen/AnlagenFilterPanel'
 import { usePermission } from '../hooks/usePermission'
 import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { useTranslation } from 'react-i18next'
@@ -36,12 +48,10 @@ type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'EMPTY'
 
 function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
   if (devices.length === 0) return 'EMPTY'
-  // Priorität: OFFLINE > ERROR > TODO > OK
   const hasOffline = devices.some((d) => d.status !== 'ONLINE')
   if (hasOffline) return 'OFFLINE'
   const hasError = devices.some((d) => d.hasError === true)
   if (hasError) return 'ERROR'
-  // Todos liegen jetzt an der Anlage (nicht mehr am Device)
   const openTodos = anlage.todos
     ? anlage.todos.filter((t) => t.status === 'OPEN').length
     : (anlage._count?.todos ?? 0)
@@ -51,98 +61,341 @@ function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
 
 function StatusChip({ status }: { status: AnlageStatus }) {
   switch (status) {
-    case 'OK':
-      return <Chip icon={<CheckCircleIcon />} label="OK" color="success" size="small" sx={{ fontWeight: 600 }} />
-    case 'TODO':
-      return <Chip icon={<AssignmentLateIcon />} label="Todos offen" color="warning" size="small" sx={{ fontWeight: 600 }} />
-    case 'ERROR':
-      return <Chip icon={<WarningIcon />} label="Fehler" color="warning" size="small" sx={{ fontWeight: 600, bgcolor: 'warning.dark', color: 'common.white' }} />
-    case 'OFFLINE':
-      return <Chip icon={<ErrorIcon />} label="Offline" color="error" size="small" sx={{ fontWeight: 600 }} />
-    case 'EMPTY':
-      return <Chip label="—" size="small" variant="outlined" />
+    case 'OK':       return <Chip icon={<CheckCircleIcon />} label="OK" color="success" size="small" sx={{ fontWeight: 600 }} />
+    case 'TODO':     return <Chip icon={<AssignmentLateIcon />} label="Todos offen" color="warning" size="small" sx={{ fontWeight: 600 }} />
+    case 'ERROR':    return <Chip icon={<WarningIcon />} label="Fehler" color="warning" size="small" sx={{ fontWeight: 600, bgcolor: 'warning.dark', color: 'common.white' }} />
+    case 'OFFLINE':  return <Chip icon={<ErrorIcon />} label="Offline" color="error" size="small" sx={{ fontWeight: 600 }} />
+    case 'EMPTY':    return <Chip label="—" size="small" variant="outlined" />
   }
 }
 
+type SortKey = 'name' | 'projectNumber' | 'city' | 'updatedAt'
+
 export function AnlagenPage() {
-  const { data: anlagen, isLoading } = useAnlagen()
-  const { data: allUsers } = useUsers()
-  const { data: allGroups } = useGroups()
-  const { data: allDevices } = useDevices()
+  const { data: anlagen = [], isLoading } = useAnlagen()
+  const { data: allUsers = [] } = useUsers()
+  const { data: allGroups = [] } = useGroups()
+  const { data: allDevices = [] } = useDevices()
+  const { data: categories = [] } = useErzeugerCategories()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const canCreate = usePermission('anlagen:create')
   const canDelete = usePermission('anlagen:delete')
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
 
   useDeviceStatus()
 
   const [wizardOpen, setWizardOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Anlage | null>(null)
+  const [filters, setFilters] = useState<AnlagenFilters>(EMPTY_FILTERS)
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const deleteMutation = useDeleteAnlage()
 
-  if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
+  // Status pro Anlage in einer Map (stabil gegen Rerenders)
+  const statusByAnlage = useMemo(() => {
+    const m = new Map<string, AnlageStatus>()
+    for (const a of anlagen) {
+      const ids = new Set(a.anlageDevices.map((ad) => ad.device.id))
+      const devs = allDevices.filter((d) => ids.has(d.id))
+      m.set(a.id, computeAnlageStatus(a, devs))
+    }
+    return m
+  }, [anlagen, allDevices])
 
-  // allDevices, allUsers, allGroups werden hier nicht mehr benötigt (Wizard ohne Assignments-Step)
-  // aber die Hooks bleiben für die Tabellen-Anzeige (Status-Berechnung)
-  void allUsers; void allGroups
+  const facetCounts = useAnlagenFacets(
+    anlagen,
+    categories,
+    (a) => statusByAnlage.get(a.id) ?? 'EMPTY',
+  )
+
+  const filtered = useMemo(() => {
+    const q = filters.search.trim().toLowerCase()
+    const res = anlagen.filter((a) => {
+      if (q) {
+        const hay = [
+          a.name, a.projectNumber, a.city, a.street, a.zip, a.country,
+          a.contactName, a.contactEmail, a.contactPhone, a.contactMobile,
+          ...(a.erzeuger?.map((e) => e.serialNumber ?? '') ?? []),
+          ...(a.erzeuger?.map((e) => e.type.name) ?? []),
+        ].filter(Boolean).join(' ').toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      if (filters.statuses.size > 0) {
+        const s = statusByAnlage.get(a.id) ?? 'EMPTY'
+        if (!filters.statuses.has(s)) return false
+      }
+      if (filters.categoryIds.size > 0) {
+        // Die Anlage gehört zu Kategorie X, wenn einer ihrer Erzeuger-Typen
+        // (direkt oder in einem Unter-Ordner) zu X gehört.
+        const catsOfAnlage = new Set<string>()
+        for (const e of a.erzeuger ?? []) {
+          let cursor: string | null = e.type.id
+          // Kategorie-Kette hochgehen
+          const t = categories.flatMap((c) => c.types).find((x) => x.id === e.typeId)
+          let catCursor = t?.categoryId ?? null
+          while (catCursor) {
+            catsOfAnlage.add(catCursor)
+            const cat = categories.find((c) => c.id === catCursor)
+            catCursor = cat?.parentId ?? null
+          }
+          void cursor
+        }
+        if (![...filters.categoryIds].some((id) => catsOfAnlage.has(id))) return false
+      }
+      if (filters.typeIds.size > 0) {
+        const typeIds = new Set((a.erzeuger ?? []).map((e) => e.typeId))
+        if (![...filters.typeIds].some((id) => typeIds.has(id))) return false
+      }
+      if (filters.cities.size > 0) {
+        if (!a.city || !filters.cities.has(a.city)) return false
+      }
+      if (filters.userIds.size > 0) {
+        const userIds = new Set((a.directUsers ?? []).map((du) => du.user.id))
+        if (![...filters.userIds].some((id) => userIds.has(id))) return false
+      }
+      if (filters.groupIds.size > 0) {
+        const groupIds = new Set((a.groupAnlagen ?? []).map((g) => g.group.id))
+        if (![...filters.groupIds].some((id) => groupIds.has(id))) return false
+      }
+      if (filters.onlyOpenTodos) {
+        const openTodos = a.todos
+          ? a.todos.filter((tt) => tt.status === 'OPEN').length
+          : (a._count?.todos ?? 0)
+        if (openTodos === 0) return false
+      }
+      if (filters.onlyWithPhotos) {
+        const hasPhotos = (a.todos ?? []).some((tt) => (tt.photoUrls?.length ?? 0) > 0)
+          || (a.logEntries ?? []).some((l) => (l.photoUrls?.length ?? 0) > 0)
+        if (!hasPhotos) return false
+      }
+      return true
+    })
+
+    const cmp = (a: Anlage, b: Anlage) => {
+      if (sortKey === 'name') return a.name.localeCompare(b.name)
+      if (sortKey === 'projectNumber') {
+        return (a.projectNumber ?? '').localeCompare(b.projectNumber ?? '') || a.name.localeCompare(b.name)
+      }
+      if (sortKey === 'city') {
+        return (a.city ?? '').localeCompare(b.city ?? '') || a.name.localeCompare(b.name)
+      }
+      if (sortKey === 'updatedAt') {
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      }
+      return 0
+    }
+    return res.slice().sort(cmp)
+  }, [anlagen, filters, sortKey, statusByAnlage, categories])
+
+  if (isLoading) {
+    return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
+  }
+
+  const renderActiveFilterChips = () => {
+    const chips: { key: string; label: string; onDelete: () => void }[] = []
+    if (filters.search) chips.push({
+      key: 'search', label: `Suche: "${filters.search}"`,
+      onDelete: () => setFilters({ ...filters, search: '' }),
+    })
+    for (const s of filters.statuses) chips.push({
+      key: `status-${s}`, label: `Status: ${s}`,
+      onDelete: () => { const n = new Set(filters.statuses); n.delete(s); setFilters({ ...filters, statuses: n }) },
+    })
+    for (const id of filters.categoryIds) {
+      const c = categories.find((x) => x.id === id)
+      chips.push({
+        key: `cat-${id}`, label: `Kategorie: ${c?.name ?? id}`,
+        onDelete: () => { const n = new Set(filters.categoryIds); n.delete(id); setFilters({ ...filters, categoryIds: n }) },
+      })
+    }
+    for (const id of filters.typeIds) {
+      const t = categories.flatMap((c) => c.types).find((x) => x.id === id)
+      chips.push({
+        key: `type-${id}`, label: `Typ: ${t?.name ?? id}`,
+        onDelete: () => { const n = new Set(filters.typeIds); n.delete(id); setFilters({ ...filters, typeIds: n }) },
+      })
+    }
+    for (const c of filters.cities) chips.push({
+      key: `city-${c}`, label: `Ort: ${c}`,
+      onDelete: () => { const n = new Set(filters.cities); n.delete(c); setFilters({ ...filters, cities: n }) },
+    })
+    for (const id of filters.userIds) {
+      const u = allUsers.find((x) => x.id === id)
+      chips.push({
+        key: `user-${id}`, label: `Benutzer: ${u ? `${u.firstName} ${u.lastName}` : id}`,
+        onDelete: () => { const n = new Set(filters.userIds); n.delete(id); setFilters({ ...filters, userIds: n }) },
+      })
+    }
+    for (const id of filters.groupIds) {
+      const g = allGroups.find((x) => x.id === id)
+      chips.push({
+        key: `group-${id}`, label: `Gruppe: ${g?.name ?? id}`,
+        onDelete: () => { const n = new Set(filters.groupIds); n.delete(id); setFilters({ ...filters, groupIds: n }) },
+      })
+    }
+    if (filters.onlyOpenTodos) chips.push({
+      key: 'todos', label: 'Nur mit offenen Todos',
+      onDelete: () => setFilters({ ...filters, onlyOpenTodos: false }),
+    })
+    if (filters.onlyWithPhotos) chips.push({
+      key: 'photos', label: 'Nur mit Fotos',
+      onDelete: () => setFilters({ ...filters, onlyWithPhotos: false }),
+    })
+    return chips
+  }
+
+  const chips = renderActiveFilterChips()
+
+  const filterPanel = (
+    <Box sx={{ p: 2 }}>
+      <Typography variant="h6" mb={1}>Filter</Typography>
+      <AnlagenFilterPanel
+        value={filters}
+        onChange={setFilters}
+        counts={facetCounts}
+        categories={categories}
+        allUsers={allUsers}
+        allGroups={allGroups}
+      />
+    </Box>
+  )
 
   return (
     <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h5">{t('anlagen.title', { count: anlagen?.length ?? 0 })}</Typography>
-        <Box display="flex" gap={1}>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
+        <Typography variant="h5">
+          {t('anlagen.title', { count: filtered.length })}
+          {filtered.length !== anlagen.length && (
+            <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+              von {anlagen.length}
+            </Typography>
+          )}
+        </Typography>
+        <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
+          {isMobile && (
+            <Button
+              startIcon={<FilterListIcon />}
+              variant="outlined"
+              onClick={() => setDrawerOpen(true)}
+            >
+              Filter{chips.length > 0 ? ` (${chips.length})` : ''}
+            </Button>
+          )}
+          <Select
+            size="small"
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            sx={{ minWidth: 180 }}
+          >
+            <MenuItem value="name">Name (A-Z)</MenuItem>
+            <MenuItem value="projectNumber">Projekt-Nr.</MenuItem>
+            <MenuItem value="city">Ort</MenuItem>
+            <MenuItem value="updatedAt">Zuletzt aktualisiert</MenuItem>
+          </Select>
           <Button variant="outlined" startIcon={<MapIcon />} onClick={() => navigate('/anlagen/map')}>Karte</Button>
           {canCreate && <Button variant="contained" startIcon={<AddIcon />} onClick={() => setWizardOpen(true)}>{t('anlagen.add')}</Button>}
         </Box>
       </Box>
 
-      <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ width: 140 }}>{t('common.status')}</TableCell>
-              <TableCell>Projekt-Nr.</TableCell>
-              <TableCell>{t('common.name')}</TableCell>
-              <TableCell>Ort</TableCell>
-              <TableCell align="right">{t('common.actions')}</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {anlagen?.length === 0 && (
-              <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4 }}><Typography color="text.secondary">{t('anlagen.empty')}</Typography></TableCell></TableRow>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+        {!isMobile && (
+          <Paper
+            elevation={0}
+            sx={{ width: 280, minWidth: 280, border: '1px solid', borderColor: 'divider', position: 'sticky', top: 0 }}
+          >
+            {filterPanel}
+          </Paper>
+        )}
+        <Drawer anchor="left" open={isMobile && drawerOpen} onClose={() => setDrawerOpen(false)}>
+          <Box sx={{ width: 320, maxWidth: '100vw' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
+              <IconButton onClick={() => setDrawerOpen(false)}><CloseIcon /></IconButton>
+            </Box>
+            {filterPanel}
+          </Box>
+        </Drawer>
 
-            )}
-            {anlagen?.map((anlage) => {
-              const deviceIdSet = new Set(anlage.anlageDevices.map((ad) => ad.device.id))
-              const anlageDevices = (allDevices ?? []).filter((d) => deviceIdSet.has(d.id))
-              const status = computeAnlageStatus(anlage, anlageDevices)
-              return (
-                <TableRow
-                  key={anlage.id}
-                  hover
-                  onClick={() => navigate(`/anlagen/${anlage.id}`)}
-                  sx={{ cursor: 'pointer' }}
-                >
-                  <TableCell><StatusChip status={status} /></TableCell>
-                  <TableCell>{anlage.projectNumber ?? '—'}</TableCell>
-                  <TableCell>{anlage.name}</TableCell>
-                  <TableCell>{anlage.city ?? '—'}</TableCell>
-                  <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    {canDelete && <Tooltip title={t('common.delete')}><IconButton onClick={() => setDeleteTarget(anlage)} size="small" color="error"><DeleteIcon fontSize="small" /></IconButton></Tooltip>}
-                  </TableCell>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {/* Aktive Filter Chips */}
+          {chips.length > 0 && (
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1.5 }}>
+              {chips.map((c) => (
+                <Chip key={c.key} size="small" label={c.label} onDelete={c.onDelete} />
+              ))}
+              {!isFiltersEmpty(filters) && (
+                <Chip size="small" label="Alle zurücksetzen" variant="outlined" color="primary"
+                  onClick={() => setFilters(EMPTY_FILTERS)} />
+              )}
+            </Box>
+          )}
+
+          <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ width: 140 }}>{t('common.status')}</TableCell>
+                  <TableCell>Projekt-Nr.</TableCell>
+                  <TableCell>{t('common.name')}</TableCell>
+                  <TableCell>Ort</TableCell>
+                  <TableCell>Erzeuger</TableCell>
+                  <TableCell align="right">{t('common.actions')}</TableCell>
                 </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+              </TableHead>
+              <TableBody>
+                {filtered.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                      <Typography color="text.secondary">
+                        {anlagen.length === 0 ? t('anlagen.empty') : 'Keine Anlage entspricht den Filtern.'}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {filtered.map((anlage) => {
+                  const status = statusByAnlage.get(anlage.id) ?? 'EMPTY'
+                  return (
+                    <TableRow
+                      key={anlage.id}
+                      hover
+                      onClick={() => navigate(`/anlagen/${anlage.id}`)}
+                      sx={{ cursor: 'pointer' }}
+                    >
+                      <TableCell><StatusChip status={status} /></TableCell>
+                      <TableCell>{anlage.projectNumber ?? '—'}</TableCell>
+                      <TableCell>{anlage.name}</TableCell>
+                      <TableCell>{anlage.city ?? '—'}</TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {(anlage.erzeuger ?? []).slice(0, 3).map((e) => (
+                            <Chip key={e.id} size="small" label={e.type.name} variant="outlined" />
+                          ))}
+                          {(anlage.erzeuger ?? []).length > 3 && (
+                            <Chip size="small" label={`+${(anlage.erzeuger ?? []).length - 3}`} variant="outlined" />
+                          )}
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                        {canDelete && (
+                          <Tooltip title={t('common.delete')}>
+                            <IconButton onClick={() => setDeleteTarget(anlage)} size="small" color="error">
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      </Box>
 
-      <AnlageCreateWizard
-        open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
-      />
-
+      <AnlageCreateWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
       <ConfirmDialog
         open={!!deleteTarget}
         title={t('anlagen.deleteTitle')}

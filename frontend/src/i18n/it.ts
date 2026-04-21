@@ -38,7 +38,7 @@ const it = {
     wiki: 'Wiki',
   },
   login: {
-    subtitle: 'Gestione Raspberry Pi',
+    subtitle: 'Ygnis AG',
     password: 'Password',
     submit: 'Accedi',
     loading: 'Accesso...',
