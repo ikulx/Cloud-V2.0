@@ -44,16 +44,34 @@
 
 .wiki-editor .ProseMirror blockquote {
   border-left: 4px solid #1976d2;
-  background: rgba(25,118,210,0.06);
+  background: rgba(25,118,210,0.15);
   padding: 0.75em 1em;
   border-radius: 0 6px 6px 0;
   font-style: italic;
-  color: rgba(0,0,0,0.75);
+  color: #fff;
 }
 
-[data-mui-color-scheme='dark'] .wiki-editor .ProseMirror blockquote {
-  background: rgba(25,118,210,0.12);
-  color: rgba(255,255,255,0.85);
+/* Kritischer Hinweis – optisch wie ein Zitat, aber Rot */
+.wiki-editor .ProseMirror .wiki-important,
+.wiki-editor .ProseMirror div[data-type="important"] {
+  position: relative;
+  border-left: 4px solid #d32f2f;
+  background: rgba(211,47,47,0.18);
+  padding: 0.75em 1em 0.75em 2.6em;
+  border-radius: 0 6px 6px 0;
+  color: #fff;
+  margin: 0.5em 0;
+}
+
+.wiki-editor .ProseMirror .wiki-important::before,
+.wiki-editor .ProseMirror div[data-type="important"]::before {
+  content: '⚠';
+  position: absolute;
+  left: 0.7em;
+  top: 0.55em;
+  font-size: 1.2em;
+  color: #d32f2f;
+  font-weight: 700;
 }
 
 .wiki-editor .ProseMirror code {

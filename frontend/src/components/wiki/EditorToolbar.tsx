@@ -17,6 +17,7 @@ import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import CheckBoxOutlinedIcon from '@mui/icons-material/CheckBoxOutlined'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
+import PriorityHighIcon from '@mui/icons-material/PriorityHigh'
 import FormatAlignLeftIcon from '@mui/icons-material/FormatAlignLeft'
 import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter'
 import FormatAlignRightIcon from '@mui/icons-material/FormatAlignRight'
@@ -157,6 +158,19 @@ export function EditorToolbar({ editor }: Props) {
         active: editor.isActive('taskList'), onClick: () => editor.chain().focus().toggleTaskList().run() })}
       {btn({ icon: <FormatQuoteIcon fontSize="small" />, title: 'Zitat',
         active: editor.isActive('blockquote'), onClick: () => editor.chain().focus().toggleBlockquote().run() })}
+      {btn({ icon: <PriorityHighIcon fontSize="small" />, title: 'Wichtig (Hinweis-Box rot)',
+        active: editor.isActive('importantBlock'),
+        onClick: () => {
+          if (editor.isActive('importantBlock')) {
+            editor.chain().focus().lift('importantBlock').run()
+          } else {
+            editor.chain().focus().insertContent({
+              type: 'importantBlock',
+              content: [{ type: 'paragraph', content: [] }],
+            }).run()
+          }
+        },
+      })}
 
       {divider}
 

@@ -6,6 +6,7 @@ import Link from '@tiptap/extension-link'
 import { ResizableImage } from './ResizableImage'
 import { Drawio } from './Drawio'
 import { FileAttachment } from './FileAttachment'
+import { ImportantBlock } from './ImportantBlock'
 import { EditorToolbar } from './EditorToolbar'
 import { TableInsertDialog } from './TableInsertDialog'
 import TaskList from '@tiptap/extension-task-list'
@@ -79,6 +80,7 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
         Drawio,
         FileAttachment,
+        ImportantBlock,
         SlashCommand,
       ],
       content: isValidDoc(content) ? content : { type: 'doc', content: [] },

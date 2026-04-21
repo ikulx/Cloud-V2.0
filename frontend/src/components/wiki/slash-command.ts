@@ -35,6 +35,15 @@ const ITEMS: SlashItem[] = [
     command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
   },
   {
+    title: 'Wichtig', description: 'Hinweis-Box in Rot', keywords: ['important', 'alert', 'warnung', 'achtung', 'warning'],
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).insertContent({
+        type: 'importantBlock',
+        content: [{ type: 'paragraph', content: [] }],
+      }).run()
+    },
+  },
+  {
     title: 'Code-Block', description: 'Formatierter Code', keywords: ['code', 'pre'],
     command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
   },
