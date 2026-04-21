@@ -68,6 +68,8 @@ async function ensureContactTodo(
           details,
           status: 'OPEN',
           createdById: userId,
+          // Auto-Zuweisung an den speichernden User
+          assignedUsers: { create: [{ userId }] },
         },
       })
     }
@@ -223,6 +225,9 @@ async function ensureSerialNumberTodos(
         title: `Seriennummer ergänzen: ${t?.name ?? 'Erzeuger'} ${titleMarker}`,
         details: `Die Seriennummer für diesen Erzeuger wurde beim Speichern nicht erfasst. Bitte ergänzen, sobald bekannt.`,
         createdById: userId,
+        // Auto-Zuweisung an den speichernden User (sonst hätten wir ein Todo
+        // ohne Zuweisung, was wir neu unterbinden).
+        assignedUsers: { create: [{ userId }] },
       },
     })
     created++
@@ -386,6 +391,10 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
   const parsed = todoSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
   const { assignedUserIds, assignedGroupIds, dueDate, ...base } = parsed.data
+  if ((assignedUserIds?.length ?? 0) === 0 && (assignedGroupIds?.length ?? 0) === 0) {
+    res.status(400).json({ message: 'Mindestens ein Benutzer oder eine Gruppe muss zugewiesen werden.' })
+    return
+  }
   const [todo] = await prisma.$transaction([
     prisma.anlageTodo.create({
       data: {
@@ -415,6 +424,25 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
 router.patch('/:id/todos/:todoId', authenticate, requirePermission('todos:update'), async (req, res) => {
   const parsed = todoUpdateSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
+
+  // Wenn Zuweisungen explizit mitgegeben werden, prüfen dass mind. eine bleibt
+  if (parsed.data.assignedUserIds !== undefined || parsed.data.assignedGroupIds !== undefined) {
+    // Aktuelle Zuweisungen laden, um den "finalen" Zustand zu prüfen
+    const current = await prisma.anlageTodo.findUnique({
+      where: { id: req.params.todoId as string },
+      include: {
+        assignedUsers: { select: { userId: true } },
+        assignedGroups: { select: { groupId: true } },
+      },
+    })
+    const newUserIds = parsed.data.assignedUserIds ?? current?.assignedUsers.map((u) => u.userId) ?? []
+    const newGroupIds = parsed.data.assignedGroupIds ?? current?.assignedGroups.map((g) => g.groupId) ?? []
+    if (newUserIds.length === 0 && newGroupIds.length === 0) {
+      res.status(400).json({ message: 'Mindestens ein Benutzer oder eine Gruppe muss zugewiesen bleiben.' })
+      return
+    }
+  }
+
   const existing = await prisma.anlageTodo.findUnique({ where: { id: req.params.todoId as string }, select: { title: true, status: true } })
   const statusChanged = parsed.data.status && parsed.data.status !== existing?.status
   const logMessage = statusChanged

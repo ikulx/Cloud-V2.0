@@ -776,19 +776,31 @@ export function AnlageDetailPage() {
             <Box sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('todos.newTodo')}</Typography>
               <TodoForm value={newTodoForm} onChange={setNewTodoForm} />
-              <Box sx={{ mt: 1.5 }}>
-                <Button
-                  variant="contained"
-                  disabled={!newTodoForm.title.trim() || createTodo.isPending}
-                  onClick={async () => {
-                    if (!newTodoForm.title.trim()) return
-                    await createTodo.mutateAsync(todoFormToPayload(newTodoForm))
-                    setNewTodoForm(EMPTY_TODO_FORM)
-                  }}
-                >
-                  {t('todos.add')}
-                </Button>
-              </Box>
+              {(() => {
+                const hasTitle = newTodoForm.title.trim().length > 0
+                const hasAssignment = newTodoForm.userIds.length > 0 || newTodoForm.groupIds.length > 0
+                const canSubmit = hasTitle && hasAssignment
+                return (
+                  <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Button
+                      variant="contained"
+                      disabled={!canSubmit || createTodo.isPending}
+                      onClick={async () => {
+                        if (!canSubmit) return
+                        await createTodo.mutateAsync(todoFormToPayload(newTodoForm))
+                        setNewTodoForm(EMPTY_TODO_FORM)
+                      }}
+                    >
+                      {t('todos.add')}
+                    </Button>
+                    {hasTitle && !hasAssignment && (
+                      <Typography variant="caption" color="error">
+                        Mindestens ein Benutzer oder eine Gruppe zuweisen.
+                      </Typography>
+                    )}
+                  </Box>
+                )
+              })()}
             </Box>
           ) : (
             <Alert severity="info" sx={{ mb: 2 }}>{t('detail.noPermissionTodos')}</Alert>
