@@ -55,11 +55,14 @@ export function Sidebar({ onNavClick }: SidebarProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Box sx={{ p: 2, pt: 3 }}>
-        <Typography variant="h6" sx={{ color: 'white', fontWeight: 700 }}>
-          YControl Cloud
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+      <Box sx={{ p: 2, pt: 3, textAlign: 'center' }}>
+        <Box
+          component="img"
+          src="/ycontrol-logo.png"
+          alt="Ycontrol Cloud"
+          sx={{ width: '100%', maxWidth: 180, height: 'auto', display: 'block', mx: 'auto' }}
+        />
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: 'block', mt: 0.5 }}>
           v2.0
         </Typography>
       </Box>

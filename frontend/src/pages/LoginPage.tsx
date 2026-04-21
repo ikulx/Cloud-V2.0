@@ -106,9 +106,12 @@ export function LoginPage() {
             </Select>
           </Box>
 
-          <Typography variant="h5" gutterBottom fontWeight={700} textAlign="center">
-            YControl Cloud
-          </Typography>
+          <Box
+            component="img"
+            src="/ycontrol-logo.png"
+            alt="Ycontrol Cloud"
+            sx={{ display: 'block', mx: 'auto', mb: 1.5, maxWidth: 240, width: '100%', height: 'auto' }}
+          />
           <Typography variant="body2" color="text.secondary" textAlign="center" mb={3}>
             {t('login.subtitle')}
           </Typography>
