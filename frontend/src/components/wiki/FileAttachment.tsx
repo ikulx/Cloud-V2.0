@@ -80,7 +80,6 @@ function FileAttachmentView({ node, selected }: NodeViewProps) {
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        download={name}
       >
         <span className="wiki-file-icon">{iconFor(mime, name)}</span>
         <span className="wiki-file-meta">
