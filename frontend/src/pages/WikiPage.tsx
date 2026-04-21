@@ -182,7 +182,8 @@ export function WikiPage() {
       setDirty(false)
       setSavedAt(new Date(page.updatedAt))
     }
-  }, [page?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    // Abhängigkeit: beim Seiten- UND beim Sprachwechsel neu initialisieren.
+  }, [page?.id, page?.activeLang]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const scheduleSave = () => {
     if (!selectedId || !isEditing) return
@@ -453,7 +454,11 @@ export function WikiPage() {
               />
             ) : (
               <WikiEditor
-                key={page.id}
+                // key enthält die Sprache, damit ein Sprachwechsel den Editor
+                // neu mountet und den passenden Inhalt anzeigt. Autosaves
+                // triggern KEINE key-Änderung (page.id + lang bleiben gleich),
+                // deshalb springt der Cursor dabei nicht.
+                key={`${page.id}:${page.activeLang}`}
                 content={page.content}
                 editable={isEditing}
                 onChange={(json) => { contentBufferRef.current = json; scheduleSave() }}
