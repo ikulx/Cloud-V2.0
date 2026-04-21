@@ -10,14 +10,28 @@ import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Paper from '@mui/material/Paper'
+import IconButton from '@mui/material/IconButton'
+import EditIcon from '@mui/icons-material/Edit'
 import { Link as RouterLink } from 'react-router-dom'
 import { useMyTodos, type MyTodoScope, type MyTodoStatus } from '../features/my-todos/queries'
 import { useUpdateAnlageTodo } from '../features/anlagen/queries'
+import { TodoEditDialog } from '../components/anlagen/TodoEditDialog'
+import { useQueryClient } from '@tanstack/react-query'
+import { apiPatch } from '../lib/api'
+import type { MyTodo } from '../types/model'
 
 export function MyTodosPage() {
   const [scope, setScope] = useState<MyTodoScope>('all')
   const [status, setStatus] = useState<MyTodoStatus>('OPEN')
+  const [editTodo, setEditTodo] = useState<MyTodo | null>(null)
   const { data: todos = [], isLoading } = useMyTodos(scope, status)
+  const qc = useQueryClient()
+
+  const handleSave: Parameters<typeof TodoEditDialog>[0]['onSave'] = async (anlageId, todoId, payload) => {
+    await apiPatch(`/anlagen/${anlageId}/todos/${todoId}`, payload)
+    await qc.invalidateQueries({ queryKey: ['me', 'todos'] })
+    await qc.invalidateQueries({ queryKey: ['anlagen', anlageId] })
+  }
 
   return (
     <Box>
@@ -46,14 +60,24 @@ export function MyTodosPage() {
         </Typography>
       ) : (
         <List disablePadding>
-          {todos.map((todo) => <TodoRow key={todo.id} todo={todo} />)}
+          {todos.map((todo) => (
+            <TodoRow key={todo.id} todo={todo} onEdit={() => setEditTodo(todo)} />
+          ))}
         </List>
       )}
+
+      <TodoEditDialog
+        open={Boolean(editTodo)}
+        anlageId={editTodo?.anlage.id ?? ''}
+        todo={editTodo}
+        onClose={() => setEditTodo(null)}
+        onSave={handleSave}
+      />
     </Box>
   )
 }
 
-function TodoRow({ todo }: { todo: import('../types/model').MyTodo }) {
+function TodoRow({ todo, onEdit }: { todo: MyTodo; onEdit: () => void }) {
   const updateMut = useUpdateAnlageTodo(todo.anlage.id)
   const overdue = todo.status === 'OPEN' && todo.dueDate && new Date(todo.dueDate) < new Date()
 
@@ -68,6 +92,11 @@ function TodoRow({ todo }: { todo: import('../types/model').MyTodo }) {
         border: overdue ? '1px solid' : 'none',
         borderColor: overdue ? 'error.main' : 'transparent',
       }}
+      secondaryAction={
+        <IconButton size="small" onClick={onEdit}>
+          <EditIcon fontSize="small" />
+        </IconButton>
+      }
     >
       <Checkbox
         checked={todo.status === 'DONE'}

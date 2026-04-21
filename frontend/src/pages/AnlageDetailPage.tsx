@@ -56,6 +56,7 @@ import { useTranslation } from 'react-i18next'
 import type { Device } from '../types/model'
 import { ErzeugerPicker, type ErzeugerEntry } from '../components/anlagen/ErzeugerPicker'
 import { TodoForm, EMPTY_TODO_FORM, todoFormToPayload, type TodoFormValue } from '../components/anlagen/TodoForm'
+import { TodoEditDialog } from '../components/anlagen/TodoEditDialog'
 import { useErzeugerTypes, useErzeugerCategories } from '../features/erzeuger-types/queries'
 import { formatCategoryPath } from '../features/erzeuger-types/helpers'
 
@@ -161,6 +162,7 @@ export function AnlageDetailPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [showErrors, setShowErrors] = useState(false)
   const [newTodoForm, setNewTodoForm] = useState<TodoFormValue>(EMPTY_TODO_FORM)
+  const [editTodo, setEditTodo] = useState<import('../types/model').AnlageTodo | null>(null)
   const [logMessage, setLogMessage] = useState('')
 
   const { data: erzeugerTypes = [] } = useErzeugerTypes()
@@ -816,6 +818,13 @@ export function AnlageDetailPage() {
                   key={todo.id}
                   disablePadding
                   sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 1, alignItems: 'flex-start', py: 0.5 }}
+                  secondaryAction={
+                    canUpdateTodo ? (
+                      <IconButton size="small" onClick={() => setEditTodo(todo)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    ) : null
+                  }
                 >
                   <Checkbox
                     checked={todo.status === 'DONE'}
@@ -917,6 +926,16 @@ export function AnlageDetailPage() {
         autoHideDuration={3500}
         onClose={() => setToast(null)}
         message={toast}
+      />
+
+      <TodoEditDialog
+        open={Boolean(editTodo)}
+        anlageId={id ?? ''}
+        todo={editTodo}
+        onClose={() => setEditTodo(null)}
+        onSave={async (_anlageId, todoId, payload) => {
+          await updateTodo.mutateAsync({ todoId, ...payload })
+        }}
       />
     </Box>
   )
