@@ -63,7 +63,7 @@ export function Sidebar({ onNavClick }: SidebarProps) {
           sx={{ width: '100%', maxWidth: 180, height: 'auto', display: 'block', mx: 'auto' }}
         />
         <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: 'block', mt: 0.5 }}>
-          v2.0
+          v2.0 - Ygnis AG
         </Typography>
       </Box>
 

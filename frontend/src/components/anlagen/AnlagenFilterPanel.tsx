@@ -322,14 +322,16 @@ export function AnlagenFilterPanel({ value, onChange, counts, categories, allUse
 }
 
 function FacetSection({
-  label, count, defaultOpen = true, children,
+  label, count, defaultOpen = false, children,
 }: {
   label: string
   count: number
   defaultOpen?: boolean
   children: React.ReactNode
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  // Wenn dieser Facet schon aktive Filter hat, beim Mount automatisch öffnen –
+  // sonst standardmäßig zu.
+  const [open, setOpen] = useState(defaultOpen || count > 0)
   return (
     <Accordion
       disableGutters
