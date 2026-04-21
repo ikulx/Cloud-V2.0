@@ -167,6 +167,161 @@ export async function parseImportFile(file: File): Promise<ImportResult> {
   return convertHtmlToImport(html, baseName, null, file.name)
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// BookStack-spezifischer ZIP-Import
+// ──────────────────────────────────────────────────────────────────────────
+
+interface BsImage { id: number; name?: string; file: string; type?: string }
+interface BsAttachment { id: number; name?: string; file?: string; link?: string }
+interface BsPage {
+  id?: number
+  name: string
+  html: string
+  priority?: number
+  images?: BsImage[]
+  attachments?: BsAttachment[]
+}
+interface BsChapter { id?: number; name: string; priority?: number; pages?: BsPage[] }
+interface BsBook { id?: number; name: string; pages?: BsPage[]; chapters?: BsChapter[] }
+interface BsExport { page?: BsPage; chapter?: BsChapter; book?: BsBook }
+
+/** Flacht einen BookStack-Export zu einer sortierten Page-Liste ab. Chapter-
+ *  Titel werden als Präfix an Seitentitel gehängt, damit die Struktur
+ *  erkennbar bleibt, ohne dass wir Ordner anlegen müssen. */
+function flattenBookstack(data: BsExport): BsPage[] {
+  const out: BsPage[] = []
+  const byPrio = (a: { priority?: number }, b: { priority?: number }) =>
+    (a.priority ?? 0) - (b.priority ?? 0)
+  if (data.page) out.push(data.page)
+  if (data.chapter) {
+    for (const p of (data.chapter.pages ?? []).slice().sort(byPrio)) {
+      out.push({ ...p, name: `${data.chapter.name} – ${p.name}` })
+    }
+  }
+  if (data.book) {
+    for (const p of (data.book.pages ?? []).slice().sort(byPrio)) out.push(p)
+    for (const c of (data.book.chapters ?? []).slice().sort(byPrio)) {
+      for (const p of (c.pages ?? []).slice().sort(byPrio)) {
+        out.push({ ...p, name: `${c.name} – ${p.name}` })
+      }
+    }
+  }
+  return out
+}
+
+/** Wandelt BookStack-HTML + image/attachment-Mapping → ImportResult. */
+async function convertBookstackPage(
+  page: BsPage,
+  imageUrls: Map<number, string>,
+  attachmentUrls: Map<number, string>,
+): Promise<ImportResult> {
+  // Placeholder ersetzen BEVOR DOM-Parse – robuster gegen HTML-Encoding.
+  const resolved = page.html
+    .replace(/\[\[bsexport:image:(\d+)\]\]/g, (_m, id) =>
+      imageUrls.get(Number(id)) ?? '',
+    )
+    .replace(/\[\[bsexport:attachment:(\d+)\]\]/g, (_m, id) =>
+      attachmentUrls.get(Number(id)) ?? '',
+    )
+
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(`<!DOCTYPE html><html><body>${resolved}</body></html>`, 'text/html')
+
+  // BookStack wraps images oft in <figure class="image"> – das stört TipTap
+  // (figure kennt es nicht) – flachen wir aus.
+  for (const fig of Array.from(doc.body.querySelectorAll('figure'))) {
+    const img = fig.querySelector('img')
+    if (img) fig.replaceWith(img)
+    else fig.replaceWith(...Array.from(fig.childNodes))
+  }
+
+  const warnings: string[] = []
+  // Nicht aufgelöste Platzhalter aufspüren
+  const stillUnresolved = (doc.body.innerHTML.match(/\[\[bsexport:/g) ?? []).length
+  if (stillUnresolved > 0) {
+    warnings.push(`${stillUnresolved} Verweise konnten nicht aufgelöst werden (fehlende Bilder/Anhänge im ZIP).`)
+  }
+
+  const images = doc.body.querySelectorAll('img').length
+  const json = generateJSON(doc.body.innerHTML, EXTS)
+  return { title: page.name, content: json, images, warnings }
+}
+
+async function parseBookstackZip(
+  zip: JSZip,
+  onProgress?: (msg: string, done: number, total: number) => void,
+): Promise<ImportResult[]> {
+  const dataEntry = zip.file('data.json')
+  if (!dataEntry) throw new Error('data.json nicht gefunden')
+  const data = JSON.parse(await dataEntry.async('string')) as BsExport
+  const pages = flattenBookstack(data)
+  if (pages.length === 0) throw new Error('Der BookStack-Export enthält keine Seiten.')
+
+  // Alle Bild- und Attachment-Dateien sammeln (einmal pro Dateiname), dann
+  // hochladen und id→url speichern. Gleiche Datei wird nur einmal hochgeladen.
+  const imageById = new Map<number, BsImage>()
+  const attByIdBS = new Map<number, BsAttachment>()
+  for (const p of pages) {
+    for (const img of p.images ?? []) imageById.set(img.id, img)
+    for (const att of p.attachments ?? []) attByIdBS.set(att.id, att)
+  }
+
+  const uploadedByFile = new Map<string, string>()
+  const imageUrls = new Map<number, string>()
+  const attachmentUrls = new Map<number, string>()
+
+  const total = imageById.size + attByIdBS.size + pages.length
+  let step = 0
+
+  for (const [id, img] of imageById) {
+    onProgress?.(`Lade Bild: ${img.name ?? img.file}`, step, total)
+    const entry = zip.file(`files/${img.file}`) || zip.file(img.file)
+    if (!entry) { step++; continue }
+    let url = uploadedByFile.get(img.file)
+    if (!url) {
+      const blob = await entry.async('blob')
+      url = await uploadBlob(blob, img.name ?? img.file)
+      uploadedByFile.set(img.file, url)
+    }
+    imageUrls.set(id, url)
+    step++
+  }
+
+  for (const [id, att] of attByIdBS) {
+    onProgress?.(`Lade Anhang: ${att.name ?? att.file ?? att.link ?? id}`, step, total)
+    if (att.link) {
+      // Externer Link – nichts hochzuladen
+      attachmentUrls.set(id, att.link)
+    } else if (att.file) {
+      const entry = zip.file(`files/${att.file}`) || zip.file(att.file)
+      if (entry) {
+        let url = uploadedByFile.get(att.file)
+        if (!url) {
+          const blob = await entry.async('blob')
+          url = await uploadBlob(blob, att.name ?? att.file)
+          uploadedByFile.set(att.file, url)
+        }
+        attachmentUrls.set(id, url)
+      }
+    }
+    step++
+  }
+
+  const results: ImportResult[] = []
+  for (const page of pages) {
+    onProgress?.(`Verarbeite: ${page.name}`, step, total)
+    results.push(await convertBookstackPage(page, imageUrls, attachmentUrls))
+    step++
+  }
+
+  onProgress?.('Fertig', total, total)
+  return results
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Generischer ZIP-Import (HTML/MD + Bilder, z.B. eigene Ablage)
+// ──────────────────────────────────────────────────────────────────────────
+
 /** ZIP-Pfad: mehrere Seiten + Bilder. Liefert pro Seite ein ImportResult.
  *  `onProgress` wird aufgerufen, solange Bilder hochgeladen / Seiten geparst
  *  werden – kann für eine Fortschrittsanzeige verwendet werden. */
@@ -175,6 +330,11 @@ export async function parseImportZip(
   onProgress?: (msg: string, done: number, total: number) => void,
 ): Promise<ImportResult[]> {
   const zip = await JSZip.loadAsync(await file.arrayBuffer())
+
+  // BookStack-Export erkennen (hat data.json im Root + files/-Ordner)
+  if (zip.file('data.json')) {
+    return parseBookstackZip(zip, onProgress)
+  }
 
   // Alle Dateien katalogisieren
   const files: { path: string; entry: JSZip.JSZipObject }[] = []
