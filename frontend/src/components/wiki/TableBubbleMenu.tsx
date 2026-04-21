@@ -1,5 +1,6 @@
 import { BubbleMenu } from '@tiptap/react/menus'
 import type { Editor } from '@tiptap/react'
+import { DOMSerializer } from '@tiptap/pm/model'
 import Paper from '@mui/material/Paper'
 import Box from '@mui/material/Box'
 import IconButton from '@mui/material/IconButton'
@@ -14,6 +15,7 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import MergeIcon from '@mui/icons-material/Merge'
 import CallSplitIcon from '@mui/icons-material/CallSplit'
 import ViewHeadlineIcon from '@mui/icons-material/ViewHeadline'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 
 interface Props {
   editor: Editor
@@ -25,6 +27,41 @@ interface Props {
  * TipTap-Table-Extension als Icon-Buttons.
  */
 export function TableBubbleMenu({ editor }: Props) {
+  /** Kopiert die aktuelle Tabelle als HTML + Plaintext in die Zwischenablage,
+   *  sodass sie sowohl im Wiki selbst als auch in andere Apps (Word, Excel …)
+   *  eingefügt werden kann. */
+  const copyTable = async () => {
+    const { state } = editor
+    const { $from } = state.selection
+    // Enclosing table-Node im Baum suchen
+    for (let depth = $from.depth; depth > 0; depth--) {
+      const node = $from.node(depth)
+      if (node.type.name === 'table') {
+        const serializer = DOMSerializer.fromSchema(state.schema)
+        const fragment = serializer.serializeNode(node) as DocumentFragment | HTMLElement
+        const container = document.createElement('div')
+        container.appendChild(fragment)
+        const html = container.innerHTML
+        const text = container.innerText
+        try {
+          if (navigator.clipboard && 'write' in navigator.clipboard) {
+            await navigator.clipboard.write([
+              new ClipboardItem({
+                'text/html': new Blob([html], { type: 'text/html' }),
+                'text/plain': new Blob([text], { type: 'text/plain' }),
+              }),
+            ])
+          } else {
+            await navigator.clipboard.writeText(text)
+          }
+        } catch (err) {
+          console.error('[TableCopy] Clipboard schlug fehl:', err)
+          window.alert('Kopieren fehlgeschlagen – bitte Zwischenablage-Freigabe im Browser prüfen.')
+        }
+        return
+      }
+    }
+  }
   const btn = (opts: { title: string; icon: React.ReactNode; onClick: () => void; color?: 'error' }) => (
     <Tooltip title={opts.title}>
       <span>
@@ -64,6 +101,7 @@ export function TableBubbleMenu({ editor }: Props) {
           {btn({ title: 'Zellen verbinden', icon: <MergeIcon fontSize="small" />, onClick: () => editor.chain().focus().mergeCells().run() })}
           {btn({ title: 'Zelle aufteilen', icon: <CallSplitIcon fontSize="small" />, onClick: () => editor.chain().focus().splitCell().run() })}
           {divider}
+          {btn({ title: 'Tabelle in Zwischenablage kopieren', icon: <ContentCopyIcon fontSize="small" />, onClick: copyTable })}
           {btn({ title: 'Ganze Tabelle löschen', icon: <DeleteSweepIcon fontSize="small" />, onClick: () => editor.chain().focus().deleteTable().run(), color: 'error' })}
         </Box>
       </Paper>

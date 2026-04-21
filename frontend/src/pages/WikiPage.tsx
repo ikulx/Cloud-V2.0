@@ -18,8 +18,10 @@ import FolderIcon from '@mui/icons-material/Folder'
 import EditIcon from '@mui/icons-material/Edit'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import { useSession } from '../context/SessionContext'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useWikiTree, useWikiPage, useCreateWikiPage, useUpdateWikiPage, useDeleteWikiPage, useDuplicateWikiPage,
+  wikiKeys,
   type WikiPageNode,
 } from '../features/wiki/queries'
 import { WikiTree } from '../components/wiki/WikiTree'
@@ -61,12 +63,24 @@ export function WikiPage() {
   const [editMode, setEditMode] = useState(false)
   useEffect(() => { setEditMode(false) }, [selectedId])
   const isEditing = canUpdate && editMode
-  // Getrennte Mutation für Moves (andere ID als die aktuell selektierte)
+  // Getrennte Mutation für Moves (andere ID als die aktuell selektierte).
+  // Nach dem PATCH müssen wir den Tree-Cache invalidieren, sonst zeigt die
+  // Sidebar die alte Hierarchie weiter.
   const moveWikiPage = async (id: string, parentId: string | null, sortOrder: number) => {
-    await apiFetch(`/wiki/pages/${id}`, {
+    const res = await apiFetch(`/wiki/pages/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ parentId, sortOrder }),
     })
+    if (!res.ok) {
+      let msg = 'Verschieben fehlgeschlagen'
+      try { const err = await res.json() as { message?: string }; msg = err.message ?? msg } catch { /* noop */ }
+      window.alert(msg)
+      return
+    }
+    await qc.invalidateQueries({ queryKey: wikiKeys.tree })
+    if (id === selectedId) {
+      await qc.invalidateQueries({ queryKey: wikiKeys.page(id) })
+    }
   }
 
   const [title, setTitle] = useState('')
