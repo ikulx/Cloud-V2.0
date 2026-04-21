@@ -62,7 +62,7 @@ export function AppShell() {
         </Drawer>
       )}
 
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', width: 0 }}>
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', width: 0, minHeight: '100vh' }}>
         <TopBar onMenuClick={handleDrawerToggle} showMenuButton={isMobile} />
         <Box
           component="main"
@@ -71,6 +71,13 @@ export function AppShell() {
             p: { xs: 1.5, sm: 2, md: 3 },
             bgcolor: 'background.default',
             overflow: 'auto',
+            minHeight: 0,
+            // Flex-Layout erlaubt Seiten wie dem Wiki, die Höhe exakt zu
+            // füllen (flex:1 + minHeight:0 in der Seite) ohne doppelte
+            // Scrollbars. Andere Seiten, die normal fließen, scrollen wie
+            // gewohnt via overflow:auto.
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           <Outlet />

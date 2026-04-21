@@ -202,7 +202,14 @@ export function WikiPage() {
   const [emojiAnchor, setEmojiAnchor] = useState<HTMLElement | null>(null)
 
   return (
-    <Box sx={{ display: 'flex', height: 'calc(100vh - 112px)', gap: 0 }}>
+    <Box sx={{
+      display: 'flex',
+      flex: 1,
+      minHeight: 0,
+      mx: { xs: -1.5, sm: -2, md: -3 },
+      my: { xs: -1.5, sm: -2, md: -3 },
+      gap: 0,
+    }}>
       <Paper
         elevation={0}
         sx={{
