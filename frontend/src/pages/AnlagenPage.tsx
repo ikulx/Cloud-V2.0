@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Table from '@mui/material/Table'
@@ -27,6 +27,11 @@ import WarningIcon from '@mui/icons-material/Warning'
 import AssignmentLateIcon from '@mui/icons-material/AssignmentLate'
 import FilterListIcon from '@mui/icons-material/FilterList'
 import CloseIcon from '@mui/icons-material/Close'
+import ViewColumnIcon from '@mui/icons-material/ViewColumn'
+import Menu from '@mui/material/Menu'
+import Checkbox from '@mui/material/Checkbox'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Divider from '@mui/material/Divider'
 import { useNavigate } from 'react-router-dom'
 import { useAnlagen, useDeleteAnlage } from '../features/anlagen/queries'
 import { useUsers } from '../features/users/queries'
@@ -71,6 +76,56 @@ function StatusChip({ status }: { status: AnlageStatus }) {
 
 type SortKey = 'name' | 'projectNumber' | 'city' | 'updatedAt'
 
+// ── Spalten-Definition ────────────────────────────────────────────────────
+type ColumnKey =
+  | 'status' | 'projectNumber' | 'name' | 'city' | 'erzeuger'
+  | 'address' | 'country' | 'contactName' | 'contactEmail' | 'contactPhone'
+  | 'deviceCount' | 'assignedUsers' | 'assignedGroups' | 'openTodos'
+  | 'updatedAt'
+
+interface ColumnDef {
+  key: ColumnKey
+  label: string
+  defaultOn: boolean
+  /** Name-Spalte kann nicht abgewählt werden. */
+  alwaysOn?: boolean
+  align?: 'left' | 'right'
+  width?: number
+}
+
+const COLUMNS: ColumnDef[] = [
+  { key: 'status',         label: 'Status',               defaultOn: true,  width: 140 },
+  { key: 'projectNumber',  label: 'Projekt-Nr.',          defaultOn: true },
+  { key: 'name',           label: 'Name',                 defaultOn: true, alwaysOn: true },
+  { key: 'city',           label: 'Ort',                  defaultOn: true },
+  { key: 'erzeuger',       label: 'Erzeuger',             defaultOn: true },
+  { key: 'address',        label: 'Adresse',              defaultOn: false },
+  { key: 'country',        label: 'Land',                 defaultOn: false },
+  { key: 'contactName',    label: 'Verantwortlicher',     defaultOn: false },
+  { key: 'contactEmail',   label: 'Kontakt-E-Mail',       defaultOn: false },
+  { key: 'contactPhone',   label: 'Kontakt-Telefon',      defaultOn: false },
+  { key: 'deviceCount',    label: 'Geräte',               defaultOn: false },
+  { key: 'assignedUsers',  label: 'Benutzer-Zuweisungen', defaultOn: false },
+  { key: 'assignedGroups', label: 'Gruppen-Zuweisungen',  defaultOn: false },
+  { key: 'openTodos',      label: 'Offene Todos',         defaultOn: false },
+  { key: 'updatedAt',      label: 'Aktualisiert',         defaultOn: false },
+]
+
+const COLUMNS_STORAGE_KEY = 'anlagen.columns'
+function loadColumnsFromStorage(): Set<ColumnKey> {
+  try {
+    const raw = localStorage.getItem(COLUMNS_STORAGE_KEY)
+    if (raw) {
+      const arr = JSON.parse(raw) as unknown
+      if (Array.isArray(arr)) {
+        const known = new Set(COLUMNS.map((c) => c.key))
+        return new Set((arr as string[]).filter((k): k is ColumnKey => known.has(k as ColumnKey)))
+      }
+    }
+  } catch { /* noop */ }
+  return new Set(COLUMNS.filter((c) => c.defaultOn).map((c) => c.key))
+}
+
 export function AnlagenPage() {
   const { data: anlagen = [], isLoading } = useAnlagen()
   const { data: allUsers = [] } = useUsers()
@@ -91,6 +146,29 @@ export function AnlagenPage() {
   const [filters, setFilters] = useState<AnlagenFilters>(EMPTY_FILTERS)
   const [sortKey, setSortKey] = useState<SortKey>('name')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(() => loadColumnsFromStorage())
+  const [columnsMenuAnchor, setColumnsMenuAnchor] = useState<HTMLElement | null>(null)
+
+  // Spalten-Auswahl in localStorage spiegeln – jeder User auf jedem Browser
+  // behält seine eigene Auswahl.
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(Array.from(visibleColumns)))
+    } catch { /* noop */ }
+  }, [visibleColumns])
+
+  const toggleColumn = (key: ColumnKey) => {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
+  const orderedColumns = useMemo(() => {
+    const selected = COLUMNS.filter((c) => c.alwaysOn || visibleColumns.has(c.key))
+    return selected
+  }, [visibleColumns])
 
   const deleteMutation = useDeleteAnlage()
 
@@ -295,6 +373,59 @@ export function AnlagenPage() {
             <MenuItem value="city">Ort</MenuItem>
             <MenuItem value="updatedAt">Zuletzt aktualisiert</MenuItem>
           </Select>
+          <Button
+            startIcon={<ViewColumnIcon />}
+            variant="outlined"
+            onClick={(e) => setColumnsMenuAnchor(e.currentTarget)}
+          >
+            Spalten
+          </Button>
+          <Menu
+            anchorEl={columnsMenuAnchor}
+            open={Boolean(columnsMenuAnchor)}
+            onClose={() => setColumnsMenuAnchor(null)}
+          >
+            <Box sx={{ px: 2, py: 1 }}>
+              <Typography variant="caption" color="text.secondary">Angezeigte Spalten</Typography>
+            </Box>
+            <Divider />
+            {COLUMNS.map((col) => (
+              <MenuItem
+                key={col.key}
+                dense
+                onClick={() => { if (!col.alwaysOn) toggleColumn(col.key) }}
+                disabled={col.alwaysOn}
+                sx={{ py: 0.25 }}
+              >
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={col.alwaysOn || visibleColumns.has(col.key)}
+                      disabled={col.alwaysOn}
+                    />
+                  }
+                  label={col.label}
+                  sx={{ width: '100%', m: 0, pointerEvents: 'none' }}
+                />
+              </MenuItem>
+            ))}
+            <Divider />
+            <Box sx={{ p: 1, display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+              <Button
+                size="small"
+                onClick={() => setVisibleColumns(new Set(COLUMNS.filter((c) => c.defaultOn).map((c) => c.key)))}
+              >
+                Standard
+              </Button>
+              <Button
+                size="small"
+                onClick={() => setVisibleColumns(new Set(COLUMNS.map((c) => c.key)))}
+              >
+                Alle
+              </Button>
+            </Box>
+          </Menu>
           <Button variant="outlined" startIcon={<MapIcon />} onClick={() => navigate('/anlagen/map')}>Karte</Button>
           {canCreate && <Button variant="contained" startIcon={<AddIcon />} onClick={() => setWizardOpen(true)}>{t('anlagen.add')}</Button>}
         </Box>
@@ -336,18 +467,20 @@ export function AnlagenPage() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: 140 }}>{t('common.status')}</TableCell>
-                  <TableCell>Projekt-Nr.</TableCell>
-                  <TableCell>{t('common.name')}</TableCell>
-                  <TableCell>Ort</TableCell>
-                  <TableCell>Erzeuger</TableCell>
+                  {orderedColumns.map((col) => (
+                    <TableCell key={col.key} sx={{ width: col.width }}>
+                      {col.key === 'status' ? t('common.status') :
+                       col.key === 'name' ? t('common.name') :
+                       col.label}
+                    </TableCell>
+                  ))}
                   <TableCell align="right">{t('common.actions')}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={orderedColumns.length + 1} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">
                         {anlagen.length === 0 ? t('anlagen.empty') : 'Keine Anlage entspricht den Filtern.'}
                       </Typography>
@@ -356,6 +489,9 @@ export function AnlagenPage() {
                 )}
                 {filtered.map((anlage) => {
                   const status = statusByAnlage.get(anlage.id) ?? 'EMPTY'
+                  const openTodos = anlage.todos
+                    ? anlage.todos.filter((tt) => tt.status === 'OPEN').length
+                    : (anlage._count?.todos ?? 0)
                   return (
                     <TableRow
                       key={anlage.id}
@@ -363,20 +499,57 @@ export function AnlagenPage() {
                       onClick={() => navigate(`/anlagen/${anlage.id}`)}
                       sx={{ cursor: 'pointer' }}
                     >
-                      <TableCell><StatusChip status={status} /></TableCell>
-                      <TableCell>{anlage.projectNumber ?? '—'}</TableCell>
-                      <TableCell>{anlage.name}</TableCell>
-                      <TableCell>{anlage.city ?? '—'}</TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {(anlage.erzeuger ?? []).slice(0, 3).map((e) => (
-                            <Chip key={e.id} size="small" label={e.type.name} variant="outlined" />
-                          ))}
-                          {(anlage.erzeuger ?? []).length > 3 && (
-                            <Chip size="small" label={`+${(anlage.erzeuger ?? []).length - 3}`} variant="outlined" />
+                      {orderedColumns.map((col) => (
+                        <TableCell key={col.key}>
+                          {col.key === 'status' && <StatusChip status={status} />}
+                          {col.key === 'projectNumber' && (anlage.projectNumber ?? '—')}
+                          {col.key === 'name' && anlage.name}
+                          {col.key === 'city' && (anlage.city ?? '—')}
+                          {col.key === 'erzeuger' && (
+                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                              {(anlage.erzeuger ?? []).slice(0, 3).map((e) => (
+                                <Chip key={e.id} size="small" label={e.type.name} variant="outlined" />
+                              ))}
+                              {(anlage.erzeuger ?? []).length > 3 && (
+                                <Chip size="small" label={`+${(anlage.erzeuger ?? []).length - 3}`} variant="outlined" />
+                              )}
+                            </Box>
                           )}
-                        </Box>
-                      </TableCell>
+                          {col.key === 'address' && (
+                            [anlage.street, [anlage.zip, anlage.city].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '—'
+                          )}
+                          {col.key === 'country' && (anlage.country ?? '—')}
+                          {col.key === 'contactName' && (anlage.contactName ?? '—')}
+                          {col.key === 'contactEmail' && (anlage.contactEmail ?? '—')}
+                          {col.key === 'contactPhone' && (anlage.contactPhone || anlage.contactMobile || '—')}
+                          {col.key === 'deviceCount' && (anlage._count?.anlageDevices ?? anlage.anlageDevices.length)}
+                          {col.key === 'assignedUsers' && (
+                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                              {(anlage.directUsers ?? []).slice(0, 3).map((du) => (
+                                <Chip key={du.user.id} size="small" label={`${du.user.firstName} ${du.user.lastName}`} variant="outlined" />
+                              ))}
+                              {(anlage.directUsers ?? []).length > 3 && (
+                                <Chip size="small" label={`+${(anlage.directUsers ?? []).length - 3}`} variant="outlined" />
+                              )}
+                              {(anlage.directUsers ?? []).length === 0 && '—'}
+                            </Box>
+                          )}
+                          {col.key === 'assignedGroups' && (
+                            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                              {(anlage.groupAnlagen ?? []).map((g) => (
+                                <Chip key={g.group.id} size="small" label={g.group.name} variant="outlined" color="info" />
+                              ))}
+                              {(anlage.groupAnlagen ?? []).length === 0 && '—'}
+                            </Box>
+                          )}
+                          {col.key === 'openTodos' && (
+                            openTodos > 0
+                              ? <Chip size="small" color="warning" label={openTodos} />
+                              : '—'
+                          )}
+                          {col.key === 'updatedAt' && new Date(anlage.updatedAt).toLocaleDateString('de-CH')}
+                        </TableCell>
+                      ))}
                       <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                         {canDelete && (
                           <Tooltip title={t('common.delete')}>
