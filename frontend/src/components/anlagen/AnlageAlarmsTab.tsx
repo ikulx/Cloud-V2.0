@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
@@ -26,6 +26,8 @@ import Checkbox from '@mui/material/Checkbox'
 import Switch from '@mui/material/Switch'
 import Stack from '@mui/material/Stack'
 import Divider from '@mui/material/Divider'
+import RadioGroup from '@mui/material/RadioGroup'
+import Radio from '@mui/material/Radio'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
@@ -34,10 +36,12 @@ import SmsIcon from '@mui/icons-material/Sms'
 import TelegramIcon from '@mui/icons-material/Telegram'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import CancelIcon from '@mui/icons-material/Cancel'
+import ScheduleIcon from '@mui/icons-material/Schedule'
 import {
   useAlarmRecipients, useCreateAlarmRecipient, useUpdateAlarmRecipient, useDeleteAlarmRecipient,
-  useAlarmEvents, useAcknowledgeAlarm,
+  useAlarmEvents,
   type AlarmRecipient, type AlarmPriority, type AlarmRecipientType, type AlarmEvent,
+  type RecipientSchedule, type RecipientScheduleDay,
 } from '../../features/alarms/queries'
 import { useAnlage, useUpdateAnlage } from '../../features/anlagen/queries'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
@@ -48,6 +52,35 @@ const PRIO_LABEL: Record<AlarmPriority, string> = {
 }
 const PRIO_COLOR: Record<AlarmPriority, 'error' | 'warning' | 'info' | 'default'> = {
   PRIO1: 'error', PRIO2: 'error', PRIO3: 'warning', WARNING: 'warning', INFO: 'info',
+}
+
+const DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+
+function defaultSchedule(): RecipientSchedule {
+  return {
+    mode: 'always',
+    days: Array.from({ length: 7 }, () => ({ enabled: true, start: '00:00', end: '23:59' })),
+  }
+}
+
+/** Menschlich lesbare Kurzform des Zeitplans, z.B. "Mo-Fr 06–22" */
+function formatScheduleSummary(s: RecipientSchedule | null | undefined): string {
+  if (!s || s.mode !== 'weekly' || !s.days) return 'immer'
+  const active = s.days.map((d, i) => (d.enabled ? i : -1)).filter((i) => i >= 0)
+  if (active.length === 0) return 'nie aktiv'
+  // Kompakte Bereich-Erkennung: zusammenhängende Day-Indizes zusammenfassen
+  const ranges: string[] = []
+  let i = 0
+  while (i < active.length) {
+    let j = i
+    while (j + 1 < active.length && active[j + 1] === active[j] + 1) j++
+    ranges.push(i === j ? DAY_LABELS[active[i]] : `${DAY_LABELS[active[i]]}-${DAY_LABELS[active[j]]}`)
+    i = j + 1
+  }
+  const first = s.days[active[0]]
+  const sameTimes = active.every((d) => s.days![d].start === first.start && s.days![d].end === first.end)
+  if (sameTimes) return `${ranges.join(', ')} ${first.start}–${first.end}`
+  return `${ranges.join(', ')} (gemischt)`
 }
 
 function TypeIcon({ type }: { type: AlarmRecipientType }) {
@@ -64,12 +97,25 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
   const { data: anlage } = useAnlage(anlageId)
   const updateAnlage = useUpdateAnlage(anlageId)
   const { data: recipients = [], isLoading: rLoading } = useAlarmRecipients(anlageId)
-  const { data: events = [], isLoading: eLoading } = useAlarmEvents({ anlageId, limit: 100 })
+  // Bewusst nur aktive Events – die Cloud zeigt nicht mehr die volle Historie.
+  const { data: events = [], isLoading: eLoading } = useAlarmEvents({
+    anlageId, status: 'ACTIVE', limit: 100,
+  })
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<AlarmRecipient | null>(null)
 
   const offlineMonitoring = anlage?.offlineMonitoringEnabled ?? true
+  const rateLimit = anlage?.alarmRateLimitMinutes ?? 60
+  const [rateLimitInput, setRateLimitInput] = useState<string>(String(rateLimit))
+  useEffect(() => { setRateLimitInput(String(rateLimit)) }, [rateLimit])
+
+  const saveRateLimit = () => {
+    const n = parseInt(rateLimitInput, 10)
+    if (!Number.isFinite(n) || n < 0 || n > 10080) return
+    if (n === rateLimit) return
+    updateAnlage.mutate({ alarmRateLimitMinutes: n })
+  }
 
   return (
     <Stack gap={3}>
@@ -99,13 +145,41 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
         </Box>
       </Paper>
 
+      {/* ── Rate-Limit ───────────────────────────────── */}
+      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <ScheduleIcon color="primary" />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle1" fontWeight={600}>Versand-Limit</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Minimaler Abstand zwischen ausgehenden Alarm-Meldungen dieser Anlage.
+              Zusätzliche Ereignisse im Fenster werden weiterhin als Alarm erkannt
+              und angezeigt, aber nicht erneut versendet.
+            </Typography>
+          </Box>
+          <TextField
+            type="number"
+            label="Minuten"
+            size="small"
+            value={rateLimitInput}
+            onChange={(e) => setRateLimitInput(e.target.value)}
+            onBlur={saveRateLimit}
+            onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur() } }}
+            inputProps={{ min: 0, max: 10080, step: 5 }}
+            sx={{ width: 110 }}
+          />
+        </Box>
+      </Paper>
+
       {/* ── Empfänger ───────────────────────────────────── */}
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Box>
             <Typography variant="h6">Alarm-Empfänger</Typography>
             <Typography variant="caption" color="text.secondary">
-              Wer wird bei einem Alarm dieser Anlage benachrichtigt?
+              Wer wird bei einem Alarm dieser Anlage benachrichtigt? Empfänger ohne
+              aktiven Zeitplan-Eintrag zum Alarm­zeitpunkt bekommen keine Meldung
+              (auch keine nachträgliche).
             </Typography>
           </Box>
           <Button
@@ -133,7 +207,7 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
                   <TableCell>Ziel</TableCell>
                   <TableCell>Label</TableCell>
                   <TableCell>Prioritäten</TableCell>
-                  <TableCell align="center">Verzögerung</TableCell>
+                  <TableCell>Zeitplan</TableCell>
                   <TableCell align="center">Aktiv</TableCell>
                   <TableCell align="right" />
                 </TableRow>
@@ -155,7 +229,7 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
                         </Box>
                       )}
                     </TableCell>
-                    <TableCell align="center">{r.delayMinutes === 0 ? 'sofort' : `${r.delayMinutes} min`}</TableCell>
+                    <TableCell sx={{ fontSize: 13 }}>{formatScheduleSummary(r.schedule)}</TableCell>
                     <TableCell align="center">
                       {r.isActive
                         ? <CheckCircleIcon fontSize="small" color="success" />
@@ -176,11 +250,13 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
         )}
       </Paper>
 
-      {/* ── Alarm-Historie ─────────────────────────────── */}
+      {/* ── Aktive Alarme ──────────────────────────────── */}
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
-        <Typography variant="h6">Alarm-Historie</Typography>
+        <Typography variant="h6">Aktive Alarme</Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-          Letzte 100 Alarme dieser Anlage
+          Aktuell ausstehende Alarme dieser Anlage. Alarme werden vom Gerät automatisch
+          gelöscht, sobald die Auslösebedingung wegfällt – ein manuelles Quittieren auf
+          der Cloud ist nicht nötig.
         </Typography>
         <Divider sx={{ mb: 2 }} />
 
@@ -188,10 +264,10 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
           <Typography variant="body2" color="text.secondary">Lädt …</Typography>
         ) : events.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-            Noch keine Alarme aufgetreten.
+            Keine aktiven Alarme – alles ruhig.
           </Typography>
         ) : (
-          <AlarmEventList events={events} />
+          <ActiveAlarmList events={events} />
         )}
       </Paper>
 
@@ -205,10 +281,9 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
   )
 }
 
-// ─── Event-Liste ──────────────────────────────────────────────────────────────
+// ─── Event-Liste (ohne Acknowledge) ───────────────────────────────────────────
 
-function AlarmEventList({ events }: { events: AlarmEvent[] }) {
-  const ack = useAcknowledgeAlarm()
+function ActiveAlarmList({ events }: { events: AlarmEvent[] }) {
   return (
     <TableContainer>
       <Table size="small">
@@ -218,9 +293,7 @@ function AlarmEventList({ events }: { events: AlarmEvent[] }) {
             <TableCell>Priorität</TableCell>
             <TableCell>Meldung</TableCell>
             <TableCell>Gerät</TableCell>
-            <TableCell>Status</TableCell>
             <TableCell>Versand</TableCell>
-            <TableCell align="right" />
           </TableRow>
         </TableHead>
         <TableBody>
@@ -234,27 +307,15 @@ function AlarmEventList({ events }: { events: AlarmEvent[] }) {
                 <TableCell><Chip size="small" label={PRIO_LABEL[e.priority]} color={PRIO_COLOR[e.priority]} /></TableCell>
                 <TableCell>{e.message}</TableCell>
                 <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 13 }}>{e.device.name}</TableCell>
-                <TableCell>
-                  {e.status === 'ACTIVE' && <Chip size="small" label="Aktiv" color="error" />}
-                  {e.status === 'CLEARED' && <Chip size="small" label="Zurückgefallen" color="success" variant="outlined" />}
-                  {e.status === 'ACKNOWLEDGED' && <Chip size="small" label="Quittiert" color="default" variant="outlined" />}
-                </TableCell>
                 <TableCell sx={{ fontSize: 12 }}>
                   {sentCount > 0 && <span style={{ color: '#4caf50' }}>✓ {sentCount}</span>}
                   {failedCount > 0 && <span style={{ color: '#f44336', marginLeft: 6 }}>✗ {failedCount}</span>}
-                  {skippedCount > 0 && <span style={{ color: '#9e9e9e', marginLeft: 6 }}>– {skippedCount}</span>}
-                  {e.deliveries.length === 0 && <span style={{ color: '#9e9e9e' }}>—</span>}
-                </TableCell>
-                <TableCell align="right">
-                  {e.status === 'ACTIVE' && (
-                    <Button
-                      size="small"
-                      onClick={() => ack.mutate(e.id)}
-                      disabled={ack.isPending}
-                    >
-                      Quittieren
-                    </Button>
+                  {skippedCount > 0 && (
+                    <Tooltip title="Nicht versendet – Rate-Limit oder ausserhalb des Zeitplans">
+                      <span style={{ color: '#9e9e9e', marginLeft: 6, cursor: 'help' }}>– {skippedCount}</span>
+                    </Tooltip>
                   )}
+                  {e.deliveries.length === 0 && <span style={{ color: '#9e9e9e' }}>—</span>}
                 </TableCell>
               </TableRow>
             )
@@ -285,13 +346,14 @@ function RecipientDialog({
   const [priorities, setPriorities] = useState<AlarmPriority[]>(editing?.priorities ?? [])
   const [delayMinutes, setDelayMinutes] = useState(editing?.delayMinutes ?? 0)
   const [isActive, setIsActive] = useState(editing?.isActive ?? true)
-
-  // Dialog-Inhalte bei Öffnen mit editing syncen.
-  // Wird mit `key={editing?.id}` vom Caller neu gemountet – daher reicht useState-Init.
-  // (siehe Dialog-Wrapping unten)
-  // Beim ersten Render stimmen die States mit editing überein.
+  const [schedule, setSchedule] = useState<RecipientSchedule>(() =>
+    editing?.schedule && editing.schedule.mode === 'weekly' && editing.schedule.days
+      ? { mode: 'weekly', days: editing.schedule.days.map((d) => ({ ...d })) }
+      : defaultSchedule()
+  )
 
   const save = async () => {
+    if (!target.trim()) return
     const data = {
       type,
       target: target.trim(),
@@ -299,8 +361,8 @@ function RecipientDialog({
       priorities,
       delayMinutes,
       isActive,
+      schedule: schedule.mode === 'always' ? { mode: 'always' as const } : schedule,
     }
-    if (!data.target) return
     if (editing) {
       await update.mutateAsync({ id: editing.id, ...data })
     } else {
@@ -314,6 +376,13 @@ function RecipientDialog({
     if (!window.confirm('Empfänger wirklich löschen?')) return
     await del.mutateAsync(editing.id)
     onClose()
+  }
+
+  const setDay = (i: number, patch: Partial<RecipientScheduleDay>) => {
+    setSchedule((s) => ({
+      ...s,
+      days: (s.days ?? defaultSchedule().days!).map((d, idx) => idx === i ? { ...d, ...patch } : d),
+    }))
   }
 
   return (
@@ -368,6 +437,53 @@ function RecipientDialog({
                 />
               ))}
             </Stack>
+          </Box>
+
+          <Box>
+            <Typography variant="body2" sx={{ mb: 1 }}>Zeitplan</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              Alarme ausserhalb des Zeitplans werden nicht an diesen Empfänger versendet
+              – sie werden <strong>nicht</strong> nachgeholt.
+            </Typography>
+            <RadioGroup
+              row
+              value={schedule.mode}
+              onChange={(e) => setSchedule((s) => ({ ...s, mode: e.target.value as 'always' | 'weekly' }))}
+            >
+              <FormControlLabel value="always" control={<Radio size="small" />} label="Immer" />
+              <FormControlLabel value="weekly" control={<Radio size="small" />} label="Wochenplan" />
+            </RadioGroup>
+
+            {schedule.mode === 'weekly' && (
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto', gap: 1, alignItems: 'center', mt: 1 }}>
+                {(schedule.days ?? defaultSchedule().days!).map((d, i) => (
+                  <Box key={i} sx={{ display: 'contents' }}>
+                    <FormControlLabel
+                      control={<Checkbox size="small" checked={d.enabled} onChange={(e) => setDay(i, { enabled: e.target.checked })} />}
+                      label={DAY_LABELS[i]}
+                    />
+                    <Box />
+                    <TextField
+                      type="time" size="small"
+                      value={d.start}
+                      disabled={!d.enabled}
+                      onChange={(e) => setDay(i, { start: e.target.value })}
+                      sx={{ width: 110 }}
+                    />
+                    <TextField
+                      type="time" size="small"
+                      value={d.end}
+                      disabled={!d.enabled}
+                      onChange={(e) => setDay(i, { end: e.target.value })}
+                      sx={{ width: 110 }}
+                    />
+                  </Box>
+                ))}
+                <Typography variant="caption" color="text.secondary" sx={{ gridColumn: '1 / -1', mt: 0.5 }}>
+                  Tipp: Endzeit vor Startzeit ergibt ein Fenster über Mitternacht (z.&nbsp;B. 22:00 → 06:00).
+                </Typography>
+              </Box>
+            )}
           </Box>
 
           <TextField

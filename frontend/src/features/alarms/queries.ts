@@ -6,6 +6,17 @@ export type AlarmRecipientType = 'EMAIL' | 'SMS' | 'TELEGRAM'
 export type AlarmEventStatus = 'ACTIVE' | 'CLEARED' | 'ACKNOWLEDGED'
 export type AlarmDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'
 
+export interface RecipientScheduleDay {
+  enabled: boolean
+  start: string // "HH:MM"
+  end: string   // "HH:MM"
+}
+
+export interface RecipientSchedule {
+  mode: 'always' | 'weekly'
+  days?: RecipientScheduleDay[] // 7 Einträge, index 0 = Montag ... 6 = Sonntag
+}
+
 export interface AlarmRecipient {
   id: string
   anlageId: string
@@ -14,6 +25,7 @@ export interface AlarmRecipient {
   label: string | null
   priorities: AlarmPriority[]
   delayMinutes: number
+  schedule: RecipientSchedule | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -116,10 +128,3 @@ export function useAlarmEvents(filters: {
   })
 }
 
-export function useAcknowledgeAlarm() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => apiPost<AlarmEvent>(`/alarms/events/${id}/acknowledge`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['alarms', 'events'] }),
-  })
-}

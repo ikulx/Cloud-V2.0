@@ -116,6 +116,7 @@ const anlageSchema = z.object({
   hasHeatPump: z.boolean().optional(),
   hasBoiler: z.boolean().optional(),
   offlineMonitoringEnabled: z.boolean().optional(),
+  alarmRateLimitMinutes: z.number().int().min(0).max(10080).optional(),
   deviceIds: z.array(z.string().uuid()).optional(),
   userIds: z.array(z.string().uuid()).optional(),
   groupIds: z.array(z.string().uuid()).optional(),

@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
@@ -13,12 +14,24 @@ const router = Router()
 const PRIORITIES = ['PRIO1', 'PRIO2', 'PRIO3', 'WARNING', 'INFO'] as const
 const TYPES = ['EMAIL', 'SMS', 'TELEGRAM'] as const
 
+// Wochenzeitplan: 7 Einträge (Mon..Son) oder "always"-Modus.
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
+const scheduleSchema = z.object({
+  mode: z.enum(['always', 'weekly']),
+  days: z.array(z.object({
+    enabled: z.boolean(),
+    start: z.string().regex(HHMM_RE, 'HH:MM'),
+    end:   z.string().regex(HHMM_RE, 'HH:MM'),
+  })).length(7).optional(),
+}).nullable().optional()
+
 const recipientSchema = z.object({
   type: z.enum(TYPES),
   target: z.string().min(1).max(200),
   label: z.string().max(100).nullable().optional(),
   priorities: z.array(z.enum(PRIORITIES)).default([]),
   delayMinutes: z.number().int().min(0).max(1440).default(0),
+  schedule: scheduleSchema,
   isActive: z.boolean().default(true),
 })
 
@@ -44,8 +57,15 @@ router.post('/recipients', authenticate, requirePermission('anlagen:update'), as
   }
   const anlage = await prisma.anlage.findUnique({ where: { id: anlageId }, select: { id: true } })
   if (!anlage) { res.status(404).json({ message: 'Anlage nicht gefunden' }); return }
+  // Prisma's Json-Felder akzeptieren kein nacktes `null`; entweder
+  // `Prisma.JsonNull` (=SQL NULL) oder Feld weglassen.
+  const { schedule, ...rest } = parsed.data
   const created = await prisma.alarmRecipient.create({
-    data: { ...parsed.data, anlageId },
+    data: {
+      ...rest,
+      anlageId,
+      ...(schedule === undefined ? {} : { schedule: schedule === null ? Prisma.JsonNull : schedule }),
+    },
   })
   res.status(201).json(created)
 })
@@ -57,10 +77,14 @@ router.patch('/recipients/:id', authenticate, requirePermission('anlagen:update'
     res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() })
     return
   }
+  const { schedule, ...rest } = parsed.data
   try {
     const updated = await prisma.alarmRecipient.update({
       where: { id: req.params.id as string },
-      data: parsed.data,
+      data: {
+        ...rest,
+        ...(schedule === undefined ? {} : { schedule: schedule === null ? Prisma.JsonNull : schedule }),
+      },
     })
     res.json(updated)
   } catch {
@@ -82,11 +106,15 @@ router.delete('/recipients/:id', authenticate, requirePermission('anlagen:update
 // Alarm-Events (Historie + Live-Anzeige)
 // ──────────────────────────────────────────────────────────────────────────────
 
-// GET /api/alarms/events – Filter: anlageId, deviceId, status, priority, limit
+// GET /api/alarms/events – zeigt standardmässig NUR aktive Alarme.
+// Quittieren auf der Cloud wurde bewusst entfernt – der Pi bestimmt, wann ein
+// Alarm aktiv ist (und schickt "cleared", wenn die Auslösebedingung weg ist).
+// Clients können explizit ?status=CLEARED / ACKNOWLEDGED setzen, das bleibt
+// unterstützt für evtl. Audit-Views.
 router.get('/events', authenticate, requirePermission('anlagen:read'), async (req, res) => {
   const anlageId = typeof req.query.anlageId === 'string' ? req.query.anlageId : undefined
   const deviceId = typeof req.query.deviceId === 'string' ? req.query.deviceId : undefined
-  const status = typeof req.query.status === 'string' ? req.query.status : undefined
+  const status = typeof req.query.status === 'string' ? req.query.status : 'ACTIVE'
   const priority = typeof req.query.priority === 'string' ? req.query.priority : undefined
   const limit = Math.min(
     500,
@@ -96,7 +124,8 @@ router.get('/events', authenticate, requirePermission('anlagen:read'), async (re
   const where: Record<string, unknown> = {}
   if (anlageId) where.anlageId = anlageId
   if (deviceId) where.deviceId = deviceId
-  if (status && ['ACTIVE', 'CLEARED', 'ACKNOWLEDGED'].includes(status)) where.status = status
+  if (['ACTIVE', 'CLEARED', 'ACKNOWLEDGED'].includes(status)) where.status = status
+  else if (status !== 'ALL') where.status = 'ACTIVE'
   if (priority && (PRIORITIES as readonly string[]).includes(priority)) where.priority = priority
 
   const events = await prisma.alarmEvent.findMany({
@@ -119,22 +148,8 @@ router.get('/events', authenticate, requirePermission('anlagen:read'), async (re
   res.json(events)
 })
 
-// POST /api/alarms/events/:id/acknowledge – Event manuell quittieren
-router.post('/events/:id/acknowledge', authenticate, requirePermission('anlagen:update'), async (req, res) => {
-  const userId = req.user!.userId
-  try {
-    const updated = await prisma.alarmEvent.update({
-      where: { id: req.params.id as string },
-      data: {
-        status: 'ACKNOWLEDGED',
-        acknowledgedAt: new Date(),
-        acknowledgedById: userId,
-      },
-    })
-    res.json(updated)
-  } catch {
-    res.status(404).json({ message: 'Event nicht gefunden' })
-  }
-})
+// Hinweis: Es gibt bewusst KEIN Acknowledge-Endpoint mehr. Der Alarm-Lifecycle
+// ist Pi-seitig: ACTIVE bei Auslösung, CLEARED beim Wegfall. Die Cloud zeigt
+// nur den aktuellen Zustand, kein manuelles Quittieren.
 
 export default router

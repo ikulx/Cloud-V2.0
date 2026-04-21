@@ -295,6 +295,12 @@ model Anlage {
   /// SystemSettings konfigurierte Adresse. false = keine Überwachung für
   /// diese Anlage.
   offlineMonitoringEnabled Boolean @default(true) @map("offline_monitoring_enabled")
+  /// Minimaler Abstand in Minuten zwischen ausgehenden Alarm-Meldungen für
+  /// diese Anlage. Solange innerhalb des Fensters bereits eine Meldung
+  /// versendet wurde, werden weitere Alarm-Events zwar erkannt + gespeichert,
+  /// aber NICHT versendet (Deliveries = SKIPPED, Grund "rate_limited").
+  /// Default 60 = max. 1 Meldung pro Stunde.
+  alarmRateLimitMinutes    Int     @default(60) @map("alarm_rate_limit_minutes")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -801,6 +807,22 @@ model AlarmRecipient {
   /// Verzögerung in Minuten, bevor der Versand ausgelöst wird (Eskalation).
   /// 0 = sofort.
   delayMinutes Int                @default(0) @map("delay_minutes")
+  /// Wochenzeitplan. JSON-Struktur:
+  ///   {
+  ///     "mode": "always" | "weekly",
+  ///     "days": [                 // index 0 = Montag ... 6 = Sonntag
+  ///       { "enabled": true,  "start": "HH:MM", "end": "HH:MM" },
+  ///       ... (7 Einträge)
+  ///     ]
+  ///   }
+  /// mode="always" → Empfänger bekommt Alarme jederzeit.
+  /// mode="weekly" → nur wenn der aktuelle Wochentag `enabled` ist und die
+  ///                  Uhrzeit im [start, end]-Fenster liegt (Fenster darf
+  ///                  mitternacht umschlagen, z.B. 22:00–06:00).
+  /// Ausserhalb des Zeitplans wird der Alarm NICHT nachgeholt, sondern
+  /// definitiv verworfen (Delivery=SKIPPED, Grund "out_of_schedule").
+  /// null = wie "always".
+  schedule     Json?
   isActive     Boolean            @default(true) @map("is_active")
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt  @map("updated_at")
