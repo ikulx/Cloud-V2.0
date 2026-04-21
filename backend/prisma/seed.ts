@@ -101,6 +101,22 @@ async function main() {
   }
   console.log('✓ verwalter permissions assigned')
 
+  // Erzeuger-Typen (Katalog, Admin-editierbar im Settings-UI)
+  const DEFAULT_ERZEUGER = [
+    { name: 'Wärmepumpe', sortOrder: 10 },
+    { name: 'Kessel', sortOrder: 20 },
+    { name: 'Solarthermie', sortOrder: 30 },
+    { name: 'Holzheizung', sortOrder: 40 },
+  ]
+  for (const t of DEFAULT_ERZEUGER) {
+    await prisma.erzeugerType.upsert({
+      where: { name: t.name },
+      update: { sortOrder: t.sortOrder },
+      create: { name: t.name, sortOrder: t.sortOrder, isActive: true },
+    })
+  }
+  console.log(`✓ ${DEFAULT_ERZEUGER.length} Erzeuger-Typen seeded`)
+
   // Admin user
   const adminPassword = await bcrypt.hash('Admin1234!', 12)
   const admin = await prisma.user.upsert({

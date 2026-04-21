@@ -116,6 +116,10 @@ const anlageSchema = z.object({
   deviceIds: z.array(z.string().uuid()).optional(),
   userIds: z.array(z.string().uuid()).optional(),
   groupIds: z.array(z.string().uuid()).optional(),
+  erzeuger: z.array(z.object({
+    typeId: z.string().uuid(),
+    serialNumber: z.string().max(100).optional().nullable(),
+  })).optional(),
 })
 
 const todoSchema = z.object({ title: z.string().min(1), details: z.string().optional() })
@@ -126,6 +130,10 @@ const anlageInclude = {
   anlageDevices: { include: { device: { select: { id: true, name: true, status: true, isApproved: true } } } },
   directUsers: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
   groupAnlagen: { include: { group: { select: { id: true, name: true } } } },
+  erzeuger: {
+    include: { type: { select: { id: true, name: true, sortOrder: true, isActive: true } } },
+    orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
+  },
   _count: {
     select: {
       anlageDevices: true,
@@ -133,6 +141,36 @@ const anlageInclude = {
       todos: { where: { status: 'OPEN' as const } },
     },
   },
+}
+
+/** Holt das Settings-Flag "Seriennummer obligatorisch" aus SystemSetting. */
+async function isSerialRequired(): Promise<boolean> {
+  const row = await prisma.systemSetting.findUnique({
+    where: { key: 'erzeuger.serialRequired' },
+  })
+  return (row?.value ?? 'false') === 'true'
+}
+
+/** Validiert die Erzeuger-Liste: Typ muss existieren & aktiv sein; wenn
+ *  Seriennummer Pflicht ist, muss sie vorhanden sein. */
+async function validateErzeuger(
+  erzeuger: { typeId: string; serialNumber?: string | null }[] | undefined,
+): Promise<string | null> {
+  if (!erzeuger || erzeuger.length === 0) return null
+  const required = await isSerialRequired()
+  const typeIds = [...new Set(erzeuger.map((e) => e.typeId))]
+  const types = await prisma.erzeugerType.findMany({
+    where: { id: { in: typeIds } },
+    select: { id: true, isActive: true, name: true },
+  })
+  for (const entry of erzeuger) {
+    const t = types.find((x) => x.id === entry.typeId)
+    if (!t) return `Erzeuger-Typ nicht gefunden: ${entry.typeId}`
+    if (required && !(entry.serialNumber?.trim())) {
+      return `Seriennummer ist für "${t.name}" obligatorisch.`
+    }
+  }
+  return null
 }
 
 // GET /api/anlagen
@@ -162,13 +200,24 @@ router.post('/', authenticate, requirePermission('anlagen:create'), async (req, 
   const parsed = anlageSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
 
-  const { deviceIds, userIds, groupIds, ...data } = parsed.data
+  const { deviceIds, userIds, groupIds, erzeuger, ...data } = parsed.data
+
+  const erzeugerErr = await validateErzeuger(erzeuger)
+  if (erzeugerErr) { res.status(400).json({ message: erzeugerErr }); return }
+
   const anlage = await prisma.anlage.create({
     data: {
       ...data,
       anlageDevices: deviceIds ? { create: deviceIds.map((deviceId) => ({ deviceId })) } : undefined,
       directUsers: userIds ? { create: userIds.map((userId) => ({ userId })) } : undefined,
       groupAnlagen: groupIds ? { create: groupIds.map((groupId) => ({ groupId })) } : undefined,
+      erzeuger: erzeuger ? {
+        create: erzeuger.map((e, i) => ({
+          typeId: e.typeId,
+          serialNumber: e.serialNumber?.trim() || null,
+          sortOrder: i * 10,
+        })),
+      } : undefined,
     },
     include: anlageInclude,
   })
@@ -204,7 +253,11 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
     select: { projectNumber: true },
   })
 
-  const { deviceIds, userIds, groupIds, ...data } = parsed.data
+  const { deviceIds, userIds, groupIds, erzeuger, ...data } = parsed.data
+
+  const erzeugerErr = await validateErzeuger(erzeuger)
+  if (erzeugerErr) { res.status(400).json({ message: erzeugerErr }); return }
+
   const anlage = await prisma.anlage.update({
     where: { id: anlageId },
     data: {
@@ -217,6 +270,16 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
       }),
       ...(groupIds !== undefined && {
         groupAnlagen: { deleteMany: {}, create: groupIds.map((groupId) => ({ groupId })) },
+      }),
+      ...(erzeuger !== undefined && {
+        erzeuger: {
+          deleteMany: {},
+          create: erzeuger.map((e, i) => ({
+            typeId: e.typeId,
+            serialNumber: e.serialNumber?.trim() || null,
+            sortOrder: i * 10,
+          })),
+        },
       }),
     },
     include: anlageInclude,

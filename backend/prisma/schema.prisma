@@ -258,8 +258,45 @@ model Anlage {
   todos         AnlageTodo[]
   logEntries    AnlageLogEntry[]
   vpnAnlage     VpnAnlage?
+  erzeuger      AnlageErzeuger[]
 
   @@map("anlagen")
+}
+
+/// Konfigurierbarer Katalog an Erzeuger-Typen (z.B. Wärmepumpe, Kessel,
+/// Solarthermie …). Wird im Settings-UI von Admins gepflegt und in den
+/// Anlagen per Dropdown ausgewählt.
+model ErzeugerType {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  anlagen AnlageErzeuger[]
+
+  @@map("erzeuger_types")
+}
+
+/// Erzeuger-Zuweisung pro Anlage: verweist auf einen ErzeugerType und
+/// trägt optional eine Seriennummer des konkreten Geräts. Ob die
+/// Seriennummer verpflichtend ist, steuert der SystemSetting-Key
+/// `erzeuger.serialRequired`.
+model AnlageErzeuger {
+  id           String   @id @default(uuid()) @db.Uuid
+  anlageId     String   @map("anlage_id") @db.Uuid
+  anlage       Anlage   @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+  typeId       String   @map("type_id") @db.Uuid
+  type         ErzeugerType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  serialNumber String?  @map("serial_number")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([anlageId])
+  @@index([typeId])
+  @@map("anlage_erzeuger")
 }
 
 model AnlageDevice {

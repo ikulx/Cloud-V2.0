@@ -14,10 +14,10 @@ import Typography from '@mui/material/Typography'
 import Alert from '@mui/material/Alert'
 import Divider from '@mui/material/Divider'
 import Snackbar from '@mui/material/Snackbar'
-import FormGroup from '@mui/material/FormGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
+import { ErzeugerPicker, type ErzeugerEntry } from './anlagen/ErzeugerPicker'
+import { useSettings } from '../features/settings/queries'
+import { useErzeugerTypes } from '../features/erzeuger-types/queries'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
 import { useTranslation } from 'react-i18next'
 import { useCreateAnlage } from '../features/anlagen/queries'
@@ -43,8 +43,6 @@ const EMPTY = {
   projectNumber: '', name: '', description: '',
   street: '', zip: '', city: '', country: 'Schweiz',
   latitude: '', longitude: '',
-  hasHeatPump: false,
-  hasBoiler: false,
   contactName: '', contactPhone: '', contactMobile: '', contactEmail: '',
   notes: '',
 }
@@ -58,16 +56,24 @@ export function AnlageCreateWizard({
 
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(EMPTY)
+  const [erzeuger, setErzeuger] = useState<ErzeugerEntry[]>([])
   const [error, setError] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   // Fehler erst anzeigen nachdem der Nutzer "Weiter" oder "Erstellen" versucht hat
   const [showErrors, setShowErrors] = useState(false)
 
+  const { data: settings } = useSettings()
+  const { data: erzeugerTypes = [] } = useErzeugerTypes()
+  const serialRequired = settings?.['erzeuger.serialRequired'] === 'true'
+  const erzeugerTypeName = (id: string) =>
+    erzeugerTypes.find((t) => t.id === id)?.name ?? 'Unbekannt'
+
   useEffect(() => {
     if (open) {
       setStep(0)
       setForm(EMPTY)
+      setErzeuger([])
       setError('')
       setShowErrors(false)
     }
@@ -86,9 +92,11 @@ export function AnlageCreateWizard({
   }
 
   // Validierung pro Schritt
+  const erzeugerValid = erzeuger.length > 0
+    && (!serialRequired || erzeuger.every((e) => e.serialNumber.trim().length > 0))
   const step0Valid = form.projectNumber.trim().length > 0
                      && form.name.trim().length > 0
-                     && (form.hasHeatPump || form.hasBoiler)
+                     && erzeugerValid
   const step1Valid = form.street.trim().length > 0
                      && form.zip.trim().length > 0
                      && form.city.trim().length > 0
@@ -139,6 +147,10 @@ export function AnlageCreateWizard({
         latitude,
         longitude,
         deviceIds: initialDeviceIds ?? [],
+        erzeuger: erzeuger.map((e) => ({
+          typeId: e.typeId,
+          serialNumber: e.serialNumber.trim() || null,
+        })),
       })
       const createdId = (created as { id?: string })?.id
       if (onCreated && createdId) {
@@ -184,21 +196,21 @@ export function AnlageCreateWizard({
             />
             <TextField label={t('common.description')} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} fullWidth multiline rows={2} />
             <Box>
-              <Typography variant="subtitle2" color={showErrors && !form.hasHeatPump && !form.hasBoiler ? 'error' : 'text.secondary'} mb={0.5}>
-                {t('anlagen.plantType')} *
+              <Typography
+                variant="subtitle2"
+                color={showErrors && !erzeugerValid ? 'error' : 'text.secondary'}
+                mb={0.5}
+              >
+                Erzeuger *
               </Typography>
-              <FormGroup row>
-                <FormControlLabel
-                  control={<Checkbox checked={form.hasHeatPump} onChange={(e) => setForm({ ...form, hasHeatPump: e.target.checked })} />}
-                  label={t('anlagen.plantTypeHeatPump')}
-                />
-                <FormControlLabel
-                  control={<Checkbox checked={form.hasBoiler} onChange={(e) => setForm({ ...form, hasBoiler: e.target.checked })} />}
-                  label={t('anlagen.plantTypeBoiler')}
-                />
-              </FormGroup>
-              {showErrors && !form.hasHeatPump && !form.hasBoiler && (
-                <Typography variant="caption" color="error">{t('anlagen.plantTypeRequired', 'Mindestens ein Typ erforderlich')}</Typography>
+              <ErzeugerPicker
+                value={erzeuger}
+                onChange={setErzeuger}
+                serialRequired={serialRequired}
+                showErrors={showErrors}
+              />
+              {showErrors && erzeuger.length === 0 && (
+                <Typography variant="caption" color="error">Mindestens ein Erzeuger erforderlich</Typography>
               )}
             </Box>
           </Stack>
@@ -278,9 +290,15 @@ export function AnlageCreateWizard({
                 <Typography variant="body2"><strong>{t('common.name')}:</strong> {form.name}</Typography>
                 {form.description && <Typography variant="body2"><strong>{t('common.description')}:</strong> {form.description}</Typography>}
                 <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                  <Typography variant="body2"><strong>{t('anlagen.plantType')}:</strong></Typography>
-                  {form.hasHeatPump && <Chip size="small" label={t('anlagen.plantTypeHeatPump')} color="primary" />}
-                  {form.hasBoiler && <Chip size="small" label={t('anlagen.plantTypeBoiler')} color="primary" />}
+                  <Typography variant="body2"><strong>Erzeuger:</strong></Typography>
+                  {erzeuger.map((e, i) => (
+                    <Chip
+                      key={i}
+                      size="small"
+                      color="primary"
+                      label={e.serialNumber ? `${erzeugerTypeName(e.typeId)} · ${e.serialNumber}` : erzeugerTypeName(e.typeId)}
+                    />
+                  ))}
                 </Box>
               </Stack>
             </Box>

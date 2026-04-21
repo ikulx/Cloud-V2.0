@@ -22,8 +22,6 @@ import Collapse from '@mui/material/Collapse'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Alert from '@mui/material/Alert'
-import FormGroup from '@mui/material/FormGroup'
-import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
 import Snackbar from '@mui/material/Snackbar'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
@@ -56,13 +54,14 @@ import { usePermission } from '../hooks/usePermission'
 import { geocodeAddress } from '../lib/geocode'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../types/model'
+import { ErzeugerPicker, type ErzeugerEntry } from '../components/anlagen/ErzeugerPicker'
+import { useSettings } from '../features/settings/queries'
+import { useErzeugerTypes } from '../features/erzeuger-types/queries'
 
 const EMPTY_INFO_FORM = {
   projectNumber: '', name: '', description: '',
   street: '', zip: '', city: '', country: 'Schweiz',
   latitude: '', longitude: '',
-  hasHeatPump: false,
-  hasBoiler: false,
   contactName: '', contactPhone: '', contactMobile: '', contactEmail: '',
   notes: '',
 }
@@ -155,6 +154,7 @@ export function AnlageDetailPage() {
   const [expandedVisuDeviceId, setExpandedVisuDeviceId] = useState<string | null>(null)
   const [editingInfo, setEditingInfo] = useState(false)
   const [infoForm, setInfoForm] = useState(EMPTY_INFO_FORM)
+  const [erzeugerDraft, setErzeugerDraft] = useState<ErzeugerEntry[]>([])
   const [saveError, setSaveError] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -162,10 +162,18 @@ export function AnlageDetailPage() {
   const [todoTitle, setTodoTitle] = useState('')
   const [logMessage, setLogMessage] = useState('')
 
-  // Validierung für Edit-Modus (gleiche Pflichtfelder wie im Wizard)
+  const { data: settings } = useSettings()
+  const { data: erzeugerTypes = [] } = useErzeugerTypes()
+  const serialRequired = settings?.['erzeuger.serialRequired'] === 'true'
+  const erzeugerTypeName = (id: string) =>
+    erzeugerTypes.find((t) => t.id === id)?.name ?? 'Unbekannt'
+
+  // Validierung für Edit-Modus
+  const erzeugerValid = erzeugerDraft.length > 0
+    && (!serialRequired || erzeugerDraft.every((e) => e.serialNumber.trim().length > 0))
   const basicsValid = infoForm.projectNumber.trim().length > 0
                       && infoForm.name.trim().length > 0
-                      && (infoForm.hasHeatPump || infoForm.hasBoiler)
+                      && erzeugerValid
   const addressValid = infoForm.street.trim().length > 0
                        && infoForm.zip.trim().length > 0
                        && infoForm.city.trim().length > 0
@@ -182,14 +190,16 @@ export function AnlageDetailPage() {
         country: anlage.country ?? 'Schweiz',
         latitude: anlage.latitude != null ? String(anlage.latitude) : '',
         longitude: anlage.longitude != null ? String(anlage.longitude) : '',
-        hasHeatPump: anlage.hasHeatPump ?? false,
-        hasBoiler: anlage.hasBoiler ?? false,
         contactName: anlage.contactName ?? '',
         contactPhone: anlage.contactPhone ?? '',
         contactMobile: anlage.contactMobile ?? '',
         contactEmail: anlage.contactEmail ?? '',
         notes: anlage.notes ?? '',
       })
+      setErzeugerDraft((anlage.erzeuger ?? []).map((e) => ({
+        typeId: e.typeId,
+        serialNumber: e.serialNumber ?? '',
+      })))
     }
   }, [anlage])
 
@@ -231,7 +241,15 @@ export function AnlageDetailPage() {
       const { latitude: latStr, longitude: lngStr, ...rest } = infoForm
       const latitude = latStr ? parseFloat(latStr) : null
       const longitude = lngStr ? parseFloat(lngStr) : null
-      await updateAnlage.mutateAsync({ ...rest, latitude, longitude })
+      await updateAnlage.mutateAsync({
+        ...rest,
+        latitude,
+        longitude,
+        erzeuger: erzeugerDraft.map((e) => ({
+          typeId: e.typeId,
+          serialNumber: e.serialNumber.trim() || null,
+        })),
+      })
       setShowErrors(false)
       setEditingInfo(false)
     } catch (err) {
@@ -274,25 +292,20 @@ export function AnlageDetailPage() {
         country: anlage.country ?? 'Schweiz',
         latitude: anlage.latitude != null ? String(anlage.latitude) : '',
         longitude: anlage.longitude != null ? String(anlage.longitude) : '',
-        hasHeatPump: anlage.hasHeatPump ?? false,
-        hasBoiler: anlage.hasBoiler ?? false,
         contactName: anlage.contactName ?? '',
         contactPhone: anlage.contactPhone ?? '',
         contactMobile: anlage.contactMobile ?? '',
         contactEmail: anlage.contactEmail ?? '',
         notes: anlage.notes ?? '',
       })
+      setErzeugerDraft((anlage.erzeuger ?? []).map((e) => ({
+        typeId: e.typeId,
+        serialNumber: e.serialNumber ?? '',
+      })))
     }
     setSaveError('')
     setShowErrors(false)
     setEditingInfo(false)
-  }
-
-  const plantTypeLabel = (hp: boolean, b: boolean): string => {
-    const parts: string[] = []
-    if (hp) parts.push(t('anlagen.plantTypeHeatPump'))
-    if (b)  parts.push(t('anlagen.plantTypeBoiler'))
-    return parts.length ? parts.join(' + ') : '—'
   }
 
   if (isLoading) return <Box display="flex" justifyContent="center" mt={8}><CircularProgress /></Box>
@@ -399,21 +412,20 @@ export function AnlageDetailPage() {
                       />
                       <TextField label={t('common.description')} size="small" value={infoForm.description} onChange={(e) => setInfoForm({ ...infoForm, description: e.target.value })} fullWidth multiline rows={2} />
                       <Box>
-                        <Typography variant="caption" color={showErrors && !infoForm.hasHeatPump && !infoForm.hasBoiler ? 'error' : 'text.secondary'}>
-                          {t('anlagen.plantType')} *
+                        <Typography
+                          variant="caption"
+                          color={showErrors && !erzeugerValid ? 'error' : 'text.secondary'}
+                        >
+                          Erzeuger *
                         </Typography>
-                        <FormGroup row>
-                          <FormControlLabel
-                            control={<Checkbox size="small" checked={infoForm.hasHeatPump} onChange={(e) => setInfoForm({ ...infoForm, hasHeatPump: e.target.checked })} />}
-                            label={t('anlagen.plantTypeHeatPump')}
-                          />
-                          <FormControlLabel
-                            control={<Checkbox size="small" checked={infoForm.hasBoiler} onChange={(e) => setInfoForm({ ...infoForm, hasBoiler: e.target.checked })} />}
-                            label={t('anlagen.plantTypeBoiler')}
-                          />
-                        </FormGroup>
-                        {showErrors && !infoForm.hasHeatPump && !infoForm.hasBoiler && (
-                          <Typography variant="caption" color="error">{t('anlagen.plantTypeRequired')}</Typography>
+                        <ErzeugerPicker
+                          value={erzeugerDraft}
+                          onChange={setErzeugerDraft}
+                          serialRequired={serialRequired}
+                          showErrors={showErrors}
+                        />
+                        {showErrors && erzeugerDraft.length === 0 && (
+                          <Typography variant="caption" color="error">Mindestens ein Erzeuger erforderlich</Typography>
                         )}
                       </Box>
                     </Stack>
@@ -432,8 +444,19 @@ export function AnlageDetailPage() {
                         <Typography variant="body1">{anlage.description ?? '—'}</Typography>
                       </Box>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">{t('anlagen.plantType')}</Typography>
-                        <Typography variant="body1">{plantTypeLabel(anlage.hasHeatPump, anlage.hasBoiler)}</Typography>
+                        <Typography variant="caption" color="text.secondary">Erzeuger</Typography>
+                        {(anlage.erzeuger ?? []).length === 0 ? (
+                          <Typography variant="body1">—</Typography>
+                        ) : (
+                          <Stack spacing={0.5} mt={0.5}>
+                            {(anlage.erzeuger ?? []).map((e) => (
+                              <Typography key={e.id} variant="body2">
+                                <strong>{erzeugerTypeName(e.typeId)}</strong>
+                                {e.serialNumber && <span style={{ color: 'inherit', opacity: 0.7 }}> · SN {e.serialNumber}</span>}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        )}
                       </Box>
                       <Box>
                         <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>

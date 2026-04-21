@@ -102,6 +102,13 @@ export interface Anlage {
   anlageDevices: { device: { id: string; name: string; status: DeviceStatus; isApproved: boolean } }[]
   directUsers: { user: { id: string; firstName: string; lastName: string } }[]
   groupAnlagen: { group: { id: string; name: string } }[]
+  erzeuger: {
+    id: string
+    typeId: string
+    serialNumber: string | null
+    sortOrder: number
+    type: { id: string; name: string; sortOrder: number; isActive: boolean }
+  }[]
   _count?: { anlageDevices: number; todos: number }
   todos?: AnlageTodo[]
   logEntries?: AnlageLogEntry[]

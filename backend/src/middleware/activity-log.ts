@@ -9,7 +9,7 @@ import {
 const KNOWN_ENTITIES = new Set([
   'anlagen', 'devices', 'users', 'groups', 'roles', 'permissions',
   'vpn', 'settings', 'invitations', 'auth', 'activity-log', 'me',
-  'wiki',
+  'wiki', 'erzeuger-types',
 ])
 
 const KNOWN_SUBRESOURCES = new Set([

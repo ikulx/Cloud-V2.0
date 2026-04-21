@@ -4,6 +4,7 @@ import Typography from '@mui/material/Typography'
 import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
 import Link from '@mui/material/Link'
+import { ErzeugerSettingsTab } from '../components/settings/ErzeugerSettingsTab'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import TextField from '@mui/material/TextField'
@@ -60,6 +61,10 @@ export function SettingsPage() {
   const [testMailMsg, setTestMailMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [testMailSending, setTestMailSending] = useState(false)
 
+  // Erzeuger-Form
+  const [erzeugerSerialRequired, setErzeugerSerialRequired] = useState(false)
+  const [erzeugerSaved, setErzeugerSaved] = useState(false)
+
   // DeepL-Form
   const [deeplForm, setDeeplForm] = useState({ 'deepl.apiKey': '', 'deepl.tier': 'free' })
   const [deeplSaved, setDeeplSaved] = useState(false)
@@ -107,6 +112,7 @@ export function SettingsPage() {
         'deepl.apiKey': settings['deepl.apiKey'] ?? '',
         'deepl.tier': settings['deepl.tier'] ?? 'free',
       })
+      setErzeugerSerialRequired(settings['erzeuger.serialRequired'] === 'true')
     }
   }, [settings])
 
@@ -156,6 +162,12 @@ export function SettingsPage() {
     } finally {
       setTestMailSending(false)
     }
+  }
+
+  const handleSaveErzeuger = async () => {
+    await updateSettings.mutateAsync({ 'erzeuger.serialRequired': erzeugerSerialRequired ? 'true' : 'false' })
+    setErzeugerSaved(true)
+    setTimeout(() => setErzeugerSaved(false), 3000)
   }
 
   const handleSaveDeepl = async () => {
@@ -267,6 +279,7 @@ export function SettingsPage() {
   if (canSeePiSetup) tabs.push({ label: t('settings.tabPiSetup'), key: 'pi' })
   if (isAdmin) tabs.push({ label: 'E-Mail', key: 'mail' })
   if (isAdmin) tabs.push({ label: 'Übersetzung', key: 'deepl' })
+  if (isAdmin) tabs.push({ label: 'Erzeuger', key: 'erzeuger' })
   if (isAdmin) tabs.push({ label: 'System', key: 'system' })
   const activeKey = tabs[tab]?.key ?? 'account'
 
@@ -550,6 +563,15 @@ export function SettingsPage() {
             </Box>
           </CardContent>
         </Card>
+      )}
+
+      {activeKey === 'erzeuger' && (
+        <ErzeugerSettingsTab
+          serialRequired={erzeugerSerialRequired}
+          onSerialRequiredChange={setErzeugerSerialRequired}
+          saved={erzeugerSaved}
+          onSave={handleSaveErzeuger}
+        />
       )}
 
       {activeKey === 'system' && (

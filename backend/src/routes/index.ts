@@ -12,6 +12,7 @@ import vpnRouter from './vpn.router'
 import invitationsRouter from './invitations.router'
 import activityLogRouter from './activity-log.router'
 import wikiRouter from './wiki.router'
+import erzeugerTypesRouter from './erzeuger-types.router'
 
 const router = Router()
 
@@ -28,5 +29,6 @@ router.use('/vpn', vpnRouter)
 router.use('/invitations', invitationsRouter)
 router.use('/activity-log', activityLogRouter)
 router.use('/wiki', wikiRouter)
+router.use('/erzeuger-types', erzeugerTypesRouter)
 
 export default router
