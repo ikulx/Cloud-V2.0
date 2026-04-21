@@ -92,15 +92,12 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
     [editable],
   )
 
-  // Wenn sich die Seite ändert (neue Page geladen) → Editor-Content ersetzen
-  useEffect(() => {
-    if (!editor) return
-    const current = editor.getJSON()
-    if (JSON.stringify(current) !== JSON.stringify(content)) {
-      editor.commands.setContent(isValidDoc(content) ? (content as object) : { type: 'doc', content: [] }, { emitUpdate: false })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content, editor])
+  // Hinweis: Kein useEffect, das content-Prop → setContent() spiegelt. Das
+  // hätte nach jedem Autosave das Editor-Dokument mit dem zurückgegebenen
+  // Server-Stand überschrieben und den Cursor ans Ende katapultiert (auch
+  // während laufender Eingabe in Tabellen, Überschriften, Code-Blocks etc.).
+  // Initial-Content wird von useEditor() gesetzt; Seitenwechsel läuft über
+  // den <WikiEditor key={page.id} /> in der Parent-Komponente.
 
   // Tabelle-Einfügen-Dialog (wird von Slash-Command "Tabelle" und
   // Toolbar-Button via DOM-Event geöffnet)
