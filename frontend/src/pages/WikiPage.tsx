@@ -64,22 +64,40 @@ export function WikiPage() {
   useEffect(() => { setEditMode(false) }, [selectedId])
   const isEditing = canUpdate && editMode
   // Getrennte Mutation für Moves (andere ID als die aktuell selektierte).
-  // Nach dem PATCH müssen wir den Tree-Cache invalidieren, sonst zeigt die
-  // Sidebar die alte Hierarchie weiter.
+  // Wir aktualisieren den Tree-Cache zuerst optimistisch (damit der Drop
+  // sofort visuell wirkt), feuern dann den PATCH ab und holen danach den
+  // Server-Stand zum Abgleich. Bei Fehler wird per Refetch zurückgerollt.
   const moveWikiPage = async (id: string, parentId: string | null, sortOrder: number) => {
-    const res = await apiFetch(`/wiki/pages/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ parentId, sortOrder }),
-    })
-    if (!res.ok) {
-      let msg = 'Verschieben fehlgeschlagen'
-      try { const err = await res.json() as { message?: string }; msg = err.message ?? msg } catch { /* noop */ }
-      window.alert(msg)
+    const previousTree = qc.getQueryData<WikiPageNode[]>(wikiKeys.tree)
+
+    qc.setQueryData<WikiPageNode[]>(wikiKeys.tree, (old) =>
+      (old ?? []).map((p) => (p.id === id ? { ...p, parentId, sortOrder } : p)),
+    )
+
+    try {
+      const res = await apiFetch(`/wiki/pages/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ parentId, sortOrder }),
+      })
+      if (!res.ok) {
+        // Rollback – alte Struktur wiederherstellen
+        if (previousTree) qc.setQueryData(wikiKeys.tree, previousTree)
+        let msg = 'Verschieben fehlgeschlagen'
+        try { const err = await res.json() as { message?: string }; msg = err.message ?? msg } catch { /* noop */ }
+        window.alert(msg)
+        return
+      }
+    } catch (err) {
+      if (previousTree) qc.setQueryData(wikiKeys.tree, previousTree)
+      window.alert(err instanceof Error ? err.message : 'Verschieben fehlgeschlagen')
       return
     }
-    await qc.invalidateQueries({ queryKey: wikiKeys.tree })
+
+    // Server-Stand holen (kann z.B. sortOrder normalisieren oder Rechte neu
+    // berechnen) und ggf. offene Detail-Seite aktualisieren.
+    await qc.refetchQueries({ queryKey: wikiKeys.tree })
     if (id === selectedId) {
-      await qc.invalidateQueries({ queryKey: wikiKeys.page(id) })
+      await qc.refetchQueries({ queryKey: wikiKeys.page(id) })
     }
   }
 
