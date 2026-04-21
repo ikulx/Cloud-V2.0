@@ -307,7 +307,11 @@ router.patch('/pages/:id', authenticate, async (req, res) => {
         updatedBy: { select: authorSelect },
       },
     })
-    res.json(page)
+    // canEdit ist hier garantiert true (wir haben oben geprüft), wird aber
+    // explizit mitgeliefert, damit der Client-Cache (React Query) konsistent
+    // mit der GET-Response bleibt und der Edit-Modus nicht durch fehlendes
+    // Feld "zusammenbricht".
+    res.json({ ...page, canEdit: true })
   } catch {
     res.status(404).json({ message: 'Seite nicht gefunden' })
   }
