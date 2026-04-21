@@ -54,13 +54,19 @@ export function EditorToolbar({ editor }: Props) {
     disabled?: boolean
   }) => (
     <Tooltip title={opts.title}>
-      <span>
+      <span onMouseDown={(e) => e.preventDefault()}>
         <IconButton
           size="small"
-          // onMouseDown preventDefault → Fokus bleibt beim Editor, damit die
-          // aktuelle Selektion (z.B. in einer Tabellenzelle) erhalten bleibt.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={opts.onClick}
+          tabIndex={-1}
+          disableRipple
+          disableFocusRipple
+          // Kommando direkt im MouseDown ausführen und Default verhindern,
+          // damit Fokus/Selektion im Editor (auch in Tabellen-Zellen) bestehen
+          // bleiben. onClick würde erst nach dem Fokus-Transfer feuern.
+          onMouseDown={(e) => {
+            e.preventDefault()
+            if (!opts.disabled) opts.onClick()
+          }}
           disabled={opts.disabled}
           sx={{
             borderRadius: 1,
@@ -108,8 +114,14 @@ export function EditorToolbar({ editor }: Props) {
       {/* Heading-Dropdown */}
       <Button
         size="small"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={(e) => setHeadingAnchor(e.currentTarget)}
+        tabIndex={-1}
+        disableRipple
+        disableFocusRipple
+        onMouseDown={(e) => {
+          // Fokus nicht wegnehmen, Menü trotzdem öffnen
+          e.preventDefault()
+          setHeadingAnchor(e.currentTarget)
+        }}
         endIcon={<ArrowDropDownIcon />}
         sx={{
           textTransform: 'none',
