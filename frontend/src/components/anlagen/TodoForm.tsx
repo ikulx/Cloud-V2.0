@@ -4,6 +4,7 @@ import Autocomplete from '@mui/material/Autocomplete'
 import Chip from '@mui/material/Chip'
 import { useUsers } from '../../features/users/queries'
 import { useGroups } from '../../features/groups/queries'
+import { PhotoUploadField } from './PhotoUploadField'
 
 export interface TodoFormValue {
   title: string
@@ -11,10 +12,11 @@ export interface TodoFormValue {
   dueDate: string // yyyy-MM-dd
   userIds: string[]
   groupIds: string[]
+  photoUrls: string[]
 }
 
 export const EMPTY_TODO_FORM: TodoFormValue = {
-  title: '', details: '', dueDate: '', userIds: [], groupIds: [],
+  title: '', details: '', dueDate: '', userIds: [], groupIds: [], photoUrls: [],
 }
 
 interface Props {
@@ -112,6 +114,11 @@ export function TodoForm({ value, onChange, onSubmitHint, disabled, compact }: P
           renderInput={(params) => <TextField {...params} label="Zuweisen an Gruppen" />}
         />
       </Box>
+      <PhotoUploadField
+        value={value.photoUrls}
+        onChange={(urls) => onChange({ ...value, photoUrls: urls })}
+        disabled={disabled}
+      />
     </Box>
   )
 }
@@ -123,6 +130,7 @@ export function todoFormToPayload(v: TodoFormValue): {
   dueDate: string | null
   assignedUserIds: string[]
   assignedGroupIds: string[]
+  photoUrls: string[]
 } {
   return {
     title: v.title.trim(),
@@ -131,5 +139,6 @@ export function todoFormToPayload(v: TodoFormValue): {
     dueDate: v.dueDate ? new Date(v.dueDate + 'T00:00:00').toISOString() : null,
     assignedUserIds: v.userIds,
     assignedGroupIds: v.groupIds,
+    photoUrls: v.photoUrls,
   }
 }

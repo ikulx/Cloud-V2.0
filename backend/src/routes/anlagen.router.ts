@@ -124,12 +124,14 @@ const anlageSchema = z.object({
   })).optional(),
 })
 
+const photoUrlsSchema = z.array(z.string().max(500)).optional()
 const todoSchema = z.object({
   title: z.string().min(1),
   details: z.string().optional().nullable(),
   dueDate: z.string().datetime().optional().nullable(),
   assignedUserIds: z.array(z.string().uuid()).optional(),
   assignedGroupIds: z.array(z.string().uuid()).optional(),
+  photoUrls: photoUrlsSchema,
 })
 const todoUpdateSchema = z.object({
   title: z.string().min(1).optional(),
@@ -138,6 +140,7 @@ const todoUpdateSchema = z.object({
   dueDate: z.string().datetime().optional().nullable(),
   assignedUserIds: z.array(z.string().uuid()).optional(),
   assignedGroupIds: z.array(z.string().uuid()).optional(),
+  photoUrls: photoUrlsSchema,
 })
 
 const todoInclude = {
@@ -145,7 +148,7 @@ const todoInclude = {
   assignedUsers: { include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } } },
   assignedGroups: { include: { group: { select: { id: true, name: true } } } },
 } as const
-const logSchema = z.object({ message: z.string().min(1) })
+const logSchema = z.object({ message: z.string().min(1), photoUrls: photoUrlsSchema })
 
 const anlageInclude = {
   anlageDevices: { include: { device: { select: { id: true, name: true, status: true, isApproved: true } } } },
@@ -390,7 +393,7 @@ router.delete('/:id', authenticate, requirePermission('anlagen:delete'), async (
 router.post('/:id/todos', authenticate, requirePermission('todos:create'), async (req, res) => {
   const parsed = todoSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
-  const { assignedUserIds, assignedGroupIds, dueDate, ...base } = parsed.data
+  const { assignedUserIds, assignedGroupIds, dueDate, photoUrls, ...base } = parsed.data
   if ((assignedUserIds?.length ?? 0) === 0 && (assignedGroupIds?.length ?? 0) === 0) {
     res.status(400).json({ message: 'Mindestens ein Benutzer oder eine Gruppe muss zugewiesen werden.' })
     return
@@ -401,6 +404,7 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
         anlageId: req.params.id as string,
         ...base,
         dueDate: dueDate ? new Date(dueDate) : null,
+        photoUrls: photoUrls ?? [],
         createdById: req.user!.userId,
         assignedUsers: assignedUserIds?.length
           ? { create: assignedUserIds.map((userId) => ({ userId })) } : undefined,
@@ -449,7 +453,7 @@ router.patch('/:id/todos/:todoId', authenticate, requirePermission('todos:update
     ? (parsed.data.status === 'DONE' ? `Todo abgehakt: "${existing?.title}"` : `Todo wieder geöffnet: "${existing?.title}"`)
     : `Todo aktualisiert: "${existing?.title}"`
 
-  const { assignedUserIds, assignedGroupIds, dueDate, ...base } = parsed.data
+  const { assignedUserIds, assignedGroupIds, dueDate, photoUrls, ...base } = parsed.data
 
   const [todo] = await prisma.$transaction([
     prisma.anlageTodo.update({
@@ -457,6 +461,7 @@ router.patch('/:id/todos/:todoId', authenticate, requirePermission('todos:update
       data: {
         ...base,
         ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
+        ...(photoUrls !== undefined && { photoUrls }),
         ...(assignedUserIds !== undefined && {
           assignedUsers: { deleteMany: {}, create: assignedUserIds.map((userId) => ({ userId })) },
         }),
@@ -478,10 +483,53 @@ router.post('/:id/logs', authenticate, requirePermission('logbook:create'), asyn
   const parsed = logSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
   const log = await prisma.anlageLogEntry.create({
-    data: { anlageId: req.params.id as string, ...parsed.data, createdById: req.user!.userId },
+    data: {
+      anlageId: req.params.id as string,
+      message: parsed.data.message,
+      photoUrls: parsed.data.photoUrls ?? [],
+      createdById: req.user!.userId,
+    },
     include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
   })
   res.status(201).json(log)
+})
+
+// GET /api/anlagen/:id/photos – alle Fotos aus Todos und Logs der Anlage,
+// flach, mit Caption (= Titel des Todos bzw. Message des Logs).
+router.get('/:id/photos', authenticate, requirePermission('anlagen:read'), async (req, res) => {
+  const anlageId = req.params.id as string
+  const [todos, logs] = await Promise.all([
+    prisma.anlageTodo.findMany({
+      where: { anlageId, photoUrls: { isEmpty: false } },
+      include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.anlageLogEntry.findMany({
+      where: { anlageId, photoUrls: { isEmpty: false } },
+      include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ])
+  const out: Array<{
+    url: string
+    caption: string
+    source: 'todo' | 'log'
+    sourceId: string
+    createdAt: Date
+    createdBy: { id: string; firstName: string; lastName: string }
+  }> = []
+  for (const t of todos) {
+    for (const url of t.photoUrls) {
+      out.push({ url, caption: t.title, source: 'todo', sourceId: t.id, createdAt: t.createdAt, createdBy: t.createdBy })
+    }
+  }
+  for (const l of logs) {
+    for (const url of l.photoUrls) {
+      out.push({ url, caption: l.message, source: 'log', sourceId: l.id, createdAt: l.createdAt, createdBy: l.createdBy })
+    }
+  }
+  out.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  res.json(out)
 })
 
 export default router

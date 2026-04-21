@@ -59,6 +59,7 @@ export function useCreateAnlageTodo(anlageId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: anlagenKeys.detail(anlageId) })
       qc.invalidateQueries({ queryKey: ['me', 'todos'] })
+      qc.invalidateQueries({ queryKey: ['anlagen', anlageId, 'photos'] })
     },
   })
 }
@@ -71,6 +72,7 @@ export function useUpdateAnlageTodo(anlageId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: anlagenKeys.detail(anlageId) })
       qc.invalidateQueries({ queryKey: ['me', 'todos'] })
+      qc.invalidateQueries({ queryKey: ['anlagen', anlageId, 'photos'] })
     },
   })
 }
@@ -78,7 +80,11 @@ export function useUpdateAnlageTodo(anlageId: string) {
 export function useCreateAnlageLog(anlageId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { message: string }) => apiPost(`/anlagen/${anlageId}/logs`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: anlagenKeys.detail(anlageId) }),
+    mutationFn: (data: { message: string; photoUrls?: string[] }) =>
+      apiPost(`/anlagen/${anlageId}/logs`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: anlagenKeys.detail(anlageId) })
+      qc.invalidateQueries({ queryKey: ['anlagen', anlageId, 'photos'] })
+    },
   })
 }

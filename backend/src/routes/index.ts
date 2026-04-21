@@ -14,6 +14,7 @@ import activityLogRouter from './activity-log.router'
 import wikiRouter from './wiki.router'
 import erzeugerTypesRouter from './erzeuger-types.router'
 import erzeugerCategoriesRouter from './erzeuger-categories.router'
+import uploadsRouter from './uploads.router'
 
 const router = Router()
 
@@ -32,5 +33,6 @@ router.use('/activity-log', activityLogRouter)
 router.use('/wiki', wikiRouter)
 router.use('/erzeuger-types', erzeugerTypesRouter)
 router.use('/erzeuger-categories', erzeugerCategoriesRouter)
+router.use('/uploads', uploadsRouter)
 
 export default router

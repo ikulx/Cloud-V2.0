@@ -35,6 +35,7 @@ import LinkIcon from '@mui/icons-material/Link'
 import AssignmentIcon from '@mui/icons-material/Assignment'
 import BookIcon from '@mui/icons-material/Book'
 import HistoryIcon from '@mui/icons-material/History'
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary'
 import { EntityActivityLog } from '../components/EntityActivityLog'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
@@ -57,6 +58,8 @@ import type { Device } from '../types/model'
 import { ErzeugerPicker, type ErzeugerEntry } from '../components/anlagen/ErzeugerPicker'
 import { TodoForm, EMPTY_TODO_FORM, todoFormToPayload, type TodoFormValue } from '../components/anlagen/TodoForm'
 import { TodoEditDialog } from '../components/anlagen/TodoEditDialog'
+import { PhotoUploadField } from '../components/anlagen/PhotoUploadField'
+import { AnlagePhotosTab } from '../components/anlagen/AnlagePhotosTab'
 import { useErzeugerTypes, useErzeugerCategories } from '../features/erzeuger-types/queries'
 import { formatCategoryPath } from '../features/erzeuger-types/helpers'
 
@@ -164,6 +167,7 @@ export function AnlageDetailPage() {
   const [newTodoForm, setNewTodoForm] = useState<TodoFormValue>(EMPTY_TODO_FORM)
   const [editTodo, setEditTodo] = useState<import('../types/model').AnlageTodo | null>(null)
   const [logMessage, setLogMessage] = useState('')
+  const [logPhotoUrls, setLogPhotoUrls] = useState<string[]>([])
 
   const { data: erzeugerTypes = [] } = useErzeugerTypes()
   const { data: erzeugerCategories = [] } = useErzeugerCategories()
@@ -351,6 +355,11 @@ export function AnlageDetailPage() {
             label={t('logbook.tab')}
           />
         )}
+        <Tab
+          icon={<PhotoLibraryIcon fontSize="small" />}
+          iconPosition="start"
+          label="Fotos"
+        />
         {canReadActivityLog && (
           <Tab
             icon={<HistoryIcon fontSize="small" />}
@@ -860,8 +869,25 @@ export function AnlageDetailPage() {
                         <span style={{ opacity: 0.7 }}>
                           {todo.createdBy.firstName} {todo.createdBy.lastName} · {new Date(todo.createdAt).toLocaleDateString('de-CH')}
                         </span>
+                        {todo.photoUrls && todo.photoUrls.length > 0 && (
+                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                            {todo.photoUrls.map((url) => (
+                              <Box
+                                key={url}
+                                component="a"
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                sx={{ width: 72, height: 72, borderRadius: 1, overflow: 'hidden', display: 'block' }}
+                              >
+                                <Box component="img" src={url} alt="" sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              </Box>
+                            ))}
+                          </Box>
+                        )}
                       </>
                     }
+                    secondaryTypographyProps={{ component: 'div' }}
                   />
                 </ListItem>
               )
@@ -874,28 +900,34 @@ export function AnlageDetailPage() {
       {canReadLog && tab === (canReadTodos ? 3 : 2) && (
         <Box>
           {canCreateLog ? (
-            <Box display="flex" gap={1} mb={2}>
+            <Box sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
               <TextField
                 label={t('logbook.newEntry')}
                 value={logMessage}
                 onChange={(e) => setLogMessage(e.target.value)}
                 size="small"
-                sx={{ flexGrow: 1 }}
+                fullWidth
                 multiline
-                maxRows={4}
+                minRows={2}
+                maxRows={6}
               />
-              <Button
-                variant="contained"
-                disabled={!logMessage.trim() || createLog.isPending}
-                onClick={() => {
-                  if (logMessage.trim()) {
-                    createLog.mutate({ message: logMessage.trim() })
+              <Box sx={{ mt: 1.5 }}>
+                <PhotoUploadField value={logPhotoUrls} onChange={setLogPhotoUrls} />
+              </Box>
+              <Box sx={{ mt: 1.5 }}>
+                <Button
+                  variant="contained"
+                  disabled={!logMessage.trim() || createLog.isPending}
+                  onClick={async () => {
+                    if (!logMessage.trim()) return
+                    await createLog.mutateAsync({ message: logMessage.trim(), photoUrls: logPhotoUrls })
                     setLogMessage('')
-                  }
-                }}
-              >
-                {t('logbook.add')}
-              </Button>
+                    setLogPhotoUrls([])
+                  }}
+                >
+                  {t('logbook.add')}
+                </Button>
+              </Box>
             </Box>
           ) : (
             <Alert severity="info" sx={{ mb: 2 }}>{t('detail.noPermissionLogbook')}</Alert>
@@ -905,10 +937,31 @@ export function AnlageDetailPage() {
           )}
           <List disablePadding>
             {anlage.logEntries?.map((log) => (
-              <ListItem key={log.id} disablePadding sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 2, py: 1 }}>
+              <ListItem key={log.id} disablePadding sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 2, py: 1, alignItems: 'flex-start' }}>
                 <ListItemText
                   primary={<Typography sx={{ whiteSpace: 'pre-wrap' }}>{log.message}</Typography>}
-                  secondary={`${log.createdBy.firstName} ${log.createdBy.lastName} · ${new Date(log.createdAt).toLocaleString()}`}
+                  secondary={
+                    <>
+                      <span>{log.createdBy.firstName} {log.createdBy.lastName} · {new Date(log.createdAt).toLocaleString()}</span>
+                      {log.photoUrls && log.photoUrls.length > 0 && (
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                          {log.photoUrls.map((url) => (
+                            <Box
+                              key={url}
+                              component="a"
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              sx={{ width: 72, height: 72, borderRadius: 1, overflow: 'hidden', display: 'block' }}
+                            >
+                              <Box component="img" src={url} alt="" sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
+                    </>
+                  }
+                  secondaryTypographyProps={{ component: 'div' }}
                 />
               </ListItem>
             ))}
@@ -916,8 +969,13 @@ export function AnlageDetailPage() {
         </Box>
       )}
 
-      {/* TAB 4: AKTIVITÄTSLOG */}
-      {canReadActivityLog && tab === ((canReadTodos ? 1 : 0) + (canReadLog ? 1 : 0) + 2) && id && (
+      {/* TAB: FOTOS */}
+      {tab === ((canReadTodos ? 1 : 0) + (canReadLog ? 1 : 0) + 2) && id && (
+        <AnlagePhotosTab anlageId={id} />
+      )}
+
+      {/* TAB: AKTIVITÄTSLOG */}
+      {canReadActivityLog && tab === ((canReadTodos ? 1 : 0) + (canReadLog ? 1 : 0) + 3) && id && (
         <EntityActivityLog entityId={id} />
       )}
 

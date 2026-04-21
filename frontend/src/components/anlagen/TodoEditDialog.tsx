@@ -31,6 +31,7 @@ export function TodoEditDialog({ open, anlageId, todo, onClose, onSave }: Props)
         dueDate: todo.dueDate ? new Date(todo.dueDate).toISOString().slice(0, 10) : '',
         userIds: todo.assignedUsers.map((u) => u.user.id),
         groupIds: todo.assignedGroups.map((g) => g.group.id),
+        photoUrls: todo.photoUrls ?? [],
       })
       setError(null)
     }

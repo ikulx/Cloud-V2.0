@@ -132,6 +132,7 @@ export interface AnlageTodo {
   details: string | null
   status: TodoStatus
   dueDate: string | null
+  photoUrls: string[]
   createdBy: { id: string; firstName: string; lastName: string }
   assignedUsers: { user: { id: string; firstName: string; lastName: string; email: string } }[]
   assignedGroups: { group: { id: string; name: string } }[]
@@ -155,8 +156,18 @@ export interface DeviceLogEntry {
 export interface AnlageLogEntry {
   id: string
   message: string
+  photoUrls: string[]
   createdBy: { id: string; firstName: string; lastName: string }
   createdAt: string
+}
+
+export interface AnlagePhoto {
+  url: string
+  caption: string
+  source: 'todo' | 'log'
+  sourceId: string
+  createdAt: string
+  createdBy: { id: string; firstName: string; lastName: string }
 }
 
 export interface MeResponse {

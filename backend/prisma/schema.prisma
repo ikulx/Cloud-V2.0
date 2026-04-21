@@ -451,6 +451,9 @@ model AnlageTodo {
   /// Optionaler Fälligkeits-Termin – wird im Todo-Überblick zur Sortierung
   /// und für Überfällig-Kennzeichnung genutzt.
   dueDate         DateTime?  @map("due_date")
+  /// URLs angehängter Fotos (werden client-seitig komprimiert und in
+  /// /uploads/photos/ gespeichert). Leeres Array = kein Foto.
+  photoUrls       String[]   @default([]) @map("photo_urls")
   createdById     String     @map("created_by_id") @db.Uuid
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
@@ -492,6 +495,8 @@ model AnlageLogEntry {
   id          String   @id @default(uuid()) @db.Uuid
   anlageId    String   @map("anlage_id") @db.Uuid
   message     String
+  /// URLs angehängter Fotos (siehe AnlageTodo.photoUrls).
+  photoUrls   String[] @default([]) @map("photo_urls")
   createdById String   @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
   anlage      Anlage   @relation(fields: [anlageId], references: [id], onDelete: Cascade)
