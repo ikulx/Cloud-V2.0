@@ -57,6 +57,9 @@ export function EditorToolbar({ editor }: Props) {
       <span>
         <IconButton
           size="small"
+          // onMouseDown preventDefault → Fokus bleibt beim Editor, damit die
+          // aktuelle Selektion (z.B. in einer Tabellenzelle) erhalten bleibt.
+          onMouseDown={(e) => e.preventDefault()}
           onClick={opts.onClick}
           disabled={opts.disabled}
           sx={{
@@ -105,6 +108,7 @@ export function EditorToolbar({ editor }: Props) {
       {/* Heading-Dropdown */}
       <Button
         size="small"
+        onMouseDown={(e) => e.preventDefault()}
         onClick={(e) => setHeadingAnchor(e.currentTarget)}
         endIcon={<ArrowDropDownIcon />}
         sx={{

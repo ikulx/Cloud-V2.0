@@ -74,6 +74,12 @@ export function WikiPage() {
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const contentBufferRef = useRef<unknown>(null)
   const saveTimerRef = useRef<number | null>(null)
+  // Live-Werte in Refs halten, damit der gedrosselte Save immer den
+  // aktuellen Zustand sieht (nicht die Closure des Aufrufs).
+  const titleRef = useRef(title)
+  const iconRef = useRef(icon)
+  useEffect(() => { titleRef.current = title }, [title])
+  useEffect(() => { iconRef.current = icon }, [icon])
 
   useEffect(() => {
     if (page) {
@@ -91,8 +97,8 @@ export function WikiPage() {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
     saveTimerRef.current = window.setTimeout(async () => {
       await updateMut.mutateAsync({
-        title,
-        icon,
+        title: titleRef.current,
+        icon: iconRef.current,
         content: contentBufferRef.current,
       })
       setDirty(false)
@@ -103,7 +109,11 @@ export function WikiPage() {
   useEffect(() => {
     const handler = () => {
       if (dirty && selectedId && isEditing) {
-        updateMut.mutate({ title, icon, content: contentBufferRef.current })
+        updateMut.mutate({
+          title: titleRef.current,
+          icon: iconRef.current,
+          content: contentBufferRef.current,
+        })
       }
     }
     window.addEventListener('beforeunload', handler)
