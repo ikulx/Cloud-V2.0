@@ -10,12 +10,15 @@ const typeSchema = z.object({
   name: z.string().min(1).max(100),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
+  categoryId: z.string().uuid().optional().nullable(),
+  serialRequired: z.boolean().optional(),
 })
 
-// GET /api/erzeuger-types – alle Rollen mit anlagen:read dürfen lesen
+// GET /api/erzeuger-types – alle Rollen mit anlagen:read
 router.get('/', authenticate, requirePermission('anlagen:read'), async (_req, res) => {
   const types = await prisma.erzeugerType.findMany({
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    include: { category: { select: { id: true, name: true, sortOrder: true, isActive: true } } },
   })
   res.json(types)
 })

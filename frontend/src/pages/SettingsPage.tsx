@@ -61,10 +61,6 @@ export function SettingsPage() {
   const [testMailMsg, setTestMailMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [testMailSending, setTestMailSending] = useState(false)
 
-  // Erzeuger-Form
-  const [erzeugerSerialRequired, setErzeugerSerialRequired] = useState(false)
-  const [erzeugerSaved, setErzeugerSaved] = useState(false)
-
   // DeepL-Form
   const [deeplForm, setDeeplForm] = useState({ 'deepl.apiKey': '', 'deepl.tier': 'free' })
   const [deeplSaved, setDeeplSaved] = useState(false)
@@ -112,7 +108,6 @@ export function SettingsPage() {
         'deepl.apiKey': settings['deepl.apiKey'] ?? '',
         'deepl.tier': settings['deepl.tier'] ?? 'free',
       })
-      setErzeugerSerialRequired(settings['erzeuger.serialRequired'] === 'true')
     }
   }, [settings])
 
@@ -162,12 +157,6 @@ export function SettingsPage() {
     } finally {
       setTestMailSending(false)
     }
-  }
-
-  const handleSaveErzeuger = async () => {
-    await updateSettings.mutateAsync({ 'erzeuger.serialRequired': erzeugerSerialRequired ? 'true' : 'false' })
-    setErzeugerSaved(true)
-    setTimeout(() => setErzeugerSaved(false), 3000)
   }
 
   const handleSaveDeepl = async () => {
@@ -565,14 +554,7 @@ export function SettingsPage() {
         </Card>
       )}
 
-      {activeKey === 'erzeuger' && (
-        <ErzeugerSettingsTab
-          serialRequired={erzeugerSerialRequired}
-          onSerialRequiredChange={setErzeugerSerialRequired}
-          saved={erzeugerSaved}
-          onSave={handleSaveErzeuger}
-        />
-      )}
+      {activeKey === 'erzeuger' && <ErzeugerSettingsTab />}
 
       {activeKey === 'system' && (
         <SystemTab

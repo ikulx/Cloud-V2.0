@@ -55,7 +55,6 @@ import { geocodeAddress } from '../lib/geocode'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../types/model'
 import { ErzeugerPicker, type ErzeugerEntry } from '../components/anlagen/ErzeugerPicker'
-import { useSettings } from '../features/settings/queries'
 import { useErzeugerTypes } from '../features/erzeuger-types/queries'
 
 const EMPTY_INFO_FORM = {
@@ -162,15 +161,16 @@ export function AnlageDetailPage() {
   const [todoTitle, setTodoTitle] = useState('')
   const [logMessage, setLogMessage] = useState('')
 
-  const { data: settings } = useSettings()
   const { data: erzeugerTypes = [] } = useErzeugerTypes()
-  const serialRequired = settings?.['erzeuger.serialRequired'] === 'true'
   const erzeugerTypeName = (id: string) =>
     erzeugerTypes.find((t) => t.id === id)?.name ?? 'Unbekannt'
+  const erzeugerRowValid = (row: ErzeugerEntry) => {
+    const t = erzeugerTypes.find((x) => x.id === row.typeId)
+    return !(t?.serialRequired ?? true) || row.serialNumber.trim().length > 0
+  }
 
   // Validierung für Edit-Modus
-  const erzeugerValid = erzeugerDraft.length > 0
-    && (!serialRequired || erzeugerDraft.every((e) => e.serialNumber.trim().length > 0))
+  const erzeugerValid = erzeugerDraft.length > 0 && erzeugerDraft.every(erzeugerRowValid)
   const basicsValid = infoForm.projectNumber.trim().length > 0
                       && infoForm.name.trim().length > 0
                       && erzeugerValid
@@ -421,7 +421,6 @@ export function AnlageDetailPage() {
                         <ErzeugerPicker
                           value={erzeugerDraft}
                           onChange={setErzeugerDraft}
-                          serialRequired={serialRequired}
                           showErrors={showErrors}
                         />
                         {showErrors && erzeugerDraft.length === 0 && (

@@ -263,10 +263,9 @@ model Anlage {
   @@map("anlagen")
 }
 
-/// Konfigurierbarer Katalog an Erzeuger-Typen (z.B. Wärmepumpe, Kessel,
-/// Solarthermie …). Wird im Settings-UI von Admins gepflegt und in den
-/// Anlagen per Dropdown ausgewählt.
-model ErzeugerType {
+/// Oberkategorie für Erzeuger (z.B. "Wärmepumpe", "Kessel"). Enthält
+/// mehrere konkrete Typen (z.B. "Wärmepumpe XY").
+model ErzeugerCategory {
   id        String   @id @default(uuid()) @db.Uuid
   name      String   @unique
   sortOrder Int      @default(0) @map("sort_order")
@@ -274,8 +273,31 @@ model ErzeugerType {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  types ErzeugerType[]
+
+  @@map("erzeuger_categories")
+}
+
+/// Konkreter Erzeuger-Typ innerhalb einer Kategorie (z.B. "Wärmepumpe XY").
+/// Pro Typ wird festgelegt, ob beim Anlegen in einer Anlage eine
+/// Seriennummer erforderlich ist (Default: true).
+model ErzeugerType {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @unique
+  sortOrder      Int      @default(0) @map("sort_order")
+  isActive       Boolean  @default(true) @map("is_active")
+  /// Kategorie, zu der dieser Typ gehört. Nullable für Bestandsdaten – neue
+  /// Typen werden über das UI immer mit Kategorie angelegt.
+  categoryId     String?  @map("category_id") @db.Uuid
+  category       ErzeugerCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  /// Ob beim Hinzufügen zu einer Anlage die Seriennummer obligatorisch ist.
+  serialRequired Boolean  @default(true) @map("serial_required")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
   anlagen AnlageErzeuger[]
 
+  @@index([categoryId])
   @@map("erzeuger_types")
 }
 

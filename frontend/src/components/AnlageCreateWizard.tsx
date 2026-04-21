@@ -16,7 +16,6 @@ import Divider from '@mui/material/Divider'
 import Snackbar from '@mui/material/Snackbar'
 import Chip from '@mui/material/Chip'
 import { ErzeugerPicker, type ErzeugerEntry } from './anlagen/ErzeugerPicker'
-import { useSettings } from '../features/settings/queries'
 import { useErzeugerTypes } from '../features/erzeuger-types/queries'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
 import { useTranslation } from 'react-i18next'
@@ -63,11 +62,14 @@ export function AnlageCreateWizard({
   // Fehler erst anzeigen nachdem der Nutzer "Weiter" oder "Erstellen" versucht hat
   const [showErrors, setShowErrors] = useState(false)
 
-  const { data: settings } = useSettings()
   const { data: erzeugerTypes = [] } = useErzeugerTypes()
-  const serialRequired = settings?.['erzeuger.serialRequired'] === 'true'
   const erzeugerTypeName = (id: string) =>
     erzeugerTypes.find((t) => t.id === id)?.name ?? 'Unbekannt'
+  /** Validiert jede Zeile gegen das serialRequired-Flag ihres Typs. */
+  const erzeugerRowValid = (row: ErzeugerEntry) => {
+    const t = erzeugerTypes.find((x) => x.id === row.typeId)
+    return !(t?.serialRequired ?? true) || row.serialNumber.trim().length > 0
+  }
 
   useEffect(() => {
     if (open) {
@@ -92,8 +94,7 @@ export function AnlageCreateWizard({
   }
 
   // Validierung pro Schritt
-  const erzeugerValid = erzeuger.length > 0
-    && (!serialRequired || erzeuger.every((e) => e.serialNumber.trim().length > 0))
+  const erzeugerValid = erzeuger.length > 0 && erzeuger.every(erzeugerRowValid)
   const step0Valid = form.projectNumber.trim().length > 0
                      && form.name.trim().length > 0
                      && erzeugerValid
@@ -206,7 +207,6 @@ export function AnlageCreateWizard({
               <ErzeugerPicker
                 value={erzeuger}
                 onChange={setErzeuger}
-                serialRequired={serialRequired}
                 showErrors={showErrors}
               />
               {showErrors && erzeuger.length === 0 && (

@@ -25,7 +25,6 @@ export const SETTING_KEYS = [
   'activityLog.retentionDays',
   'deepl.apiKey',
   'deepl.tier',
-  'erzeuger.serialRequired',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -44,7 +43,6 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'activityLog.retentionDays': '90',
   'deepl.apiKey': '',
   'deepl.tier': 'free',
-  'erzeuger.serialRequired': 'false',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {

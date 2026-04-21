@@ -143,30 +143,21 @@ const anlageInclude = {
   },
 }
 
-/** Holt das Settings-Flag "Seriennummer obligatorisch" aus SystemSetting. */
-async function isSerialRequired(): Promise<boolean> {
-  const row = await prisma.systemSetting.findUnique({
-    where: { key: 'erzeuger.serialRequired' },
-  })
-  return (row?.value ?? 'false') === 'true'
-}
-
-/** Validiert die Erzeuger-Liste: Typ muss existieren & aktiv sein; wenn
- *  Seriennummer Pflicht ist, muss sie vorhanden sein. */
+/** Validiert die Erzeuger-Liste: Typ muss existieren; wenn der Typ
+ *  serialRequired=true hat, muss die Seriennummer gesetzt sein. */
 async function validateErzeuger(
   erzeuger: { typeId: string; serialNumber?: string | null }[] | undefined,
 ): Promise<string | null> {
   if (!erzeuger || erzeuger.length === 0) return null
-  const required = await isSerialRequired()
   const typeIds = [...new Set(erzeuger.map((e) => e.typeId))]
   const types = await prisma.erzeugerType.findMany({
     where: { id: { in: typeIds } },
-    select: { id: true, isActive: true, name: true },
+    select: { id: true, name: true, serialRequired: true },
   })
   for (const entry of erzeuger) {
     const t = types.find((x) => x.id === entry.typeId)
     if (!t) return `Erzeuger-Typ nicht gefunden: ${entry.typeId}`
-    if (required && !(entry.serialNumber?.trim())) {
+    if (t.serialRequired && !(entry.serialNumber?.trim())) {
       return `Seriennummer ist für "${t.name}" obligatorisch.`
     }
   }

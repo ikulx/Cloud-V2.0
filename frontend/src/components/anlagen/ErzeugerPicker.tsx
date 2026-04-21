@@ -2,12 +2,13 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
 import MenuItem from '@mui/material/MenuItem'
+import ListSubheader from '@mui/material/ListSubheader'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
-import { useErzeugerTypes } from '../../features/erzeuger-types/queries'
+import { useErzeugerCategories } from '../../features/erzeuger-types/queries'
 
 export interface ErzeugerEntry {
   typeId: string
@@ -17,42 +18,98 @@ export interface ErzeugerEntry {
 interface Props {
   value: ErzeugerEntry[]
   onChange: (v: ErzeugerEntry[]) => void
-  serialRequired: boolean
-  /** Soll Fehler-Zustand aktiv angezeigt werden (z.B. nach Klick auf Speichern). */
   showErrors?: boolean
   disabled?: boolean
 }
 
 /**
- * Editor für die Erzeuger einer Anlage. Dropdown für den Typ (aus dem
- * konfigurierbaren Katalog) + optionale Seriennummer. Wenn in den
- * Einstellungen "Seriennummer obligatorisch" aktiv ist, wird das Feld
- * rot markiert solange es leer ist.
+ * Editor für die Erzeuger einer Anlage. Zwei-stufiger Katalog:
+ * Kategorie (als ListSubheader im Dropdown) → Typ. Die Seriennummer-
+ * Pflicht kommt pro Typ aus dem Katalog (serialRequired).
  */
-export function ErzeugerPicker({ value, onChange, serialRequired, showErrors, disabled }: Props) {
-  const { data: types = [] } = useErzeugerTypes()
-  const activeTypes = types.filter((t) => t.isActive)
+export function ErzeugerPicker({ value, onChange, showErrors, disabled }: Props) {
+  const { data: categories = [] } = useErzeugerCategories()
+  const activeCategories = categories.filter((c) => c.isActive)
+
+  // Schnellzugriff: typeId → {type, category} (für SN-Required-Check)
+  const typeMap = new Map<string, { type: (typeof activeCategories)[number]['types'][number]; category: typeof activeCategories[number] }>()
+  for (const cat of categories) {
+    for (const t of cat.types) typeMap.set(t.id, { type: t, category: cat })
+  }
+
+  const hasNoOptions = activeCategories.every((c) => c.types.filter((t) => t.isActive).length === 0)
 
   const updateRow = (idx: number, patch: Partial<ErzeugerEntry>) => {
     const next = value.slice()
     next[idx] = { ...next[idx], ...patch }
     onChange(next)
   }
-
   const remove = (idx: number) => {
     const next = value.slice()
     next.splice(idx, 1)
     onChange(next)
   }
-
   const add = () => {
-    // Default: erster aktiver Typ, leere Seriennummer
-    const firstType = activeTypes[0]
-    if (!firstType) return
-    onChange([...value, { typeId: firstType.id, serialNumber: '' }])
+    // Default: erster Typ aus erster aktiver Kategorie mit aktiven Typen
+    for (const cat of activeCategories) {
+      const firstType = cat.types.find((t) => t.isActive)
+      if (firstType) {
+        onChange([...value, { typeId: firstType.id, serialNumber: '' }])
+        return
+      }
+    }
   }
 
-  const hasNoTypes = activeTypes.length === 0
+  // Baut die Items für das Dropdown inkl. ListSubheader pro Kategorie.
+  const buildMenuItems = (includeTypeId: string | null) => {
+    const items: React.ReactNode[] = []
+    for (const cat of activeCategories) {
+      const types = cat.types.filter((t) => t.isActive)
+      // Falls der aktuell gewählte Typ in dieser (inaktiv gewordenen) Kategorie
+      // liegt, trotzdem mit einblenden.
+      if (includeTypeId) {
+        const inactiveTypeInThisCat = cat.types.find((t) => t.id === includeTypeId && !t.isActive)
+        if (inactiveTypeInThisCat && !types.includes(inactiveTypeInThisCat)) {
+          types.push(inactiveTypeInThisCat)
+        }
+      }
+      if (types.length === 0) continue
+      items.push(
+        <ListSubheader key={`c-${cat.id}`} sx={{ fontSize: 12, lineHeight: '28px' }}>
+          {cat.name}
+        </ListSubheader>,
+      )
+      for (const t of types) {
+        items.push(
+          <MenuItem key={t.id} value={t.id}>
+            {t.name}{!t.isActive ? ' (inaktiv)' : ''}
+          </MenuItem>,
+        )
+      }
+    }
+    // Fallback für verwaisten gewählten Typ (Kategorie gelöscht/inaktiv)
+    if (includeTypeId) {
+      const hasIt = activeCategories.some((c) => c.types.some((t) => t.id === includeTypeId))
+      if (!hasIt) {
+        // Über alle – auch inaktive – Kategorien suchen
+        const all = categories.flatMap((c) => c.types.map((t) => ({ cat: c, t })))
+        const found = all.find((x) => x.t.id === includeTypeId)
+        if (found) {
+          items.push(
+            <ListSubheader key={`c-legacy-${found.cat.id}`} sx={{ fontSize: 12 }}>
+              {found.cat.name} (inaktiv)
+            </ListSubheader>,
+          )
+          items.push(
+            <MenuItem key={found.t.id} value={found.t.id}>
+              {found.t.name} (inaktiv)
+            </MenuItem>,
+          )
+        }
+      }
+    }
+    return items
+  }
 
   return (
     <Box>
@@ -63,10 +120,8 @@ export function ErzeugerPicker({ value, onChange, serialRequired, showErrors, di
       )}
 
       {value.map((row, idx) => {
-        // Wenn der gewählte Typ inzwischen deaktiviert wurde, trotzdem anzeigen
-        // (damit bestehende Einträge sichtbar bleiben).
-        const includeInactive = types.find((t) => t.id === row.typeId && !t.isActive)
-        const options = includeInactive ? [...activeTypes, includeInactive] : activeTypes
+        const meta = typeMap.get(row.typeId)
+        const serialRequired = meta?.type.serialRequired ?? true
         const serialInvalid = showErrors && serialRequired && !row.serialNumber.trim()
 
         return (
@@ -78,13 +133,10 @@ export function ErzeugerPicker({ value, onChange, serialRequired, showErrors, di
               value={row.typeId}
               onChange={(e) => updateRow(idx, { typeId: e.target.value })}
               disabled={disabled}
-              sx={{ minWidth: 180 }}
+              sx={{ minWidth: 240 }}
+              SelectProps={{ MenuProps: { PaperProps: { sx: { maxHeight: 360 } } } }}
             >
-              {options.map((t) => (
-                <MenuItem key={t.id} value={t.id}>
-                  {t.name}{!t.isActive ? ' (inaktiv)' : ''}
-                </MenuItem>
-              ))}
+              {buildMenuItems(row.typeId)}
             </TextField>
             <TextField
               size="small"
@@ -92,7 +144,7 @@ export function ErzeugerPicker({ value, onChange, serialRequired, showErrors, di
               value={row.serialNumber}
               onChange={(e) => updateRow(idx, { serialNumber: e.target.value })}
               error={serialInvalid}
-              helperText={serialInvalid ? 'Pflichtfeld' : ''}
+              helperText={serialInvalid ? 'Pflichtfeld für diesen Typ' : ''}
               disabled={disabled}
               fullWidth
             />
@@ -110,11 +162,11 @@ export function ErzeugerPicker({ value, onChange, serialRequired, showErrors, di
         onClick={add}
         size="small"
         variant="outlined"
-        disabled={disabled || hasNoTypes}
+        disabled={disabled || hasNoOptions}
       >
         Erzeuger hinzufügen
       </Button>
-      {hasNoTypes && (
+      {hasNoOptions && (
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
           Noch keine aktiven Erzeuger-Typen im Katalog. In den Einstellungen → Erzeuger anlegen.
         </Typography>

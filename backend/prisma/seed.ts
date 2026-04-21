@@ -101,21 +101,52 @@ async function main() {
   }
   console.log('✓ verwalter permissions assigned')
 
-  // Erzeuger-Typen (Katalog, Admin-editierbar im Settings-UI)
-  const DEFAULT_ERZEUGER = [
-    { name: 'Wärmepumpe', sortOrder: 10 },
-    { name: 'Kessel', sortOrder: 20 },
-    { name: 'Solarthermie', sortOrder: 30 },
-    { name: 'Holzheizung', sortOrder: 40 },
+  // Erzeuger-Katalog (Kategorien + Typen, Admin-editierbar im Settings-UI)
+  const DEFAULT_ERZEUGER_CATALOG: Array<{
+    category: string
+    sortOrder: number
+    types: Array<{ name: string; serialRequired?: boolean }>
+  }> = [
+    {
+      category: 'Wärmepumpe', sortOrder: 10,
+      types: [{ name: 'Wärmepumpe (generisch)' }],
+    },
+    {
+      category: 'Kessel', sortOrder: 20,
+      types: [{ name: 'Kessel (generisch)' }],
+    },
+    {
+      category: 'Solarthermie', sortOrder: 30,
+      types: [{ name: 'Solarthermie (generisch)' }],
+    },
+    {
+      category: 'Holzheizung', sortOrder: 40,
+      types: [{ name: 'Holzheizung (generisch)' }],
+    },
   ]
-  for (const t of DEFAULT_ERZEUGER) {
-    await prisma.erzeugerType.upsert({
-      where: { name: t.name },
-      update: { sortOrder: t.sortOrder },
-      create: { name: t.name, sortOrder: t.sortOrder, isActive: true },
+  for (const entry of DEFAULT_ERZEUGER_CATALOG) {
+    const cat = await prisma.erzeugerCategory.upsert({
+      where: { name: entry.category },
+      update: { sortOrder: entry.sortOrder },
+      create: { name: entry.category, sortOrder: entry.sortOrder, isActive: true },
     })
+    let order = 10
+    for (const t of entry.types) {
+      await prisma.erzeugerType.upsert({
+        where: { name: t.name },
+        update: { categoryId: cat.id, sortOrder: order, serialRequired: t.serialRequired ?? true },
+        create: {
+          name: t.name,
+          categoryId: cat.id,
+          sortOrder: order,
+          isActive: true,
+          serialRequired: t.serialRequired ?? true,
+        },
+      })
+      order += 10
+    }
   }
-  console.log(`✓ ${DEFAULT_ERZEUGER.length} Erzeuger-Typen seeded`)
+  console.log(`✓ Erzeuger-Katalog (${DEFAULT_ERZEUGER_CATALOG.length} Kategorien) seeded`)
 
   // Admin user
   const adminPassword = await bcrypt.hash('Admin1234!', 12)
