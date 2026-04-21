@@ -15,6 +15,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import HistoryIcon from '@mui/icons-material/History'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import AssignmentIcon from '@mui/icons-material/Assignment'
 import { NavLink } from 'react-router-dom'
 import { useSession } from '../context/SessionContext'
 import { useTranslation } from 'react-i18next'
@@ -39,6 +40,7 @@ export function Sidebar({ onNavClick }: SidebarProps) {
         { label: t('nav.devices'), icon: <DevicesIcon />, to: '/devices', permission: 'devices:read' },
         { label: t('nav.anlagen'), icon: <BusinessIcon />, to: '/anlagen', permission: 'anlagen:read' },
         { label: t('nav.wiki'), icon: <MenuBookIcon />, to: '/wiki', permission: 'wiki:read' },
+        { label: 'Meine Todos', icon: <AssignmentIcon />, to: '/my-todos', permission: null },
         { label: t('nav.groups'), icon: <GroupIcon />, to: '/groups', permission: 'groups:read' },
         { label: t('nav.users'), icon: <PersonIcon />, to: '/users', permission: 'users:read' },
         { label: t('nav.roles'), icon: <AdminPanelSettingsIcon />, to: '/roles', permission: 'roles:read' },

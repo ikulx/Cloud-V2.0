@@ -122,8 +122,27 @@ const anlageSchema = z.object({
   })).optional(),
 })
 
-const todoSchema = z.object({ title: z.string().min(1), details: z.string().optional() })
-const todoUpdateSchema = z.object({ status: z.enum(['OPEN', 'DONE']) })
+const todoSchema = z.object({
+  title: z.string().min(1),
+  details: z.string().optional().nullable(),
+  dueDate: z.string().datetime().optional().nullable(),
+  assignedUserIds: z.array(z.string().uuid()).optional(),
+  assignedGroupIds: z.array(z.string().uuid()).optional(),
+})
+const todoUpdateSchema = z.object({
+  title: z.string().min(1).optional(),
+  details: z.string().optional().nullable(),
+  status: z.enum(['OPEN', 'DONE']).optional(),
+  dueDate: z.string().datetime().optional().nullable(),
+  assignedUserIds: z.array(z.string().uuid()).optional(),
+  assignedGroupIds: z.array(z.string().uuid()).optional(),
+})
+
+const todoInclude = {
+  createdBy: { select: { id: true, firstName: true, lastName: true } },
+  assignedUsers: { include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } } },
+  assignedGroups: { include: { group: { select: { id: true, name: true } } } },
+} as const
 const logSchema = z.object({ message: z.string().min(1) })
 
 const anlageInclude = {
@@ -143,8 +162,10 @@ const anlageInclude = {
   },
 }
 
-/** Validiert die Erzeuger-Liste: Typ muss existieren; wenn der Typ
- *  serialRequired=true hat, muss die Seriennummer gesetzt sein. */
+/** Validiert die Erzeuger-Liste: Typ muss existieren. Die Seriennummer-
+ *  Pflicht wird NICHT mehr abgelehnt – statt dessen erzeugt der Save-Handler
+ *  nachträglich automatische Todos für fehlende SN (siehe
+ *  ensureSerialNumberTodos). */
 async function validateErzeuger(
   erzeuger: { typeId: string; serialNumber?: string | null }[] | undefined,
 ): Promise<string | null> {
@@ -152,16 +173,61 @@ async function validateErzeuger(
   const typeIds = [...new Set(erzeuger.map((e) => e.typeId))]
   const types = await prisma.erzeugerType.findMany({
     where: { id: { in: typeIds } },
-    select: { id: true, name: true, serialRequired: true },
+    select: { id: true, name: true },
   })
   for (const entry of erzeuger) {
     const t = types.find((x) => x.id === entry.typeId)
     if (!t) return `Erzeuger-Typ nicht gefunden: ${entry.typeId}`
-    if (t.serialRequired && !(entry.serialNumber?.trim())) {
-      return `Seriennummer ist für "${t.name}" obligatorisch.`
-    }
   }
   return null
+}
+
+/** Erzeugt für jeden Erzeuger ohne Seriennummer – sofern der Typ
+ *  serialRequired=true hat – ein OPEN-Todo. Bestehende, noch offene Todos
+ *  mit derselben (anlageId, erzeugerId)-Kombination werden NICHT dupliziert.
+ *  Der Aufrufer liefert die neuen Erzeuger-Zeilen inkl. id aus der DB. */
+async function ensureSerialNumberTodos(
+  anlageId: string,
+  userId: string,
+  erzeuger: { id: string; typeId: string; serialNumber: string | null }[],
+): Promise<number> {
+  if (erzeuger.length === 0) return 0
+  const typeIds = [...new Set(erzeuger.map((e) => e.typeId))]
+  const types = await prisma.erzeugerType.findMany({
+    where: { id: { in: typeIds } },
+    select: { id: true, name: true, serialRequired: true },
+  })
+  const missing = erzeuger.filter((e) => {
+    const t = types.find((x) => x.id === e.typeId)
+    return t?.serialRequired && !(e.serialNumber?.trim())
+  })
+  if (missing.length === 0) return 0
+
+  let created = 0
+  for (const m of missing) {
+    const t = types.find((x) => x.id === m.typeId)
+    const titleMarker = `[SN:${m.id}]`
+    // Schon offenes Todo für genau diesen Erzeuger? → nicht duplizieren
+    const existing = await prisma.anlageTodo.findFirst({
+      where: {
+        anlageId,
+        status: 'OPEN',
+        title: { contains: titleMarker },
+      },
+      select: { id: true },
+    })
+    if (existing) continue
+    await prisma.anlageTodo.create({
+      data: {
+        anlageId,
+        title: `Seriennummer ergänzen: ${t?.name ?? 'Erzeuger'} ${titleMarker}`,
+        details: `Die Seriennummer für diesen Erzeuger wurde beim Speichern nicht erfasst. Bitte ergänzen, sobald bekannt.`,
+        createdById: userId,
+      },
+    })
+    created++
+  }
+  return created
 }
 
 // GET /api/anlagen
@@ -178,7 +244,7 @@ router.get('/:id', authenticate, requirePermission('anlagen:read'), async (req, 
     where: { id: req.params.id as string as string, ...where },
     include: {
       ...anlageInclude,
-      todos: { include: { createdBy: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { createdAt: 'desc' } },
+      todos: { include: todoInclude, orderBy: { createdAt: 'desc' } },
       logEntries: { include: { createdBy: { select: { id: true, firstName: true, lastName: true } } }, orderBy: { createdAt: 'desc' } },
     },
   })
@@ -216,6 +282,12 @@ router.post('/', authenticate, requirePermission('anlagen:create'), async (req, 
   // Projektnummer an alle zugewiesenen Pi's schreiben (SYS01_DB_Projektnummer)
   if (deviceIds && deviceIds.length > 0) {
     pushProjectNumberToDevices(anlage.id, anlage.projectNumber).catch(() => {})
+  }
+
+  // Für jeden Erzeuger ohne Seriennummer (wo der Typ SN-Pflicht hat):
+  // automatisch ein OPEN-Todo anlegen.
+  if (req.user) {
+    await ensureSerialNumberTodos(anlage.id, req.user.userId, anlage.erzeuger ?? [])
   }
 
   // Kontakt-Todo automatisch erstellen falls Verantwortlicher fehlt/unvollständig
@@ -276,6 +348,13 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
     include: anlageInclude,
   })
 
+  // Erzeuger wurden ersetzt → neue SN-Todos prüfen. Alte, jetzt nicht mehr
+  // relevante SN-Todos lassen wir stehen (der Marker im Titel enthält die
+  // alte Erzeuger-ID, die existiert nicht mehr – User kann sie abhaken).
+  if (erzeuger !== undefined && req.user) {
+    await ensureSerialNumberTodos(anlage.id, req.user.userId, anlage.erzeuger ?? [])
+  }
+
   // Projektnummer geändert ODER Device-Zuweisung geändert → an alle Geräte pushen
   const projectNumberChanged = parsed.data.projectNumber !== undefined
     && parsed.data.projectNumber !== before?.projectNumber
@@ -305,16 +384,26 @@ router.delete('/:id', authenticate, requirePermission('anlagen:delete'), async (
 // POST /api/anlagen/:id/todos
 router.post('/:id/todos', authenticate, requirePermission('todos:create'), async (req, res) => {
   const parsed = todoSchema.safeParse(req.body)
-  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
+  const { assignedUserIds, assignedGroupIds, dueDate, ...base } = parsed.data
   const [todo] = await prisma.$transaction([
     prisma.anlageTodo.create({
-      data: { anlageId: req.params.id as string, ...parsed.data, createdById: req.user!.userId },
-      include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+      data: {
+        anlageId: req.params.id as string,
+        ...base,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        createdById: req.user!.userId,
+        assignedUsers: assignedUserIds?.length
+          ? { create: assignedUserIds.map((userId) => ({ userId })) } : undefined,
+        assignedGroups: assignedGroupIds?.length
+          ? { create: assignedGroupIds.map((groupId) => ({ groupId })) } : undefined,
+      },
+      include: todoInclude,
     }),
     prisma.anlageLogEntry.create({
       data: {
         anlageId: req.params.id as string,
-        message: `Todo erstellt: "${parsed.data.title}"`,
+        message: `Todo erstellt: "${base.title}"`,
         createdById: req.user!.userId,
       },
     }),
@@ -325,16 +414,29 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
 // PATCH /api/anlagen/:id/todos/:todoId
 router.patch('/:id/todos/:todoId', authenticate, requirePermission('todos:update'), async (req, res) => {
   const parsed = todoUpdateSchema.safeParse(req.body)
-  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
-  const existing = await prisma.anlageTodo.findUnique({ where: { id: req.params.todoId as string }, select: { title: true } })
-  const logMessage = parsed.data.status === 'DONE'
-    ? `Todo abgehakt: "${existing?.title}"`
-    : `Todo wieder geöffnet: "${existing?.title}"`
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
+  const existing = await prisma.anlageTodo.findUnique({ where: { id: req.params.todoId as string }, select: { title: true, status: true } })
+  const statusChanged = parsed.data.status && parsed.data.status !== existing?.status
+  const logMessage = statusChanged
+    ? (parsed.data.status === 'DONE' ? `Todo abgehakt: "${existing?.title}"` : `Todo wieder geöffnet: "${existing?.title}"`)
+    : `Todo aktualisiert: "${existing?.title}"`
+
+  const { assignedUserIds, assignedGroupIds, dueDate, ...base } = parsed.data
+
   const [todo] = await prisma.$transaction([
     prisma.anlageTodo.update({
       where: { id: req.params.todoId as string, anlageId: req.params.id as string },
-      data: parsed.data,
-      include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+      data: {
+        ...base,
+        ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
+        ...(assignedUserIds !== undefined && {
+          assignedUsers: { deleteMany: {}, create: assignedUserIds.map((userId) => ({ userId })) },
+        }),
+        ...(assignedGroupIds !== undefined && {
+          assignedGroups: { deleteMany: {}, create: assignedGroupIds.map((groupId) => ({ groupId })) },
+        }),
+      },
+      include: todoInclude,
     }),
     prisma.anlageLogEntry.create({
       data: { anlageId: req.params.id as string, message: logMessage, createdById: req.user!.userId },

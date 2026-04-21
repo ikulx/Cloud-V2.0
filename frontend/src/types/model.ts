@@ -131,9 +131,18 @@ export interface AnlageTodo {
   title: string
   details: string | null
   status: TodoStatus
+  dueDate: string | null
   createdBy: { id: string; firstName: string; lastName: string }
+  assignedUsers: { user: { id: string; firstName: string; lastName: string; email: string } }[]
+  assignedGroups: { group: { id: string; name: string } }[]
   createdAt: string
   updatedAt: string
+}
+
+export interface MyTodo extends AnlageTodo {
+  anlage: { id: string; name: string; projectNumber: string | null }
+  assignmentMine: boolean
+  assignmentViaGroup: boolean
 }
 
 export interface DeviceLogEntry {

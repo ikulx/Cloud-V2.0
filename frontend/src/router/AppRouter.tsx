@@ -20,6 +20,7 @@ import { ForgotPasswordPage } from '../pages/ForgotPasswordPage'
 import { ResetPasswordPage } from '../pages/ResetPasswordPage'
 import { ActivityLogPage } from '../pages/ActivityLogPage'
 import { WikiPage } from '../pages/WikiPage'
+import { MyTodosPage } from '../pages/MyTodosPage'
 
 function PrivateRoutes() {
   const { me, isLoading } = useSession()
@@ -79,6 +80,7 @@ export function AppRouter() {
           <Route path="/wiki" element={
             <RequirePermission permission="wiki:read"><WikiPage /></RequirePermission>
           } />
+          <Route path="/my-todos" element={<MyTodosPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

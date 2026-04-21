@@ -71,11 +71,6 @@ export function AnlageCreateWizard({
     const t = erzeugerTypes.find((x) => x.id === id)
     return t ? formatCategoryPath(t.categoryId, erzeugerCategories) : ''
   }
-  /** Validiert jede Zeile gegen das serialRequired-Flag ihres Typs. */
-  const erzeugerRowValid = (row: ErzeugerEntry) => {
-    const t = erzeugerTypes.find((x) => x.id === row.typeId)
-    return !(t?.serialRequired ?? true) || row.serialNumber.trim().length > 0
-  }
 
   useEffect(() => {
     if (open) {
@@ -99,8 +94,9 @@ export function AnlageCreateWizard({
     onClose()
   }
 
-  // Validierung pro Schritt
-  const erzeugerValid = erzeuger.length > 0 && erzeuger.every(erzeugerRowValid)
+  // Validierung pro Schritt: mind. ein Erzeuger; fehlende SN bei Pflicht
+  // blockieren NICHT mehr (Backend erzeugt dafür ein Todo).
+  const erzeugerValid = erzeuger.length > 0
   const step0Valid = form.projectNumber.trim().length > 0
                      && form.name.trim().length > 0
                      && erzeugerValid

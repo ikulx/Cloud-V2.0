@@ -42,21 +42,36 @@ export function useDeleteAnlage() {
   })
 }
 
+export interface AnlageTodoInput {
+  title?: string
+  details?: string | null
+  status?: 'OPEN' | 'DONE'
+  dueDate?: string | null
+  assignedUserIds?: string[]
+  assignedGroupIds?: string[]
+}
+
 export function useCreateAnlageTodo(anlageId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { title: string; details?: string }) =>
+    mutationFn: (data: AnlageTodoInput & { title: string }) =>
       apiPost(`/anlagen/${anlageId}/todos`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: anlagenKeys.detail(anlageId) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: anlagenKeys.detail(anlageId) })
+      qc.invalidateQueries({ queryKey: ['me', 'todos'] })
+    },
   })
 }
 
 export function useUpdateAnlageTodo(anlageId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ todoId, status }: { todoId: string; status: 'OPEN' | 'DONE' }) =>
-      apiPatch(`/anlagen/${anlageId}/todos/${todoId}`, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: anlagenKeys.detail(anlageId) }),
+    mutationFn: ({ todoId, ...data }: AnlageTodoInput & { todoId: string }) =>
+      apiPatch(`/anlagen/${anlageId}/todos/${todoId}`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: anlagenKeys.detail(anlageId) })
+      qc.invalidateQueries({ queryKey: ['me', 'todos'] })
+    },
   })
 }
 

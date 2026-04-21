@@ -67,6 +67,7 @@ model User {
   vpnPeers         VpnPeer[]
 
   createdAnlageTodos  AnlageTodo[]     @relation("AnlageTodoAuthor")
+  assignedAnlageTodos AnlageTodoUser[] @relation("AnlageTodoAssignee")
   createdAnlageLogs   AnlageLogEntry[] @relation("AnlageLogAuthor")
   createdDeviceTodos  DeviceTodo[]     @relation("DeviceTodoAuthor")
   createdDeviceLogs   DeviceLogEntry[] @relation("DeviceLogAuthor")
@@ -213,6 +214,7 @@ model UserGroup {
   members      UserGroupMember[]
   groupAnlagen GroupAnlage[]
   groupDevices GroupDevice[]
+  assignedTodos AnlageTodoGroup[] @relation("AnlageTodoAssignedGroup")
 
   @@map("user_groups")
 }
@@ -441,19 +443,49 @@ model GroupDevice {
 // ─── Todos & Logs ─────────────────────────────────────────────────────────────
 
 model AnlageTodo {
-  id          String     @id @default(uuid()) @db.Uuid
-  anlageId    String     @map("anlage_id") @db.Uuid
-  title       String
-  details     String?
-  status      TodoStatus @default(OPEN)
-  createdById String     @map("created_by_id") @db.Uuid
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
-  anlage      Anlage     @relation(fields: [anlageId], references: [id], onDelete: Cascade)
-  createdBy   User       @relation("AnlageTodoAuthor", fields: [createdById], references: [id])
+  id              String     @id @default(uuid()) @db.Uuid
+  anlageId        String     @map("anlage_id") @db.Uuid
+  title           String
+  details         String?
+  status          TodoStatus @default(OPEN)
+  /// Optionaler Fälligkeits-Termin – wird im Todo-Überblick zur Sortierung
+  /// und für Überfällig-Kennzeichnung genutzt.
+  dueDate         DateTime?  @map("due_date")
+  createdById     String     @map("created_by_id") @db.Uuid
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  anlage          Anlage     @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+  createdBy       User       @relation("AnlageTodoAuthor", fields: [createdById], references: [id])
+  assignedUsers   AnlageTodoUser[]
+  assignedGroups  AnlageTodoGroup[]
 
   @@index([anlageId])
+  @@index([status, dueDate])
   @@map("anlage_todos")
+}
+
+/// Zuweisung eines Todos an konkrete Benutzer (mehrere möglich).
+model AnlageTodoUser {
+  todoId String     @map("todo_id") @db.Uuid
+  userId String     @map("user_id") @db.Uuid
+  todo   AnlageTodo @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  user   User       @relation("AnlageTodoAssignee", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([todoId, userId])
+  @@index([userId])
+  @@map("anlage_todo_users")
+}
+
+/// Zuweisung eines Todos an Benutzer-Gruppen (mehrere möglich).
+model AnlageTodoGroup {
+  todoId  String     @map("todo_id") @db.Uuid
+  groupId String     @map("group_id") @db.Uuid
+  todo    AnlageTodo @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  group   UserGroup  @relation("AnlageTodoAssignedGroup", fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([todoId, groupId])
+  @@index([groupId])
+  @@map("anlage_todo_groups")
 }
 
 model AnlageLogEntry {

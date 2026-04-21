@@ -34,6 +34,9 @@ export interface ErzeugerEntry {
 interface Props {
   value: ErzeugerEntry[]
   onChange: (v: ErzeugerEntry[]) => void
+  /** Reserviert für künftige strengere Validierungen; derzeit ist die
+   *  fehlende Seriennummer kein Fehler mehr (Backend erzeugt automatisch
+   *  ein Todo). */
   showErrors?: boolean
   disabled?: boolean
 }
@@ -44,7 +47,7 @@ interface Props {
  *  - Alternativ Browse-Button, der einen Baum-Dialog öffnet
  *  - Seriennummer-Feld mit per-Typ-Pflicht
  */
-export function ErzeugerPicker({ value, onChange, showErrors, disabled }: Props) {
+export function ErzeugerPicker({ value, onChange, disabled }: Props) {
   const { data: categories = [] } = useErzeugerCategories()
   const allTypes = useMemo(() => flattenTypes(categories), [categories])
 
@@ -95,7 +98,7 @@ export function ErzeugerPicker({ value, onChange, showErrors, disabled }: Props)
       {value.map((row, idx) => {
         const t = typeById.get(row.typeId) ?? null
         const serialRequired = t?.serialRequired ?? true
-        const serialInvalid = showErrors && serialRequired && !row.serialNumber.trim()
+        const serialMissing = serialRequired && !row.serialNumber.trim()
         const selectedOption = searchOptions.find((o) => o.id === row.typeId) ?? null
         // Falls der Typ inzwischen deaktiviert/entfernt wurde, trotzdem einen
         // Pseudo-Eintrag anzeigen, damit der User sieht was hängt.
@@ -158,8 +161,11 @@ export function ErzeugerPicker({ value, onChange, showErrors, disabled }: Props)
               label={'Seriennummer' + (serialRequired ? ' *' : '')}
               value={row.serialNumber}
               onChange={(e) => updateRow(idx, { serialNumber: e.target.value })}
-              error={serialInvalid}
-              helperText={serialInvalid ? 'Pflichtfeld für diesen Typ' : ''}
+              helperText={
+                serialMissing
+                  ? 'Leer lassen ist ok – es wird automatisch ein Todo erstellt.'
+                  : ''
+              }
               disabled={disabled}
               sx={{ minWidth: 180, flex: 1 }}
             />

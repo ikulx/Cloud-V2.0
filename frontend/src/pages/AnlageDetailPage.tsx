@@ -55,6 +55,7 @@ import { geocodeAddress } from '../lib/geocode'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../types/model'
 import { ErzeugerPicker, type ErzeugerEntry } from '../components/anlagen/ErzeugerPicker'
+import { TodoForm, EMPTY_TODO_FORM, todoFormToPayload, type TodoFormValue } from '../components/anlagen/TodoForm'
 import { useErzeugerTypes, useErzeugerCategories } from '../features/erzeuger-types/queries'
 import { formatCategoryPath } from '../features/erzeuger-types/helpers'
 
@@ -159,7 +160,7 @@ export function AnlageDetailPage() {
   const [geocoding, setGeocoding] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [showErrors, setShowErrors] = useState(false)
-  const [todoTitle, setTodoTitle] = useState('')
+  const [newTodoForm, setNewTodoForm] = useState<TodoFormValue>(EMPTY_TODO_FORM)
   const [logMessage, setLogMessage] = useState('')
 
   const { data: erzeugerTypes = [] } = useErzeugerTypes()
@@ -170,13 +171,9 @@ export function AnlageDetailPage() {
     const t = erzeugerTypes.find((x) => x.id === id)
     return t ? formatCategoryPath(t.categoryId, erzeugerCategories) : ''
   }
-  const erzeugerRowValid = (row: ErzeugerEntry) => {
-    const t = erzeugerTypes.find((x) => x.id === row.typeId)
-    return !(t?.serialRequired ?? true) || row.serialNumber.trim().length > 0
-  }
 
-  // Validierung für Edit-Modus
-  const erzeugerValid = erzeugerDraft.length > 0 && erzeugerDraft.every(erzeugerRowValid)
+  // Validierung für Edit-Modus: fehlende SN bei Pflicht blockiert NICHT mehr.
+  const erzeugerValid = erzeugerDraft.length > 0
   const basicsValid = infoForm.projectNumber.trim().length > 0
                       && infoForm.name.trim().length > 0
                       && erzeugerValid
@@ -776,32 +773,22 @@ export function AnlageDetailPage() {
       {canReadTodos && tab === 2 && (
         <Box>
           {canCreateTodo ? (
-            <Box display="flex" gap={1} mb={2}>
-              <TextField
-                label={t('todos.newTodo')}
-                value={todoTitle}
-                onChange={(e) => setTodoTitle(e.target.value)}
-                size="small"
-                sx={{ flexGrow: 1 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && todoTitle.trim()) {
-                    createTodo.mutate({ title: todoTitle.trim() })
-                    setTodoTitle('')
-                  }
-                }}
-              />
-              <Button
-                variant="contained"
-                disabled={!todoTitle.trim() || createTodo.isPending}
-                onClick={() => {
-                  if (todoTitle.trim()) {
-                    createTodo.mutate({ title: todoTitle.trim() })
-                    setTodoTitle('')
-                  }
-                }}
-              >
-                {t('todos.add')}
-              </Button>
+            <Box sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('todos.newTodo')}</Typography>
+              <TodoForm value={newTodoForm} onChange={setNewTodoForm} />
+              <Box sx={{ mt: 1.5 }}>
+                <Button
+                  variant="contained"
+                  disabled={!newTodoForm.title.trim() || createTodo.isPending}
+                  onClick={async () => {
+                    if (!newTodoForm.title.trim()) return
+                    await createTodo.mutateAsync(todoFormToPayload(newTodoForm))
+                    setNewTodoForm(EMPTY_TODO_FORM)
+                  }}
+                >
+                  {t('todos.add')}
+                </Button>
+              </Box>
             </Box>
           ) : (
             <Alert severity="info" sx={{ mb: 2 }}>{t('detail.noPermissionTodos')}</Alert>
@@ -810,21 +797,54 @@ export function AnlageDetailPage() {
             <Typography color="text.secondary">{t('todos.noTodos')}</Typography>
           )}
           <List disablePadding>
-            {anlage.todos?.map((todo) => (
-              <ListItem key={todo.id} disablePadding sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 1 }}>
-                <Checkbox
-                  checked={todo.status === 'DONE'}
-                  onChange={() => canUpdateTodo && updateTodo.mutate({ todoId: todo.id, status: todo.status === 'DONE' ? 'OPEN' : 'DONE' })}
-                  disabled={!canUpdateTodo}
-                  size="small"
-                />
-                <ListItemText
-                  primary={todo.title}
-                  secondary={`${todo.createdBy.firstName} ${todo.createdBy.lastName} · ${new Date(todo.createdAt).toLocaleDateString()}`}
-                  sx={{ textDecoration: todo.status === 'DONE' ? 'line-through' : 'none' }}
-                />
-              </ListItem>
-            ))}
+            {anlage.todos?.map((todo) => {
+              const overdue = todo.status === 'OPEN' && todo.dueDate && new Date(todo.dueDate) < new Date()
+              return (
+                <ListItem
+                  key={todo.id}
+                  disablePadding
+                  sx={{ bgcolor: 'background.paper', mb: 0.5, borderRadius: 1, px: 1, alignItems: 'flex-start', py: 0.5 }}
+                >
+                  <Checkbox
+                    checked={todo.status === 'DONE'}
+                    onChange={() => canUpdateTodo && updateTodo.mutate({ todoId: todo.id, status: todo.status === 'DONE' ? 'OPEN' : 'DONE' })}
+                    disabled={!canUpdateTodo}
+                    size="small"
+                    sx={{ mt: 0.5 }}
+                  />
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <span style={{ textDecoration: todo.status === 'DONE' ? 'line-through' : 'none' }}>
+                          {todo.title}
+                        </span>
+                        {todo.dueDate && (
+                          <Chip
+                            size="small"
+                            color={overdue ? 'error' : 'default'}
+                            label={`Fällig: ${new Date(todo.dueDate).toLocaleDateString('de-CH')}`}
+                          />
+                        )}
+                        {todo.assignedUsers.map((au) => (
+                          <Chip key={au.user.id} size="small" label={`${au.user.firstName} ${au.user.lastName}`} />
+                        ))}
+                        {todo.assignedGroups.map((ag) => (
+                          <Chip key={ag.group.id} size="small" color="info" label={ag.group.name} />
+                        ))}
+                      </Box>
+                    }
+                    secondary={
+                      <>
+                        {todo.details && <span>{todo.details}<br /></span>}
+                        <span style={{ opacity: 0.7 }}>
+                          {todo.createdBy.firstName} {todo.createdBy.lastName} · {new Date(todo.createdAt).toLocaleDateString('de-CH')}
+                        </span>
+                      </>
+                    }
+                  />
+                </ListItem>
+              )
+            })}
           </List>
         </Box>
       )}

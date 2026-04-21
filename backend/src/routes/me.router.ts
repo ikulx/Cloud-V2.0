@@ -66,4 +66,53 @@ router.patch('/', authenticate, async (req, res) => {
   res.json(updated)
 })
 
+// GET /api/me/todos – Todos, die mir oder meinen Gruppen zugewiesen sind.
+// Query-Parameter:
+//   ?status=OPEN|DONE (default: OPEN)
+//   ?scope=mine|groups|all (default: all)
+router.get('/todos', authenticate, async (req, res) => {
+  const userId = req.user!.userId
+  const status = req.query.status === 'DONE' ? 'DONE' : req.query.status === 'OPEN' ? 'OPEN' : 'OPEN'
+  const scope = (req.query.scope === 'mine' || req.query.scope === 'groups' || req.query.scope === 'all')
+    ? req.query.scope : 'all'
+
+  // Gruppen des Users ermitteln
+  const memberships = await prisma.userGroupMember.findMany({
+    where: { userId },
+    select: { groupId: true },
+  })
+  const groupIds = memberships.map((m) => m.groupId)
+
+  const orConditions: Array<Record<string, unknown>> = []
+  if (scope === 'mine' || scope === 'all') {
+    orConditions.push({ assignedUsers: { some: { userId } } })
+  }
+  if ((scope === 'groups' || scope === 'all') && groupIds.length > 0) {
+    orConditions.push({ assignedGroups: { some: { groupId: { in: groupIds } } } })
+  }
+  if (orConditions.length === 0) { res.json([]); return }
+
+  const todos = await prisma.anlageTodo.findMany({
+    where: { status, OR: orConditions },
+    include: {
+      anlage: { select: { id: true, name: true, projectNumber: true } },
+      createdBy: { select: { id: true, firstName: true, lastName: true } },
+      assignedUsers: { include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } } },
+      assignedGroups: { include: { group: { select: { id: true, name: true } } } },
+    },
+    orderBy: [
+      { dueDate: { sort: 'asc', nulls: 'last' } },
+      { createdAt: 'desc' },
+    ],
+  })
+
+  // Pro Todo markieren, ob es direkt an mich (mine) oder über eine Gruppe (group) hängt.
+  const enriched = todos.map((t) => {
+    const mine = t.assignedUsers.some((au) => au.userId === userId)
+    const viaGroup = t.assignedGroups.some((g) => groupIds.includes(g.groupId))
+    return { ...t, assignmentMine: mine, assignmentViaGroup: viaGroup }
+  })
+  res.json(enriched)
+})
+
 export default router
