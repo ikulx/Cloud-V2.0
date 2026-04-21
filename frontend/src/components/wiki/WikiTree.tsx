@@ -19,6 +19,7 @@ import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import UploadFileIcon from '@mui/icons-material/UploadFile'
 import {
   DndContext, pointerWithin, PointerSensor, useSensor, useSensors,
   type DragEndEvent, type DragOverEvent,
@@ -35,6 +36,7 @@ interface WikiTreeProps {
   onOpenPermissions?: (pageId: string) => void
   onDuplicate?: (pageId: string) => void
   onDelete?: (pageId: string) => void
+  onImport?: () => void
   canCreate: boolean
   canUpdate: boolean
 }
@@ -75,7 +77,7 @@ function isDescendant(pages: WikiPageNode[], childId: string, ancestorId: string
   return false
 }
 
-export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOpenPermissions, onDuplicate, onDelete, canCreate, canUpdate }: WikiTreeProps) {
+export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOpenPermissions, onDuplicate, onDelete, onImport, canCreate, canUpdate }: WikiTreeProps) {
   const tree = useMemo(() => buildTree(pages), [pages])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [overId, setOverId] = useState<string | null>(null)
@@ -185,6 +187,13 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOp
           <Typography variant="overline" color="text.secondary">Seiten</Typography>
           {canCreate && onAddChild && (
             <Box sx={{ display: 'flex', gap: 0.25 }}>
+              {onImport && (
+                <Tooltip title="HTML/Markdown importieren">
+                  <IconButton size="small" onClick={onImport}>
+                    <UploadFileIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
               <Tooltip title="Neuer Ordner (Wurzel)">
                 <IconButton size="small" onClick={() => onAddChild(null, 'FOLDER')}>
                   <CreateNewFolderIcon fontSize="small" />

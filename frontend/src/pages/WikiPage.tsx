@@ -34,6 +34,7 @@ import { WikiTree } from '../components/wiki/WikiTree'
 import { WikiEditor } from '../components/wiki/WikiEditor'
 import { WikiSearchDialog } from '../components/wiki/WikiSearchDialog'
 import { WikiPermissionsDialog } from '../components/wiki/WikiPermissionsDialog'
+import { WikiImportDialog } from '../components/wiki/WikiImportDialog'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { apiFetch } from '../lib/api'
 
@@ -231,6 +232,12 @@ export function WikiPage() {
     [pages, permPageId],
   )
 
+  const [importOpen, setImportOpen] = useState(false)
+  const handleImportConfirm = async (data: { title: string; content: unknown; parentId: string | null }) => {
+    const newPage = await createMut.mutateAsync(data)
+    setSelectedId(newPage.id)
+  }
+
   // Löschen kann sowohl die gerade offene Seite betreffen als auch eine
   // andere Seite/einen Ordner aus dem Kontextmenü des Baums.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -306,6 +313,7 @@ export function WikiPage() {
             setSelectedId(copy.id)
           } : undefined}
           onDelete={canDelete ? (id) => setConfirmDeleteId(id) : undefined}
+          onImport={canCreate ? () => setImportOpen(true) : undefined}
           canCreate={canCreate}
           canUpdate={canUpdate}
         />
@@ -503,6 +511,13 @@ export function WikiPage() {
         pageId={permPageId}
         pageTitle={permPage?.title ?? ''}
         onClose={() => setPermPageId(null)}
+      />
+
+      <WikiImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        pages={pages}
+        onConfirm={handleImportConfirm}
       />
 
       {/* Delete confirm */}
