@@ -276,6 +276,7 @@ router.post('/pages', authenticate, requirePermission('wiki:create'), async (req
   refreshTranslationsForPage(page.id).catch((err) =>
     console.error('[wiki/translate] bg:', err),
   )
+  res.locals.createdEntityId = page.id
   res.status(201).json(page)
 })
 
@@ -476,6 +477,7 @@ router.post('/pages/:id/duplicate', authenticate, requirePermission('wiki:create
       updatedBy: { select: authorSelect },
     },
   })
+  res.locals.createdEntityId = created.id
   res.status(201).json({ ...created, canEdit: true })
 })
 

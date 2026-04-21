@@ -109,6 +109,23 @@ export async function fetchEntitySnapshot(
         if (!e) return null
         return { data: e as unknown as Record<string, unknown>, label: e.name }
       }
+      case 'wiki': {
+        const e = await prisma.wikiPage.findUnique({
+          where: { id: entityId },
+          select: {
+            id: true, title: true, icon: true, type: true, parentId: true,
+            slug: true, sourceLang: true, createdAt: true, updatedAt: true,
+          },
+        })
+        if (!e) return null
+        // Label ist reiner Titel (ggf. mit Icon/Emoji davor) – die
+        // "Seite"/"Ordner"-Bezeichnung legt der Frontend-Formatter an.
+        const iconPrefix = e.icon ? `${e.icon} ` : ''
+        return {
+          data: e as unknown as Record<string, unknown>,
+          label: `${iconPrefix}${e.title}`,
+        }
+      }
       default:
         return null
     }

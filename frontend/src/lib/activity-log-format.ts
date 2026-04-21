@@ -20,6 +20,8 @@ function entityLabel(key: string, t: TFunction): string {
     logs:        t('activityLog.entity.log', 'Logbuch-Eintrag'),
     peers:       t('activityLog.entity.peer', 'VPN-Peer'),
     permission:  t('activityLog.entity.permission', 'Permission'),
+    wiki:        t('activityLog.entity.wiki', 'Wiki'),
+    pages:       t('activityLog.entity.wikiPage', 'Seite'),
   }
   return map[key] ?? key
 }

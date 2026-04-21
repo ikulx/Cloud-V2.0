@@ -9,6 +9,7 @@ import {
 const KNOWN_ENTITIES = new Set([
   'anlagen', 'devices', 'users', 'groups', 'roles', 'permissions',
   'vpn', 'settings', 'invitations', 'auth', 'activity-log', 'me',
+  'wiki',
 ])
 
 const KNOWN_SUBRESOURCES = new Set([
@@ -16,10 +17,12 @@ const KNOWN_SUBRESOURCES = new Set([
   'todo', 'log', 'deploy', 'approve', 'command', 'enable', 'disable',
   'pi-config', 'server-config', 'device-config', 'visu', 'ping',
   'setup-script', 'invite', 'accept', 'register', 'refresh', 'config',
+  // Wiki-Subressourcen: /api/wiki/pages/:id, /api/wiki/pages/:id/duplicate etc.
+  'pages', 'tree', 'search', 'upload', 'reindex', 'duplicate', 'retranslate', 'permissions',
 ])
 
 /** Entitäten für die wir einen Before/After-Diff machen. */
-const DIFFABLE_ENTITIES = new Set(['anlagen', 'devices', 'users', 'groups', 'roles'])
+const DIFFABLE_ENTITIES = new Set(['anlagen', 'devices', 'users', 'groups', 'roles', 'wiki'])
 
 /**
  * Pfade die NIE geloggt werden (interne System-Flows, Health-Checks, Pi-Callbacks).
@@ -95,6 +98,10 @@ export async function activityLogMiddleware(
 
   const { entityType, entityId, isSubResource } = parsePath(req.originalUrl || '')
   const baseEntity = entityType?.split('.')[0] ?? null
+  // Wiki-Seiten liegen unter /wiki/pages/:id – parsePath kennzeichnet sie als
+  // Subressource, obwohl "pages" in Wahrheit die Haupt-Entität ist. Deshalb
+  // diff-fähig machen.
+  const isMainResource = !isSubResource || entityType === 'wiki.pages'
 
   // Before-Snapshot für Updates/Deletes
   let before: { data: Record<string, unknown>; label: string | null } | null = null
@@ -102,7 +109,7 @@ export async function activityLogMiddleware(
     entityId &&
     baseEntity &&
     DIFFABLE_ENTITIES.has(baseEntity) &&
-    !isSubResource &&
+    isMainResource &&
     (method === 'PATCH' || method === 'PUT' || method === 'DELETE')
   ) {
     before = await fetchEntitySnapshot(baseEntity, entityId)
@@ -116,6 +123,10 @@ export async function activityLogMiddleware(
                      : method === 'DELETE' ? 'delete'
                      : 'update'
     const action = `${entityType ?? 'unknown'}.${actionVerb}`
+    // Route-Handler können nach Erstellen einer Entität die neue ID in
+    // res.locals.createdEntityId stellen, damit das Log den Datensatz auch
+    // dann findet, wenn die URL (noch) keine ID enthält (z.B. POST /wiki/pages).
+    const resolvedEntityId = entityId ?? (res.locals?.createdEntityId as string | undefined) ?? null
 
     // Duplikat-Logging für Auth vermeiden (dort explizit)
     if (entityType === 'auth' || action.startsWith('auth.')) return
@@ -150,7 +161,7 @@ export async function activityLogMiddleware(
         await logActivity({
           action,
           entityType,
-          entityId,
+          entityId: resolvedEntityId,
           details: Object.keys(details).length > 0 ? details : null,
           req,
           statusCode,
@@ -159,8 +170,8 @@ export async function activityLogMiddleware(
       }
 
       // Bei erfolgreichen Updates: Diff berechnen
-      if (before && entityId && baseEntity && DIFFABLE_ENTITIES.has(baseEntity) && (method === 'PATCH' || method === 'PUT')) {
-        const after = await fetchEntitySnapshot(baseEntity, entityId)
+      if (before && resolvedEntityId && baseEntity && DIFFABLE_ENTITIES.has(baseEntity) && (method === 'PATCH' || method === 'PUT')) {
+        const after = await fetchEntitySnapshot(baseEntity, resolvedEntityId)
         if (after) {
           const changes = computeDiff(before.data, after.data)
           if (Object.keys(changes).length > 0) {
@@ -170,25 +181,21 @@ export async function activityLogMiddleware(
         } else {
           details.entityName = before.label
         }
-      } else if (method === 'POST' && entityId && baseEntity && DIFFABLE_ENTITIES.has(baseEntity)) {
+      } else if (method === 'POST' && resolvedEntityId && baseEntity && DIFFABLE_ENTITIES.has(baseEntity)) {
         // Neu erstellt: aktuellen Snapshot als "created" ablegen
-        const snap = await fetchEntitySnapshot(baseEntity, entityId)
+        const snap = await fetchEntitySnapshot(baseEntity, resolvedEntityId)
         if (snap) {
           details.entityName = snap.label
-          // Nur "interessante" Felder speichern (nicht den kompletten Datensatz)
           details.created = extractInterestingFields(snap.data, baseEntity)
         }
       } else if (method === 'DELETE' && before) {
         details.entityName = before.label
-      } else if (method === 'POST' && baseEntity && DIFFABLE_ENTITIES.has(baseEntity)) {
-        // POST ohne entityId in URL (z.B. /api/anlagen Create) – ID aus Body/Response unbekannt hier;
-        // Body ist aber schon in details.payload
       }
 
       await logActivity({
         action,
         entityType,
-        entityId,
+        entityId: resolvedEntityId,
         details: Object.keys(details).length > 0 ? details : null,
         req,
         statusCode,
@@ -214,4 +221,5 @@ const ENTITY_INTERESTING_FIELDS: Record<string, string[]> = {
   users: ['firstName', 'lastName', 'email', 'roleId'],
   groups: ['name', 'description'],
   roles: ['name', 'description'],
+  wiki: ['title', 'type', 'icon', 'parentId'],
 }
