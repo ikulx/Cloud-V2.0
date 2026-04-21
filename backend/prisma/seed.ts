@@ -125,11 +125,18 @@ async function main() {
     },
   ]
   for (const entry of DEFAULT_ERZEUGER_CATALOG) {
-    const cat = await prisma.erzeugerCategory.upsert({
-      where: { name: entry.category },
-      update: { sortOrder: entry.sortOrder },
-      create: { name: entry.category, sortOrder: entry.sortOrder, isActive: true },
+    // Wurzel-Kategorie (parentId = null). Unique-Key ist (name, parentId).
+    const existingCat = await prisma.erzeugerCategory.findFirst({
+      where: { name: entry.category, parentId: null },
     })
+    const cat = existingCat
+      ? await prisma.erzeugerCategory.update({
+          where: { id: existingCat.id },
+          data: { sortOrder: entry.sortOrder },
+        })
+      : await prisma.erzeugerCategory.create({
+          data: { name: entry.category, sortOrder: entry.sortOrder, isActive: true, parentId: null },
+        })
     let order = 10
     for (const t of entry.types) {
       await prisma.erzeugerType.upsert({
