@@ -13,6 +13,7 @@ import ArticleIcon from '@mui/icons-material/Article'
 import LockIcon from '@mui/icons-material/Lock'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
@@ -31,6 +32,7 @@ interface WikiTreeProps {
   onAddChild?: (parentId: string | null, type: 'PAGE' | 'FOLDER') => void
   onMove?: (id: string, newParentId: string | null, newSortOrder: number) => void
   onOpenPermissions?: (pageId: string) => void
+  onDuplicate?: (pageId: string) => void
   canCreate: boolean
   canUpdate: boolean
 }
@@ -58,7 +60,7 @@ function buildTree(pages: WikiPageNode[]): Node[] {
   return roots
 }
 
-export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOpenPermissions, canCreate, canUpdate }: WikiTreeProps) {
+export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOpenPermissions, onDuplicate, canCreate, canUpdate }: WikiTreeProps) {
   const tree = useMemo(() => buildTree(pages), [pages])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [overId, setOverId] = useState<string | null>(null)
@@ -124,6 +126,7 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOp
           onToggle={toggle}
           onAddChild={onAddChild ? (id, type) => { onAddChild(id, type); setExpanded((s) => new Set(s).add(id)) } : undefined}
           onOpenPermissions={onOpenPermissions}
+          onDuplicate={onDuplicate}
         />
         {isOpen && hasChildren && <Box>{node.children.map((c) => renderNode(c, depth + 1))}</Box>}
       </Box>
@@ -192,9 +195,10 @@ interface TreeRowProps {
   onToggle: (id: string) => void
   onAddChild?: (id: string, type: 'PAGE' | 'FOLDER') => void
   onOpenPermissions?: (id: string) => void
+  onDuplicate?: (id: string) => void
 }
 
-function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelect, onToggle, onAddChild, onOpenPermissions }: TreeRowProps) {
+function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelect, onToggle, onAddChild, onOpenPermissions, onDuplicate }: TreeRowProps) {
   const canEdit = node.canEdit
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: node.id, disabled: !canEdit })
   const { setNodeRef: setDropRef } = useDroppable({ id: `inside:${node.id}`, disabled: !canEdit })
@@ -296,6 +300,12 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelec
           <MenuItem onClick={() => { onAddChild(node.id, 'FOLDER'); setMenuAnchor(null) }}>
             <ListItemIcon><CreateNewFolderIcon fontSize="small" /></ListItemIcon>
             <ListItemText>Neuer Ordner</ListItemText>
+          </MenuItem>
+        )}
+        {onDuplicate && (
+          <MenuItem onClick={() => { onDuplicate(node.id); setMenuAnchor(null) }}>
+            <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Duplizieren</ListItemText>
           </MenuItem>
         )}
         {onOpenPermissions && (

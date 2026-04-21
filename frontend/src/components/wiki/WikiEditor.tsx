@@ -9,6 +9,7 @@ import { FileAttachment } from './FileAttachment'
 import { ImportantBlock } from './ImportantBlock'
 import { EditorToolbar } from './EditorToolbar'
 import { TableInsertDialog } from './TableInsertDialog'
+import { TableBubbleMenu } from './TableBubbleMenu'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
@@ -115,6 +116,7 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
     <>
       {editable && <EditorToolbar editor={editor} />}
       <EditorContent editor={editor} className="wiki-editor" />
+      {editable && <TableBubbleMenu editor={editor} />}
       <TableInsertDialog
         open={tableDialogOpen}
         onClose={() => setTableDialogOpen(false)}

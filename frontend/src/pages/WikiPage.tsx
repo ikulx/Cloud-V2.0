@@ -19,7 +19,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import { useSession } from '../context/SessionContext'
 import {
-  useWikiTree, useWikiPage, useCreateWikiPage, useUpdateWikiPage, useDeleteWikiPage,
+  useWikiTree, useWikiPage, useCreateWikiPage, useUpdateWikiPage, useDeleteWikiPage, useDuplicateWikiPage,
   type WikiPageNode,
 } from '../features/wiki/queries'
 import { WikiTree } from '../components/wiki/WikiTree'
@@ -52,6 +52,7 @@ export function WikiPage() {
   const createMut = useCreateWikiPage()
   const updateMut = useUpdateWikiPage(selectedId ?? '')
   const deleteMut = useDeleteWikiPage()
+  const duplicateMut = useDuplicateWikiPage()
   const canUpdate = page?.canEdit === true
 
   // Bearbeitungsmodus: Standardmäßig Lese-Modus, damit man nicht aus Versehen
@@ -193,6 +194,10 @@ export function WikiPage() {
           onAddChild={canCreate ? handleAddChild : undefined}
           onMove={moveWikiPage}
           onOpenPermissions={(id) => setPermPageId(id)}
+          onDuplicate={canCreate ? async (id) => {
+            const copy = await duplicateMut.mutateAsync(id)
+            setSelectedId(copy.id)
+          } : undefined}
           canCreate={canCreate}
           canUpdate={canUpdate}
         />

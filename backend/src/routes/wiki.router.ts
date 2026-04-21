@@ -334,6 +334,58 @@ router.delete('/pages/:id', authenticate, requirePermission('wiki:delete'), asyn
   }
 })
 
+// POST /api/wiki/pages/:id/duplicate – flache Kopie einer Seite im selben
+// Elternordner (Unterseiten werden NICHT mitkopiert).
+router.post('/pages/:id/duplicate', authenticate, requirePermission('wiki:create'), async (req, res) => {
+  const userId = req.user!.userId
+  const sourceId = req.params.id as string
+
+  const ctx = await loadWikiUserCtx(userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+  const access = await buildWikiAccessMap(ctx)
+  if (!access.get(sourceId)?.view) {
+    res.status(403).json({ message: 'Keine Berechtigung' })
+    return
+  }
+
+  const src = await prisma.wikiPage.findUnique({ where: { id: sourceId } })
+  if (!src) { res.status(404).json({ message: 'Seite nicht gefunden' }); return }
+
+  // In den Zielordner darf eingefügt werden? (oder Wurzel)
+  if (src.parentId && !access.get(src.parentId)?.edit) {
+    res.status(403).json({ message: 'Keine Berechtigung im Zielordner' })
+    return
+  }
+
+  const last = await prisma.wikiPage.findFirst({
+    where: { parentId: src.parentId },
+    orderBy: { sortOrder: 'desc' },
+    select: { sortOrder: true },
+  })
+  const newTitle = `Kopie von ${src.title}`
+  const slug = await uniqueSlug(newTitle)
+
+  const created = await prisma.wikiPage.create({
+    data: {
+      title: newTitle,
+      icon: src.icon,
+      type: src.type,
+      parentId: src.parentId,
+      content: src.content as object,
+      searchText: src.searchText,
+      slug,
+      sortOrder: (last?.sortOrder ?? 0) + 10,
+      createdById: userId,
+      updatedById: userId,
+    },
+    include: {
+      createdBy: { select: authorSelect },
+      updatedBy: { select: authorSelect },
+    },
+  })
+  res.status(201).json({ ...created, canEdit: true })
+})
+
 // GET /api/wiki/pages/:id/permissions – aktuelle Einträge
 router.get('/pages/:id/permissions', authenticate, async (req, res) => {
   const ctx = await loadWikiUserCtx(req.user!.userId)

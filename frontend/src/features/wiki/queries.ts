@@ -123,6 +123,14 @@ export function useDeleteWikiPage() {
   })
 }
 
+export function useDuplicateWikiPage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiPost<WikiPage>(`/wiki/pages/${id}/duplicate`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree }),
+  })
+}
+
 export interface WikiSearchHit {
   id: string
   slug: string
