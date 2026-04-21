@@ -41,16 +41,20 @@ export function TableInsertDialog({ open, onClose, onConfirm }: Props) {
     setHoverRows(null)
     setHoverCols(null)
   }
+
+  const emit = (r: number, c: number) => {
+    onConfirm({ rows: r, cols: c, withHeaderRow })
+    setRows(3); setCols(3); setWithHeaderRow(true)
+    setHoverRows(null); setHoverCols(null)
+  }
+
+  /** Klick auf das Raster fügt direkt ein (Word-Verhalten) und schließt den Dialog. */
   const handlePickerClick = (r: number, c: number) => {
-    setRows(r)
-    setCols(c)
+    emit(r, c)
   }
 
   const confirm = () => {
-    onConfirm({ rows, cols, withHeaderRow })
-    // Reset für nächsten Aufruf
-    setRows(3); setCols(3); setWithHeaderRow(true)
-    setHoverRows(null); setHoverCols(null)
+    emit(rows, cols)
   }
 
   return (
@@ -58,7 +62,8 @@ export function TableInsertDialog({ open, onClose, onConfirm }: Props) {
       <DialogTitle>Tabelle einfügen</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Raster unten anklicken oder Werte manuell setzen.
+          Raster anklicken fügt die Tabelle sofort ein. Für genaue Größen die
+          Felder unten + „Einfügen" nutzen.
         </Typography>
 
         {/* Grid-Picker */}
