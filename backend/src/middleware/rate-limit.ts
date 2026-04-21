@@ -17,11 +17,22 @@ export const apiRateLimiter = rateLimit({
   message: { message: 'Zu viele Anfragen. Bitte kurz warten.' },
   // Pi-Callback-Routes haben ihre eigene Auth und sollen nicht vom
   // IP-basierten Limiter betroffen sein (Pi's hinter NAT teilen evt. IPs).
+  //
+  // VPN-Proxy-Routen (/vpn/devices/:id/visu/** und /vpn/devices/:id/lan/**)
+  // werden ebenfalls übersprungen:
+  //  - Sie sind bereits authentifiziert (Visu-Ticket + User-Session).
+  //  - Socket.IO verwendet long-polling als Fallback, wenn der WebSocket-
+  //    Upgrade fehlschlägt – dabei entstehen pro Tab/Komponente mehrere
+  //    HTTP-Requests pro Sekunde. Das Standard-600/min/IP-Limit wird dabei
+  //    innerhalb weniger Minuten erreicht und kappt die Visu-Verbindung.
   skip: (req) => {
     const p = req.path
-    return p.startsWith('/devices/register')
-        || p.startsWith('/vpn/device-config')
-        || p.startsWith('/health')
+    if (p.startsWith('/devices/register')) return true
+    if (p.startsWith('/vpn/device-config')) return true
+    if (p.startsWith('/health')) return true
+    // /vpn/devices/<deviceId>/visu/... oder /vpn/devices/<deviceId>/lan/...
+    if (/^\/vpn\/devices\/[^/]+\/(visu|lan)(\/|$)/.test(p)) return true
+    return false
   },
 })
 
