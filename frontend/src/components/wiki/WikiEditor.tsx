@@ -6,6 +6,7 @@ import Link from '@tiptap/extension-link'
 import { ResizableImage } from './ResizableImage'
 import { Drawio } from './Drawio'
 import { FileAttachment } from './FileAttachment'
+import { EditorToolbar } from './EditorToolbar'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
@@ -13,6 +14,8 @@ import { TableRow } from '@tiptap/extension-table-row'
 import { TableHeader } from '@tiptap/extension-table-header'
 import { TableCell } from '@tiptap/extension-table-cell'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import Underline from '@tiptap/extension-underline'
+import TextAlign from '@tiptap/extension-text-align'
 import { common, createLowlight } from 'lowlight'
 import { SlashCommand } from './slash-command'
 
@@ -71,6 +74,8 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
         Table.configure({ resizable: true }),
         TableRow, TableHeader, TableCell,
         CodeBlockLowlight.configure({ lowlight }),
+        Underline,
+        TextAlign.configure({ types: ['heading', 'paragraph'] }),
         Drawio,
         FileAttachment,
         SlashCommand,
@@ -96,7 +101,12 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
 
   if (!editor) return null
 
-  return <EditorContent editor={editor} className="wiki-editor" />
+  return (
+    <>
+      {editable && <EditorToolbar editor={editor} />}
+      <EditorContent editor={editor} className="wiki-editor" />
+    </>
+  )
 }
 
 function isValidDoc(c: unknown): c is object {

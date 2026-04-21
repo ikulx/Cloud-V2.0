@@ -15,6 +15,8 @@ import CloudSyncIcon from '@mui/icons-material/CloudSync'
 import SearchIcon from '@mui/icons-material/Search'
 import LockIcon from '@mui/icons-material/Lock'
 import FolderIcon from '@mui/icons-material/Folder'
+import EditIcon from '@mui/icons-material/Edit'
+import VisibilityIcon from '@mui/icons-material/Visibility'
 import { useSession } from '../context/SessionContext'
 import {
   useWikiTree, useWikiPage, useCreateWikiPage, useUpdateWikiPage, useDeleteWikiPage,
@@ -51,6 +53,13 @@ export function WikiPage() {
   const updateMut = useUpdateWikiPage(selectedId ?? '')
   const deleteMut = useDeleteWikiPage()
   const canUpdate = page?.canEdit === true
+
+  // Bearbeitungsmodus: Standardmäßig Lese-Modus, damit man nicht aus Versehen
+  // etwas ändert. Über den Stift-Button wechselt man in den Schreib-Modus.
+  // Beim Seitenwechsel immer zurück auf View.
+  const [editMode, setEditMode] = useState(false)
+  useEffect(() => { setEditMode(false) }, [selectedId])
+  const isEditing = canUpdate && editMode
   // Getrennte Mutation für Moves (andere ID als die aktuell selektierte)
   const moveWikiPage = async (id: string, parentId: string | null, sortOrder: number) => {
     await apiFetch(`/wiki/pages/${id}`, {
@@ -77,7 +86,7 @@ export function WikiPage() {
   }, [page?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const scheduleSave = () => {
-    if (!selectedId || !canUpdate) return
+    if (!selectedId || !isEditing) return
     setDirty(true)
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
     saveTimerRef.current = window.setTimeout(async () => {
@@ -93,7 +102,7 @@ export function WikiPage() {
 
   useEffect(() => {
     const handler = () => {
-      if (dirty && selectedId && canUpdate) {
+      if (dirty && selectedId && isEditing) {
         updateMut.mutate({ title, icon, content: contentBufferRef.current })
       }
     }
@@ -197,9 +206,9 @@ export function WikiPage() {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               <IconButton
                 size="small"
-                onClick={(e) => canUpdate && setEmojiAnchor(e.currentTarget)}
+                onClick={(e) => isEditing && setEmojiAnchor(e.currentTarget)}
                 sx={{ fontSize: 28, width: 44, height: 44, p: 0 }}
-                disabled={!canUpdate}
+                disabled={!isEditing}
               >
                 {icon || <Box sx={{ color: 'text.disabled', fontSize: 20 }}>＋</Box>}
               </IconButton>
@@ -207,7 +216,7 @@ export function WikiPage() {
                 value={title}
                 onChange={(e) => { setTitle(e.target.value); scheduleSave() }}
                 placeholder="Unbenannt"
-                readOnly={!canUpdate}
+                readOnly={!isEditing}
                 sx={{
                   flex: 1,
                   fontSize: 34,
@@ -215,11 +224,29 @@ export function WikiPage() {
                   '& input': { p: 0 },
                 }}
               />
-              <Tooltip title={dirty ? 'Speichert …' : savedAt ? `Gespeichert ${savedAt.toLocaleTimeString('de-CH')}` : ''}>
-                <Box sx={{ color: dirty ? 'warning.main' : 'success.main', display: 'flex', alignItems: 'center' }}>
-                  {dirty ? <CloudSyncIcon /> : <CheckCircleIcon />}
-                </Box>
-              </Tooltip>
+              {isEditing && (
+                <Tooltip title={dirty ? 'Speichert …' : savedAt ? `Gespeichert ${savedAt.toLocaleTimeString('de-CH')}` : ''}>
+                  <Box sx={{ color: dirty ? 'warning.main' : 'success.main', display: 'flex', alignItems: 'center' }}>
+                    {dirty ? <CloudSyncIcon /> : <CheckCircleIcon />}
+                  </Box>
+                </Tooltip>
+              )}
+              {canUpdate && (
+                <Tooltip title={isEditing ? 'Schreibschutz aktivieren' : 'Bearbeiten'}>
+                  <IconButton
+                    onClick={() => setEditMode((m) => !m)}
+                    size="small"
+                    color={isEditing ? 'primary' : 'default'}
+                    sx={{
+                      bgcolor: isEditing ? 'primary.main' : 'transparent',
+                      color: isEditing ? 'primary.contrastText' : 'inherit',
+                      '&:hover': { bgcolor: isEditing ? 'primary.dark' : 'action.hover' },
+                    }}
+                  >
+                    {isEditing ? <VisibilityIcon /> : <EditIcon />}
+                  </IconButton>
+                </Tooltip>
+              )}
               {canUpdate && (
                 <Tooltip title="Zugriff verwalten">
                   <IconButton onClick={() => setPermPageId(page.id)} size="small">
@@ -254,7 +281,7 @@ export function WikiPage() {
               <WikiEditor
                 key={page.id}
                 content={page.content}
-                editable={canUpdate}
+                editable={isEditing}
                 onChange={(json) => { contentBufferRef.current = json; scheduleSave() }}
               />
             )}
