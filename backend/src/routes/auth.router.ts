@@ -16,6 +16,7 @@ import {
   resetPasswordRateLimiter,
 } from '../middleware/rate-limit'
 import { sendLoginCodeMail, sendPasswordResetMail } from '../services/mail.service'
+import { env } from '../config/env'
 
 const router = Router()
 
@@ -51,6 +52,10 @@ const TWO_FA_MAX_ATTEMPTS = 5
 
 function needs2FA(role: { name: string; isSystem?: boolean } | null): boolean {
   if (!role) return false
+  // Im Dev-Modus (oder wenn WIKI_DISABLE_2FA=1) wird 2FA komplett umgangen,
+  // damit lokales Testen nicht durch den Mail-Versand ausgebremst wird.
+  if (env.nodeEnv !== 'production') return false
+  if (process.env.DISABLE_2FA === '1') return false
   if (role.isSystem === true) return true
   return role.name === 'verwalter'
 }
