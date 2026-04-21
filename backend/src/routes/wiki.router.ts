@@ -8,6 +8,8 @@ import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import { buildWikiAccessMap, loadWikiUserCtx } from '../services/wiki-access.service'
+import { refreshTranslationsForPage, AUTO_TRANSLATE_TARGETS } from '../services/wiki-translate.service'
+import { isDeeplEnabled } from '../services/deepl.service'
 
 const router = Router()
 
@@ -163,7 +165,10 @@ router.get('/tree', authenticate, async (req, res) => {
   res.json(visible)
 })
 
-// GET /api/wiki/pages/:id – einzelne Seite mit Inhalt + Autor-Meta
+// GET /api/wiki/pages/:id[?lang=xx] – einzelne Seite mit Inhalt + Autor-Meta.
+// Wenn ?lang= gesetzt ist und != sourceLang, wird die (evtl. manuell
+// korrigierte) Übersetzung zurückgeliefert. Fehlt eine Übersetzung, greift
+// der Original-Inhalt.
 router.get('/pages/:id', authenticate, async (req, res) => {
   const ctx = await loadWikiUserCtx(req.user!.userId)
   if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
@@ -172,15 +177,50 @@ router.get('/pages/:id', authenticate, async (req, res) => {
   const a = access.get(req.params.id as string)
   if (!a?.view) { res.status(403).json({ message: 'Keine Berechtigung' }); return }
 
+  const requestedLang = typeof req.query.lang === 'string' ? req.query.lang.toLowerCase() : null
+
   const page = await prisma.wikiPage.findUnique({
     where: { id: req.params.id as string },
     include: {
       createdBy: { select: authorSelect },
       updatedBy: { select: authorSelect },
+      translations: {
+        select: { lang: true, title: true, content: true, isEdited: true, updatedAt: true },
+      },
     },
   })
   if (!page) { res.status(404).json({ message: 'Seite nicht gefunden' }); return }
-  res.json({ ...page, canEdit: a.edit })
+
+  const availableLangs = [page.sourceLang, ...page.translations.map((t) => t.lang)]
+  let activeLang = page.sourceLang
+  let viewTitle = page.title
+  let viewContent = page.content
+  let translationMeta: { isEdited: boolean } | null = null
+
+  if (requestedLang && requestedLang !== page.sourceLang) {
+    const tr = page.translations.find((t) => t.lang === requestedLang)
+    if (tr) {
+      activeLang = tr.lang
+      viewTitle = tr.title
+      viewContent = tr.content
+      translationMeta = { isEdited: tr.isEdited }
+    }
+  }
+
+  // translations-Attribut nicht mitsenden (zu groß), dafür kompakte Meta
+  const { translations: _omit, ...pageWithoutTr } = page
+  void _omit
+  res.json({
+    ...pageWithoutTr,
+    title: viewTitle,
+    content: viewContent,
+    activeLang,
+    availableLangs: Array.from(new Set(availableLangs)),
+    translation: translationMeta,
+    translatable: isDeeplEnabled(),
+    autoTargets: AUTO_TRANSLATE_TARGETS,
+    canEdit: a.edit,
+  })
 })
 
 // POST /api/wiki/pages – neue Seite (oder neuer Ordner via type: 'FOLDER')
@@ -231,10 +271,19 @@ router.post('/pages', authenticate, requirePermission('wiki:create'), async (req
       updatedBy: { select: authorSelect },
     },
   })
+  // Wenn Inhalt/Titel bereits bei der Erstellung gesetzt wurden: Übersetzung
+  // anstoßen (nicht-blockierend).
+  refreshTranslationsForPage(page.id).catch((err) =>
+    console.error('[wiki/translate] bg:', err),
+  )
   res.status(201).json(page)
 })
 
-// PATCH /api/wiki/pages/:id – Inhalt/Meta aktualisieren
+// PATCH /api/wiki/pages/:id[?lang=xx] – Inhalt/Meta aktualisieren.
+// Ohne ?lang (oder lang == sourceLang) wird die Quellseite geändert und die
+// Auto-Übersetzung in alle Zielsprachen angestoßen. Mit ?lang != sourceLang
+// wird ausschließlich die Übersetzung gepatcht und als isEdited markiert,
+// damit sie beim nächsten Save der Quelle nicht überschrieben wird.
 router.patch('/pages/:id', authenticate, async (req, res) => {
   const parsed = updateSchema.safeParse(req.body)
   if (!parsed.success) {
@@ -249,6 +298,43 @@ router.patch('/pages/:id', authenticate, async (req, res) => {
   if (!access.get(req.params.id as string)?.edit) {
     res.status(403).json({ message: 'Keine Berechtigung' })
     return
+  }
+
+  // ── Übersetzungs-Pfad: nicht die Seite selbst, sondern eine
+  // WikiPageTranslation-Zeile bearbeiten ──────────────────────────────────
+  const langParam = typeof req.query.lang === 'string' ? req.query.lang.toLowerCase() : null
+  if (langParam) {
+    const page = await prisma.wikiPage.findUnique({
+      where: { id: req.params.id as string },
+      select: { sourceLang: true, title: true },
+    })
+    if (!page) { res.status(404).json({ message: 'Seite nicht gefunden' }); return }
+    if (langParam !== page.sourceLang) {
+      const newTitle = parsed.data.title ?? page.title
+      const newContent = parsed.data.content
+      const searchText = `${newTitle} ${newContent !== undefined ? extractText(newContent) : ''}`.trim()
+      const updated = await prisma.wikiPageTranslation.upsert({
+        where: { pageId_lang: { pageId: req.params.id as string, lang: langParam } },
+        create: {
+          pageId: req.params.id as string,
+          lang: langParam,
+          title: newTitle,
+          content: (newContent ?? { type: 'doc', content: [] }) as object,
+          searchText,
+          isEdited: true,
+          updatedById: userId,
+        },
+        update: {
+          ...(parsed.data.title !== undefined && { title: parsed.data.title }),
+          ...(newContent !== undefined && { content: newContent as object }),
+          searchText,
+          isEdited: true,
+          updatedById: userId,
+        },
+      })
+      res.json({ translation: updated, canEdit: true })
+      return
+    }
   }
   // Beim Verschieben: Ziel-Parent braucht ebenfalls Edit-Recht.
   if (parsed.data.parentId) {
@@ -307,10 +393,17 @@ router.patch('/pages/:id', authenticate, async (req, res) => {
         updatedBy: { select: authorSelect },
       },
     })
-    // canEdit ist hier garantiert true (wir haben oben geprüft), wird aber
-    // explizit mitgeliefert, damit der Client-Cache (React Query) konsistent
-    // mit der GET-Response bleibt und der Edit-Modus nicht durch fehlendes
-    // Feld "zusammenbricht".
+
+    // Wenn Titel oder Inhalt geändert wurde: Auto-Übersetzung anstoßen –
+    // asynchron im Hintergrund, damit die Antwort nicht auf den DeepL-Call
+    // warten muss. Der nächste GET liefert dann die aktualisierten
+    // Übersetzungen.
+    if (parsed.data.title !== undefined || parsed.data.content !== undefined) {
+      refreshTranslationsForPage(page.id).catch((err) =>
+        console.error('[wiki/translate] bg:', err),
+      )
+    }
+
     res.json({ ...page, canEdit: true })
   } catch {
     res.status(404).json({ message: 'Seite nicht gefunden' })
@@ -514,6 +607,30 @@ router.post('/upload', authenticate, requirePermission('wiki:update'), upload.si
     size: req.file.size,
     mime: req.file.mimetype,
   })
+})
+
+// POST /api/wiki/pages/:id/retranslate?lang=xx – erzwingt eine Neu-Übersetzung
+// (auch wenn die bestehende isEdited=true ist). Nur Edit-Berechtigte.
+router.post('/pages/:id/retranslate', authenticate, async (req, res) => {
+  const lang = typeof req.query.lang === 'string' ? req.query.lang.toLowerCase() : null
+  if (!lang) { res.status(400).json({ message: 'lang-Parameter erforderlich' }); return }
+
+  const ctx = await loadWikiUserCtx(req.user!.userId)
+  if (!ctx) { res.status(401).json({ message: 'Nicht authentifiziert' }); return }
+  const access = await buildWikiAccessMap(ctx)
+  if (!access.get(req.params.id as string)?.edit) {
+    res.status(403).json({ message: 'Keine Berechtigung' })
+    return
+  }
+
+  // isEdited-Flag entfernen, damit refreshTranslationsForPage die Übersetzung
+  // überschreiben darf.
+  await prisma.wikiPageTranslation.updateMany({
+    where: { pageId: req.params.id as string, lang },
+    data: { isEdited: false },
+  })
+  await refreshTranslationsForPage(req.params.id as string)
+  res.json({ ok: true })
 })
 
 // POST /api/wiki/reindex – alle Seiten erneut in den searchText extrahieren.

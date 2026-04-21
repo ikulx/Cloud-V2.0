@@ -9,6 +9,10 @@ import Divider from '@mui/material/Divider'
 import CircularProgress from '@mui/material/CircularProgress'
 import Popover from '@mui/material/Popover'
 import Button from '@mui/material/Button'
+import Alert from '@mui/material/Alert'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import TranslateIcon from '@mui/icons-material/Translate'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import CheckCircleIcon from '@mui/icons-material/CheckCircleOutline'
 import CloudSyncIcon from '@mui/icons-material/CloudSync'
@@ -21,9 +25,11 @@ import { useSession } from '../context/SessionContext'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   useWikiTree, useWikiPage, useCreateWikiPage, useUpdateWikiPage, useDeleteWikiPage, useDuplicateWikiPage,
+  useRetranslateWikiPage,
   wikiKeys,
   type WikiPageNode,
 } from '../features/wiki/queries'
+import i18n from '../i18n/index'
 import { WikiTree } from '../components/wiki/WikiTree'
 import { WikiEditor } from '../components/wiki/WikiEditor'
 import { WikiSearchDialog } from '../components/wiki/WikiSearchDialog'
@@ -50,13 +56,42 @@ export function WikiPage() {
     if (firstRoot) setSelectedId(firstRoot.id)
   }, [pages, selectedId])
 
-  const { data: page, isLoading } = useWikiPage(selectedId ?? undefined)
+  // Aktuell angezeigte Sprache. null = sourceLang des Dokuments.
+  // Beim Seitenwechsel kurz auf null setzen; sobald die Seite geladen ist,
+  // weiter unten auf i18n.language umschalten, falls eine Übersetzung
+  // existiert.
+  const [viewLang, setViewLang] = useState<string | null>(null)
+  const [viewLangInitialized, setViewLangInitialized] = useState(false)
+  useEffect(() => {
+    setViewLang(null)
+    setViewLangInitialized(false)
+  }, [selectedId])
+
+  const { data: page, isLoading } = useWikiPage(selectedId ?? undefined, viewLang)
   const createMut = useCreateWikiPage()
-  const updateMut = useUpdateWikiPage(selectedId ?? '')
+  const updateMut = useUpdateWikiPage(
+    selectedId ?? '',
+    // Nur für Übersetzungen (nicht sourceLang) den lang-Param mitschicken,
+    // damit PATCH auf die translation-Zeile geht.
+    viewLang && page && viewLang !== page.sourceLang ? viewLang : null,
+  )
+  const retranslateMut = useRetranslateWikiPage(selectedId ?? '')
   const deleteMut = useDeleteWikiPage()
   const duplicateMut = useDuplicateWikiPage()
   const qc = useQueryClient()
   const canUpdate = page?.canEdit === true
+  const isTranslationView = Boolean(page && viewLang && viewLang !== page.sourceLang)
+
+  // Beim ersten Laden einer Seite: wenn UI-Sprache vom sourceLang abweicht
+  // UND eine Übersetzung in dieser Sprache existiert, direkt umschalten.
+  useEffect(() => {
+    if (!page || viewLangInitialized) return
+    setViewLangInitialized(true)
+    const ui = (i18n.language || 'de').slice(0, 2).toLowerCase()
+    if (ui !== page.sourceLang && page.availableLangs?.includes(ui)) {
+      setViewLang(ui)
+    }
+  }, [page, viewLangInitialized])
 
   // Bearbeitungsmodus: Standardmäßig Lese-Modus, damit man nicht aus Versehen
   // etwas ändert. Über den Stift-Button wechselt man in den Schreib-Modus.
@@ -333,6 +368,56 @@ export function WikiPage() {
               Zuletzt bearbeitet {new Date(page.updatedAt).toLocaleString('de-CH')}
               {page.updatedBy && ` · ${page.updatedBy.firstName} ${page.updatedBy.lastName}`}
             </Typography>
+
+            {/* Sprach-Switcher, nur wenn DeepL aktiv ist und Übersetzungen existieren */}
+            {page.translatable && page.availableLangs?.length > 1 && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                <TranslateIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                <ToggleButtonGroup
+                  value={viewLang ?? page.sourceLang}
+                  exclusive
+                  size="small"
+                  onChange={(_, val: string | null) => {
+                    if (!val) return
+                    setViewLang(val === page.sourceLang ? null : val)
+                  }}
+                >
+                  {page.availableLangs.map((lng) => (
+                    <ToggleButton key={lng} value={lng} sx={{ textTransform: 'uppercase', px: 1.5 }}>
+                      {lng}
+                      {lng === page.sourceLang && (
+                        <Typography variant="caption" sx={{ ml: 0.5, opacity: 0.7 }}>
+                          (Original)
+                        </Typography>
+                      )}
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </Box>
+            )}
+
+            {/* Hinweis bei Übersetzungs-Ansicht */}
+            {isTranslationView && (
+              <Alert
+                severity={page.translation?.isEdited ? 'success' : 'info'}
+                sx={{ mb: 2 }}
+                action={
+                  canUpdate && page.translation?.isEdited ? (
+                    <Button
+                      size="small"
+                      color="inherit"
+                      onClick={() => retranslateMut.mutateAsync(viewLang!).catch((e) => window.alert(e.message))}
+                    >
+                      Neu übersetzen
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {page.translation?.isEdited
+                  ? `Manuell korrigierte Übersetzung (${viewLang?.toUpperCase()}). Änderungen an der Quellseite überschreiben sie nicht mehr.`
+                  : `Automatisch übersetzt aus ${page.sourceLang.toUpperCase()} via DeepL. ${canUpdate ? 'Im Bearbeitungs-Modus lassen sich Korrekturen vornehmen.' : ''}`}
+              </Alert>
+            )}
 
             <Divider sx={{ mb: 3 }} />
 

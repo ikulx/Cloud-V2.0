@@ -36,6 +36,12 @@ export interface WikiPage extends WikiPageNode {
   createdAt: string
   createdBy: WikiAuthor
   updatedBy: WikiAuthor
+  sourceLang: string
+  activeLang: string
+  availableLangs: string[]
+  translation: { isEdited: boolean } | null
+  translatable: boolean
+  autoTargets: string[]
 }
 
 export function useWikiPermissions(pageId: string | null) {
@@ -70,7 +76,8 @@ export function useSaveWikiPermissions(pageId: string) {
 
 export const wikiKeys = {
   tree: ['wiki', 'tree'] as const,
-  page: (id: string) => ['wiki', 'page', id] as const,
+  page: (id: string, lang?: string | null) =>
+    ['wiki', 'page', id, lang ?? ''] as const,
 }
 
 export function useWikiTree() {
@@ -80,10 +87,12 @@ export function useWikiTree() {
   })
 }
 
-export function useWikiPage(id: string | undefined) {
+export function useWikiPage(id: string | undefined, lang?: string | null) {
   return useQuery({
-    queryKey: wikiKeys.page(id ?? ''),
-    queryFn: () => apiGet<WikiPage>(`/wiki/pages/${id}`),
+    queryKey: wikiKeys.page(id ?? '', lang),
+    queryFn: () => apiGet<WikiPage>(
+      `/wiki/pages/${id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`,
+    ),
     enabled: Boolean(id),
   })
 }
@@ -104,14 +113,35 @@ export function useCreateWikiPage() {
   })
 }
 
-export function useUpdateWikiPage(id: string) {
+export function useUpdateWikiPage(id: string, lang?: string | null) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Record<string, unknown>) => apiPatch<WikiPage>(`/wiki/pages/${id}`, data),
-    onSuccess: (page) => {
-      qc.setQueryData(wikiKeys.page(id), page)
+    mutationFn: (data: Record<string, unknown>) =>
+      apiPatch<WikiPage>(`/wiki/pages/${id}${lang ? `?lang=${encodeURIComponent(lang)}` : ''}`, data),
+    onSuccess: () => {
+      // Beim Source-Save auch alle anderen Sprach-Caches invalidieren
+      // (Übersetzungen werden im Hintergrund neu berechnet).
+      qc.invalidateQueries({ queryKey: ['wiki', 'page', id] })
       qc.invalidateQueries({ queryKey: wikiKeys.tree })
     },
+  })
+}
+
+export function useRetranslateWikiPage(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (lang: string) => {
+      const res = await apiFetch(`/wiki/pages/${id}/retranslate?lang=${encodeURIComponent(lang)}`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        let msg = 'Neu-Übersetzung fehlgeschlagen'
+        try { const err = await res.json() as { message?: string }; msg = err.message ?? msg } catch { /* noop */ }
+        throw new Error(msg)
+      }
+      return res.json()
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['wiki', 'page', id] }),
   })
 }
 

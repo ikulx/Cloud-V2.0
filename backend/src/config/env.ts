@@ -36,6 +36,12 @@ export const env = {
     from:     process.env.SMTP_FROM     ?? 'YControl Cloud <noreply@ycontrol.local>',
   },
   appUrl: process.env.APP_URL ?? 'http://localhost:5173',
+  deepl: {
+    /** API-Key (optional). Ohne Key wird das Wiki nicht automatisch übersetzt. */
+    apiKey: process.env.DEEPL_API_KEY ?? '',
+    /** 'free' (api-free.deepl.com) oder 'pro' (api.deepl.com) */
+    tier: (process.env.DEEPL_TIER ?? 'free') as 'free' | 'pro',
+  },
 }
 
 /**

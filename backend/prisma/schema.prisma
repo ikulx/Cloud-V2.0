@@ -561,6 +561,9 @@ model WikiPage {
   /// Extrahierter Reintext aus `content` für Volltextsuche. Wird bei jedem
   /// Write aus dem TipTap-Dokument generiert.
   searchText  String   @default("") @map("search_text")
+  /// Ursprungs-Sprache (ISO 639-1). Wird beim automatischen Übersetzen als
+  /// "source" verwendet. Default "de".
+  sourceLang  String   @default("de") @map("source_lang")
   /// Eltern-Seite für die Baumstruktur (NULL = Root-Level)
   parentId    String?  @map("parent_id") @db.Uuid
   parent      WikiPage?  @relation("WikiTree", fields: [parentId], references: [id], onDelete: Cascade)
@@ -569,6 +572,7 @@ model WikiPage {
   sortOrder   Int      @default(0) @map("sort_order")
 
   permissions WikiPagePermission[]
+  translations WikiPageTranslation[]
 
   createdById String   @map("created_by_id") @db.Uuid
   createdBy   User     @relation("WikiPageAuthor", fields: [createdById], references: [id])
@@ -601,4 +605,28 @@ model WikiPagePermission {
   @@unique([pageId, targetType, targetId])
   @@index([targetId])
   @@map("wiki_page_permissions")
+}
+
+/// Automatisch oder manuell gepflegte Übersetzung einer Wiki-Seite.
+/// Beim Save der Quellseite werden Übersetzungen regeneriert, es sei denn
+/// `isEdited = true` (Benutzer hat die Übersetzung korrigiert – dann bleibt
+/// sie unverändert).
+model WikiPageTranslation {
+  id          String   @id @default(uuid()) @db.Uuid
+  pageId      String   @map("page_id") @db.Uuid
+  page        WikiPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  /// ISO 639-1 Sprachcode, lower-case (z.B. "en", "it", "fr")
+  lang        String
+  title       String
+  content     Json     @default("{}")
+  searchText  String   @default("") @map("search_text")
+  /// true, wenn ein User die Übersetzung manuell editiert hat. In diesem
+  /// Fall wird sie beim erneuten Save der Quellseite NICHT überschrieben.
+  isEdited    Boolean  @default(false) @map("is_edited")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+
+  @@unique([pageId, lang])
+  @@index([pageId])
+  @@map("wiki_page_translations")
 }
