@@ -75,14 +75,26 @@ async function main() {
 
     const [, deviceId, socketPath] = match
 
-    // Auth via Session-Cookie (Browser sendet Cookie automatisch mit)
+    // Auth via Session-Cookie (Browser sendet Cookie automatisch mit).
+    //
+    // Der HTTP-Visu-Proxy akzeptiert zwei Cookie-Varianten:
+    //   a) Ein gültiges JWT (wenn ?access_token/Bearer genutzt wurde)
+    //   b) Ein 64-Zeichen Random-Hex Session-Secret, das nach erfolgreicher
+    //      Einlösung eines Visu-Tickets (?t=...) im HttpOnly-Cookie steht.
+    //
+    // Der WebSocket-Upgrade muss dieselbe Logik akzeptieren – sonst scheitert
+    // nach Ticket-Login der WS-Transport mit 401 (verifyAccessToken auf dem
+    // Hex-Wert liefert null) und Socket.IO degradiert auf Long-Polling, was
+    // dann den per-IP-Ratenlimiter rasch in 429 treibt.
     const cookieName = `visu_${deviceId.replace(/-/g, '')}`
     const token = (req.headers.cookie ?? '').split(';')
       .map((c) => c.trim())
       .find((c) => c.startsWith(`${cookieName}=`))
       ?.slice(cookieName.length + 1)
 
-    if (!token || !verifyAccessToken(token)) {
+    const isHexSession = !!token && /^[0-9a-f]{64}$/i.test(token)
+    const isValidJwt   = !!token && !!verifyAccessToken(token)
+    if (!token || (!isHexSession && !isValidJwt)) {
       try { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n') } catch {}
       socket.destroy()
       return
