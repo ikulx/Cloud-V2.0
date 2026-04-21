@@ -131,6 +131,13 @@ const fr = {
     plantTypeRequired: 'Au moins un type requis',
     wizardDeviceAssignHint: 'L\'appareil pré-sélectionné sera assigné automatiquement.',
   },
+  wiki: {
+    translated: {
+      auto: 'Traduit automatiquement depuis {{src}}',
+      edited: 'Traduction corrigée manuellement ({{lang}})',
+      retranslate: 'Retraduire',
+    },
+  },
   activityLog: {
     title: 'Journal d\'activité',
     tab: 'Activité',

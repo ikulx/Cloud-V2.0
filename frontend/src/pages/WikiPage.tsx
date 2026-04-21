@@ -9,7 +9,6 @@ import Divider from '@mui/material/Divider'
 import CircularProgress from '@mui/material/CircularProgress'
 import Popover from '@mui/material/Popover'
 import Button from '@mui/material/Button'
-import Alert from '@mui/material/Alert'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import TranslateIcon from '@mui/icons-material/Translate'
@@ -22,6 +21,7 @@ import FolderIcon from '@mui/icons-material/Folder'
 import EditIcon from '@mui/icons-material/Edit'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import { useSession } from '../context/SessionContext'
+import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   useWikiTree, useWikiPage, useCreateWikiPage, useUpdateWikiPage, useDeleteWikiPage, useDuplicateWikiPage,
@@ -42,6 +42,7 @@ const EmojiPicker = lazy(() => import('emoji-picker-react'))
 
 export function WikiPage() {
   const { hasPermission } = useSession()
+  const { t } = useTranslation()
   const canCreate = hasPermission('wiki:create')
   const canDelete = hasPermission('wiki:delete')
 
@@ -393,7 +394,8 @@ export function WikiPage() {
               {page.updatedBy && ` · ${page.updatedBy.firstName} ${page.updatedBy.lastName}`}
             </Typography>
 
-            {/* Sprach-Switcher, nur wenn DeepL aktiv ist und Übersetzungen existieren */}
+            {/* Sprach-Switcher + Übersetzungs-Hinweis in einer Zeile.
+                Nur sichtbar, wenn DeepL aktiv ist und Übersetzungen existieren. */}
             {page.translatable && page.availableLangs?.length > 1 && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
                 <TranslateIcon fontSize="small" sx={{ color: 'text.secondary' }} />
@@ -407,40 +409,41 @@ export function WikiPage() {
                   }}
                 >
                   {page.availableLangs.map((lng) => (
-                    <ToggleButton key={lng} value={lng} sx={{ textTransform: 'uppercase', px: 1.5 }}>
+                    <ToggleButton
+                      key={lng}
+                      value={lng}
+                      sx={{ textTransform: 'uppercase', px: 1.25, py: 0.25, fontSize: 12 }}
+                    >
                       {lng}
-                      {lng === page.sourceLang && (
-                        <Typography variant="caption" sx={{ ml: 0.5, opacity: 0.7 }}>
-                          (Original)
-                        </Typography>
-                      )}
                     </ToggleButton>
                   ))}
                 </ToggleButtonGroup>
-              </Box>
-            )}
-
-            {/* Hinweis bei Übersetzungs-Ansicht */}
-            {isTranslationView && (
-              <Alert
-                severity={page.translation?.isEdited ? 'success' : 'info'}
-                sx={{ mb: 2 }}
-                action={
-                  canUpdate && page.translation?.isEdited ? (
-                    <Button
-                      size="small"
-                      color="inherit"
-                      onClick={() => retranslateMut.mutateAsync(viewLang!).catch((e) => window.alert(e.message))}
+                {isTranslationView && (
+                  <>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: page.translation?.isEdited ? 'success.main' : 'text.secondary',
+                        fontSize: 12,
+                      }}
                     >
-                      Neu übersetzen
-                    </Button>
-                  ) : undefined
-                }
-              >
-                {page.translation?.isEdited
-                  ? `Manuell korrigierte Übersetzung (${viewLang?.toUpperCase()}). Änderungen an der Quellseite überschreiben sie nicht mehr.`
-                  : `Automatisch übersetzt aus ${page.sourceLang.toUpperCase()} via DeepL. ${canUpdate ? 'Im Bearbeitungs-Modus lassen sich Korrekturen vornehmen.' : ''}`}
-              </Alert>
+                      {page.translation?.isEdited
+                        ? t('wiki.translated.edited', { lang: (viewLang ?? '').toUpperCase() })
+                        : t('wiki.translated.auto', { src: page.sourceLang.toUpperCase() })}
+                    </Typography>
+                    {canUpdate && page.translation?.isEdited && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        sx={{ fontSize: 12, py: 0, minWidth: 0, textTransform: 'none' }}
+                        onClick={() => retranslateMut.mutateAsync(viewLang!).catch((e) => window.alert(e.message))}
+                      >
+                        {t('wiki.translated.retranslate')}
+                      </Button>
+                    )}
+                  </>
+                )}
+              </Box>
             )}
 
             <Divider sx={{ mb: 3 }} />

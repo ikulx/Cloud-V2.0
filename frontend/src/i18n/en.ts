@@ -131,6 +131,13 @@ const en = {
     plantTypeRequired: 'At least one type required',
     wizardDeviceAssignHint: 'The pre-selected device will be assigned automatically.',
   },
+  wiki: {
+    translated: {
+      auto: 'Auto-translated from {{src}}',
+      edited: 'Manually edited translation ({{lang}})',
+      retranslate: 'Re-translate',
+    },
+  },
   activityLog: {
     title: 'Activity log',
     tab: 'Activity',
