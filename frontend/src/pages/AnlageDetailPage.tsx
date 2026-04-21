@@ -28,6 +28,7 @@ import MyLocationIcon from '@mui/icons-material/MyLocation'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import SettingsIcon from '@mui/icons-material/Settings'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'
 import InfoIcon from '@mui/icons-material/Info'
@@ -676,6 +677,12 @@ export function AnlageDetailPage() {
               {anlageDevices.map((device) => {
                 const hasVpn = !!device.vpnDevice
                 const isVisuOpen = expandedVisuDeviceId === device.id
+                const lanChildren = device.childDevices ?? []
+                const accessToken = localStorage.getItem('accessToken') ?? ''
+                const openLan = (lanIp: string, lanPort: number) => {
+                  const url = `/api/vpn/devices/${device.id}/lan/${lanIp}/${lanPort}/?access_token=${encodeURIComponent(accessToken)}`
+                  window.open(url, '_blank')
+                }
 
                 return (
                   <>
@@ -772,6 +779,50 @@ export function AnlageDetailPage() {
                         </TableCell>
                       </TableRow>
                     )}
+
+                    {/* LAN-Geräte des Pi's als Unterzeilen anzeigen */}
+                    {lanChildren.map((child) => (
+                      <TableRow
+                        key={child.id}
+                        hover
+                        sx={{ bgcolor: 'action.hover' }}
+                      >
+                        <TableCell sx={{ pl: 6 }}>
+                          <Box display="flex" alignItems="center" gap={0.5}>
+                            <SubdirectoryArrowRightIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                            <Typography variant="body2">{child.name || 'LAN-Gerät'}</Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption" color="text.secondary">
+                            <code>{child.lanTargetIp ?? '—'}</code>
+                            {child.lanTargetPort ? `:${child.lanTargetPort}` : ''}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label="LAN via VPN"
+                            size="small"
+                            color={hasVpn && device.mqttConnected && device.vpnActive ? 'success' : 'default'}
+                            variant="outlined"
+                            sx={{ fontSize: '0.65rem', height: 20 }}
+                          />
+                        </TableCell>
+                        <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                          <Tooltip title="In neuem Tab öffnen">
+                            <span>
+                              <IconButton
+                                size="small"
+                                disabled={!hasVpn || !child.lanTargetIp}
+                                onClick={() => child.lanTargetIp && openLan(child.lanTargetIp, child.lanTargetPort ?? 80)}
+                              >
+                                <OpenInNewIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </>
                 )
               })}
