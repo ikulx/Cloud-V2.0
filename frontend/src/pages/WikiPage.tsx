@@ -55,6 +55,7 @@ export function WikiPage() {
   const updateMut = useUpdateWikiPage(selectedId ?? '')
   const deleteMut = useDeleteWikiPage()
   const duplicateMut = useDuplicateWikiPage()
+  const qc = useQueryClient()
   const canUpdate = page?.canEdit === true
 
   // Bearbeitungsmodus: Standardmäßig Lese-Modus, damit man nicht aus Versehen

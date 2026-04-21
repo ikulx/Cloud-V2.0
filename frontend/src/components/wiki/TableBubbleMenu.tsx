@@ -44,15 +44,21 @@ export function TableBubbleMenu({ editor }: Props) {
         const html = container.innerHTML
         const text = container.innerText
         try {
-          if (navigator.clipboard && 'write' in navigator.clipboard) {
-            await navigator.clipboard.write([
+          const cb = navigator.clipboard as unknown as {
+            write?: (data: ClipboardItem[]) => Promise<void>
+            writeText?: (s: string) => Promise<void>
+          }
+          if (cb?.write) {
+            await cb.write([
               new ClipboardItem({
                 'text/html': new Blob([html], { type: 'text/html' }),
                 'text/plain': new Blob([text], { type: 'text/plain' }),
               }),
             ])
+          } else if (cb?.writeText) {
+            await cb.writeText(text)
           } else {
-            await navigator.clipboard.writeText(text)
+            throw new Error('Clipboard-API nicht verfügbar')
           }
         } catch (err) {
           console.error('[TableCopy] Clipboard schlug fehl:', err)

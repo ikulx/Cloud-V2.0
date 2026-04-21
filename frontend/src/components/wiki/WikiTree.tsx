@@ -13,14 +13,14 @@ import ArticleIcon from '@mui/icons-material/Article'
 import LockIcon from '@mui/icons-material/Lock'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
-import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import {
-  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  DndContext, pointerWithin, PointerSensor, useSensor, useSensors,
   type DragEndEvent, type DragOverEvent,
 } from '@dnd-kit/core'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
@@ -62,12 +62,25 @@ function buildTree(pages: WikiPageNode[]): Node[] {
   return roots
 }
 
+/** Prüft, ob `ancestorId` in der Eltern-Kette von `childId` (oder childId selbst) liegt. */
+function isDescendant(pages: WikiPageNode[], childId: string, ancestorId: string): boolean {
+  let cursor: string | null = childId
+  const visited = new Set<string>()
+  while (cursor && !visited.has(cursor)) {
+    if (cursor === ancestorId) return true
+    visited.add(cursor)
+    const p = pages.find((x) => x.id === cursor)
+    cursor = p?.parentId ?? null
+  }
+  return false
+}
+
 export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOpenPermissions, onDuplicate, onDelete, canCreate, canUpdate }: WikiTreeProps) {
   const tree = useMemo(() => buildTree(pages), [pages])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [overId, setOverId] = useState<string | null>(null)
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const toggle = (id: string) => {
     setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -83,27 +96,48 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOp
     if (!over || !onMove) return
     const draggedId = String(active.id)
     const overKey = String(over.id)
-
     if (draggedId === overKey) return
 
-    // Drop-Zones: "inside:<id>" oder "root"
+    // Drop-Zonen: "root" | "inside:<id>" | "before:<id>" | "after:<id>"
     let newParentId: string | null
     let newSortOrder: number
 
+    const listSorted = (parentId: string | null) =>
+      pages
+        .filter((p) => (p.parentId ?? null) === parentId && p.id !== draggedId)
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title))
+
     if (overKey === 'root') {
       newParentId = null
-      const rootSiblings = pages.filter((p) => !p.parentId && p.id !== draggedId)
-      const maxOrder = rootSiblings.reduce((m, p) => Math.max(m, p.sortOrder), 0)
-      newSortOrder = maxOrder + 10
+      const siblings = listSorted(null)
+      newSortOrder = (siblings[siblings.length - 1]?.sortOrder ?? 0) + 10
     } else if (overKey.startsWith('inside:')) {
       const parentId = overKey.slice('inside:'.length)
       if (parentId === draggedId) return
-      // Zyklus-Schutz: darf nicht auf eigenen Nachfahren abgelegt werden
       if (isDescendant(pages, parentId, draggedId)) return
       newParentId = parentId
-      const siblings = pages.filter((p) => p.parentId === parentId && p.id !== draggedId)
-      const maxOrder = siblings.reduce((m, p) => Math.max(m, p.sortOrder), 0)
-      newSortOrder = maxOrder + 10
+      const siblings = listSorted(parentId)
+      newSortOrder = (siblings[siblings.length - 1]?.sortOrder ?? 0) + 10
+    } else if (overKey.startsWith('before:') || overKey.startsWith('after:')) {
+      const targetId = overKey.slice(overKey.indexOf(':') + 1)
+      if (targetId === draggedId) return
+      const target = pages.find((p) => p.id === targetId)
+      if (!target) return
+      if (isDescendant(pages, target.parentId ?? targetId, draggedId)) return
+      newParentId = target.parentId ?? null
+      const siblings = listSorted(newParentId)
+      const idx = siblings.findIndex((p) => p.id === targetId)
+      if (overKey.startsWith('before:')) {
+        const prev = idx > 0 ? siblings[idx - 1] : null
+        newSortOrder = prev
+          ? (prev.sortOrder + target.sortOrder) / 2
+          : target.sortOrder - 10
+      } else {
+        const next = idx < siblings.length - 1 ? siblings[idx + 1] : null
+        newSortOrder = next
+          ? (next.sortOrder + target.sortOrder) / 2
+          : target.sortOrder + 10
+      }
     } else {
       return
     }
@@ -117,6 +151,7 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOp
     const isSelected = node.id === selectedId
     return (
       <Box key={node.id}>
+        <BetweenDropZone id={`before:${node.id}`} active={overId === `before:${node.id}`} depth={depth} enabled={canUpdate} />
         <TreeRow
           node={node}
           depth={depth}
@@ -132,6 +167,7 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOp
           onDelete={onDelete}
         />
         {isOpen && hasChildren && <Box>{node.children.map((c) => renderNode(c, depth + 1))}</Box>}
+        <BetweenDropZone id={`after:${node.id}`} active={overId === `after:${node.id}`} depth={depth} enabled={canUpdate} />
       </Box>
     )
   }
@@ -139,9 +175,10 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOp
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={pointerWithin}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      onDragCancel={() => setOverId(null)}
     >
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, px: 0.5 }}>
@@ -170,21 +207,10 @@ export function WikiTree({ pages, selectedId, onSelect, onAddChild, onMove, onOp
           tree.map((n) => renderNode(n, 0))
         )}
 
-        {/* Drop-Zone für "auf Wurzel-Ebene verschieben" */}
         {canUpdate && <RootDropzone active={overId === 'root'} />}
       </Box>
     </DndContext>
   )
-}
-
-function isDescendant(pages: WikiPageNode[], candidateChildId: string, ancestorId: string): boolean {
-  let cursor: string | null = candidateChildId
-  while (cursor) {
-    if (cursor === ancestorId) return true
-    const p = pages.find((x) => x.id === cursor)
-    cursor = p?.parentId ?? null
-  }
-  return false
 }
 
 interface TreeRowProps {
@@ -204,18 +230,21 @@ interface TreeRowProps {
 
 function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelect, onToggle, onAddChild, onOpenPermissions, onDuplicate, onDelete }: TreeRowProps) {
   const canEdit = node.canEdit
+  // Drag: wir verteilen die Listener auf die gesamte Zeile – PointerSensor
+  // mit distance:6 unterscheidet selbst zwischen "Klick" (Select) und "Drag".
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: node.id, disabled: !canEdit })
+  // Drop: ganze Zeile ist "inside"-Ziel (→ Kind werden).
   const { setNodeRef: setDropRef } = useDroppable({ id: `inside:${node.id}`, disabled: !canEdit })
-  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
-
-  // Ein DOM-Knoten muss sowohl draggable (für Listener) als auch droppable sein.
   const combinedRef = (el: HTMLDivElement | null) => { setDragRef(el); setDropRef(el) }
+
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
 
   return (
     <Box
       ref={combinedRef}
       onClick={() => !node.canView ? null : onSelect(node.id)}
       {...attributes}
+      {...(canEdit ? listeners : {})}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -224,33 +253,28 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelec
         pr: 0.5,
         py: 0.5,
         borderRadius: 1,
-        cursor: node.canView ? 'pointer' : 'not-allowed',
+        cursor: isDragging ? 'grabbing' : (node.canView ? 'grab' : 'not-allowed'),
         opacity: isDragging ? 0.4 : (node.canView ? 1 : 0.5),
         bgcolor: isOver ? 'action.focus' : isSelected ? 'action.selected' : 'transparent',
         outline: isOver ? '2px solid' : 'none',
         outlineColor: 'primary.main',
         '&:hover': { bgcolor: isSelected ? 'action.selected' : 'action.hover' },
         '&:hover .wiki-tree-action': { opacity: 1 },
+        userSelect: 'none',
+        touchAction: 'none',
       }}
     >
       {canEdit && (
-        <Box
-          {...listeners}
-          className="wiki-tree-action"
-          sx={{ display: 'flex', alignItems: 'center', cursor: 'grab', opacity: 0, transition: 'opacity 120ms' }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <DragIndicatorIcon fontSize="small" sx={{ color: 'text.disabled' }} />
-        </Box>
+        <DragIndicatorIcon fontSize="small" sx={{ color: 'text.disabled', flexShrink: 0 }} />
       )}
       <IconButton
         size="small"
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onToggle(node.id) }}
         sx={{ p: 0.25, visibility: hasChildren || node.type === 'FOLDER' ? 'visible' : 'hidden' }}
       >
         {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
       </IconButton>
-      {/* Typ-Icon: Ordner oder Seite. Eigenes Emoji-Icon (node.icon) geht vor. */}
       {!node.icon && (
         <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mr: 0.25 }}>
           {node.type === 'FOLDER'
@@ -258,7 +282,7 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelec
             : <ArticleIcon fontSize="small" />}
         </Box>
       )}
-      <Typography sx={{ flex: 1, fontSize: 14, userSelect: 'none' }} noWrap>
+      <Typography sx={{ flex: 1, fontSize: 14 }} noWrap>
         {node.icon && <span style={{ marginRight: 6 }}>{node.icon}</span>}
         {node.title || 'Unbenannt'}
       </Typography>
@@ -271,6 +295,7 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelec
             size="small"
             className="wiki-tree-action"
             sx={{ p: 0.25, opacity: 0, transition: 'opacity 120ms' }}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onAddChild(node.id, 'PAGE') }}
           >
             <AddIcon fontSize="small" />
@@ -282,6 +307,7 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelec
           size="small"
           className="wiki-tree-action"
           sx={{ p: 0.25, opacity: 0, transition: 'opacity 120ms' }}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); setMenuAnchor(e.currentTarget) }}
         >
           <MoreVertIcon fontSize="small" />
@@ -328,6 +354,39 @@ function TreeRow({ node, depth, hasChildren, isOpen, isSelected, isOver, onSelec
           </MenuItem>
         )}
       </Menu>
+    </Box>
+  )
+}
+
+/** Sehr schmale Drop-Zone zwischen zwei Zeilen – aktiv nur während des Drags. */
+function BetweenDropZone({ id, active, depth, enabled }: { id: string; active: boolean; depth: number; enabled: boolean }) {
+  const { setNodeRef } = useDroppable({ id, disabled: !enabled })
+  return (
+    <Box
+      ref={setNodeRef}
+      sx={{
+        height: 4,
+        marginLeft: `${0.5 + depth * 1.25}rem`,
+        marginRight: '4px',
+        position: 'relative',
+        pointerEvents: enabled ? 'auto' : 'none',
+      }}
+    >
+      {active && (
+        <Box
+          sx={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            height: 3,
+            bgcolor: 'primary.main',
+            borderRadius: 1,
+            boxShadow: '0 0 0 2px rgba(25,118,210,0.35)',
+          }}
+        />
+      )}
     </Box>
   )
 }
