@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -7,6 +7,7 @@ import { ResizableImage } from './ResizableImage'
 import { Drawio } from './Drawio'
 import { FileAttachment } from './FileAttachment'
 import { EditorToolbar } from './EditorToolbar'
+import { TableInsertDialog } from './TableInsertDialog'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
@@ -99,12 +100,30 @@ export function WikiEditor({ content, editable, onChange }: WikiEditorProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, editor])
 
+  // Tabelle-Einfügen-Dialog (wird von Slash-Command "Tabelle" und
+  // Toolbar-Button via DOM-Event geöffnet)
+  const [tableDialogOpen, setTableDialogOpen] = useState(false)
+  useEffect(() => {
+    if (!editable) return
+    const handler = () => setTableDialogOpen(true)
+    document.addEventListener('wiki:open-table-dialog', handler)
+    return () => document.removeEventListener('wiki:open-table-dialog', handler)
+  }, [editable])
+
   if (!editor) return null
 
   return (
     <>
       {editable && <EditorToolbar editor={editor} />}
       <EditorContent editor={editor} className="wiki-editor" />
+      <TableInsertDialog
+        open={tableDialogOpen}
+        onClose={() => setTableDialogOpen(false)}
+        onConfirm={({ rows, cols, withHeaderRow }) => {
+          editor.chain().focus().insertTable({ rows, cols, withHeaderRow }).run()
+          setTableDialogOpen(false)
+        }}
+      />
     </>
   )
 }

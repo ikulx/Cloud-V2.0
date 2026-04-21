@@ -23,6 +23,7 @@ import FormatAlignRightIcon from '@mui/icons-material/FormatAlignRight'
 import FormatAlignJustifyIcon from '@mui/icons-material/FormatAlignJustify'
 import LinkIcon from '@mui/icons-material/Link'
 import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
+import TableChartIcon from '@mui/icons-material/TableChart'
 import UndoIcon from '@mui/icons-material/Undo'
 import RedoIcon from '@mui/icons-material/Redo'
 
@@ -171,6 +172,8 @@ export function EditorToolbar({ editor }: Props) {
       {divider}
 
       {btn({ icon: <LinkIcon fontSize="small" />, title: 'Link', active: editor.isActive('link'), onClick: promptLink })}
+      {btn({ icon: <TableChartIcon fontSize="small" />, title: 'Tabelle einfügen',
+        onClick: () => document.dispatchEvent(new CustomEvent('wiki:open-table-dialog')) })}
       {btn({ icon: <HorizontalRuleIcon fontSize="small" />, title: 'Trennlinie',
         onClick: () => editor.chain().focus().setHorizontalRule().run() })}
 

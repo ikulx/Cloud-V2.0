@@ -39,8 +39,13 @@ const ITEMS: SlashItem[] = [
     command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
   },
   {
-    title: 'Tabelle', description: '3×3 Tabelle einfügen', keywords: ['table'],
-    command: ({ editor, range }) => editor.chain().focus().deleteRange(range).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+    title: 'Tabelle', description: 'Größe und Header-Zeile frei wählbar', keywords: ['table', 'tabelle'],
+    command: ({ editor, range }) => {
+      // Slash-Range vorab entfernen, danach Dialog öffnen. Das eigentliche
+      // insertTable passiert in WikiEditor, sobald der Dialog bestätigt wird.
+      editor.chain().focus().deleteRange(range).run()
+      document.dispatchEvent(new CustomEvent('wiki:open-table-dialog'))
+    },
   },
   {
     title: 'Trennlinie', description: 'Horizontale Linie', keywords: ['hr', 'divider'],
