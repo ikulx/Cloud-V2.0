@@ -37,6 +37,43 @@ enum WikiAccessTarget {
   USER
 }
 
+// ─── Alarme (Cloud-seitiger Alarmmanager) ─────────────────────────────────────
+// Der Pi (Visu/Agent) erkennt Alarme lokal (Bit/Comparison-Regeln) und sendet
+// fertige Alarm-Events via MQTT an die Cloud. Die Cloud verwaltet die
+// Empfänger (pro Anlage) und übernimmt den Versand (aktuell Email, später
+// SMS/Telegram).
+
+enum AlarmPriority {
+  PRIO1
+  PRIO2
+  PRIO3
+  WARNING
+  INFO
+}
+
+enum AlarmRecipientType {
+  EMAIL
+  SMS
+  TELEGRAM
+}
+
+/// Zustand eines Alarm-Events.
+/// ACTIVE: Pi meldet den Alarm als aktiv. CLEARED: Pi hat Alarm zurückgenommen
+/// (Bit wieder 0 / Comparison nicht mehr erfüllt). ACKNOWLEDGED: Ein User hat
+/// den Alarm in der Cloud manuell quittiert.
+enum AlarmEventStatus {
+  ACTIVE
+  CLEARED
+  ACKNOWLEDGED
+}
+
+enum AlarmDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 // ─── Auth / Users ─────────────────────────────────────────────────────────────
 
 model User {
@@ -74,6 +111,7 @@ model User {
   sentInvitations     Invitation[]     @relation("InvitationAuthor")
   createdWikiPages    WikiPage[]       @relation("WikiPageAuthor")
   updatedWikiPages    WikiPage[]       @relation("WikiPageEditor")
+  acknowledgedAlarms  AlarmEvent[]     @relation("AlarmEventAck")
 
   @@index([roleId])
   @@map("users")
@@ -251,6 +289,12 @@ model Anlage {
   longitude       Float?
   hasHeatPump     Boolean  @default(false) @map("has_heat_pump")
   hasBoiler       Boolean  @default(false) @map("has_boiler")
+  /// Steuert die Offline-Überwachung für diese Anlage: Wenn true, wird bei
+  /// länger als threshold Minuten offline geratenen Geräten automatisch eine
+  /// Systembenachrichtigung (Mail) ausgelöst – an die zentral in
+  /// SystemSettings konfigurierte Adresse. false = keine Überwachung für
+  /// diese Anlage.
+  offlineMonitoringEnabled Boolean @default(true) @map("offline_monitoring_enabled")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -261,6 +305,8 @@ model Anlage {
   logEntries    AnlageLogEntry[]
   vpnAnlage     VpnAnlage?
   erzeuger      AnlageErzeuger[]
+  alarmRecipients AlarmRecipient[]
+  alarmEvents     AlarmEvent[]
 
   @@map("anlagen")
 }
@@ -385,6 +431,7 @@ model Device {
   todos         DeviceTodo[]
   logEntries    DeviceLogEntry[]
   vpnDevice     VpnDevice?
+  alarmEvents   AlarmEvent[]
 
   @@index([piSerial])
   @@map("devices")
@@ -732,4 +779,95 @@ model WikiPageTranslation {
   @@unique([pageId, lang])
   @@index([pageId])
   @@map("wiki_page_translations")
+}
+
+// ─── Alarme ───────────────────────────────────────────────────────────────────
+
+/// Alarm-Empfänger pro Anlage. Ein Empfänger beschreibt WOHIN bei einem
+/// Alarm benachrichtigt wird (E-Mail, SMS, Telegram) und optional WELCHE
+/// Prioritäten an ihn gehen.
+model AlarmRecipient {
+  id           String             @id @default(uuid()) @db.Uuid
+  anlageId     String             @map("anlage_id") @db.Uuid
+  anlage       Anlage             @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+  type         AlarmRecipientType
+  /// E-Mail-Adresse, Telefonnummer (E.164) oder Telegram-Chat-ID.
+  target       String
+  /// Optionaler Anzeigename (z.B. "Bereitschaft Müller").
+  label        String?
+  /// Liste der Prioritäten, die an diesen Empfänger gehen. Leere Liste =
+  /// alle Prioritäten.
+  priorities   AlarmPriority[]    @default([])
+  /// Verzögerung in Minuten, bevor der Versand ausgelöst wird (Eskalation).
+  /// 0 = sofort.
+  delayMinutes Int                @default(0) @map("delay_minutes")
+  isActive     Boolean            @default(true) @map("is_active")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt  @map("updated_at")
+
+  deliveries AlarmEventDelivery[]
+
+  @@index([anlageId])
+  @@map("alarm_recipients")
+}
+
+/// Ein konkreter Alarm, der vom Agent gemeldet wurde.
+/// Die Alarm-Regeln selbst bleiben auf dem Pi – hier wird nur der
+/// ausgelöste Zustand gespeichert (inkl. Historie / Quittierungen).
+model AlarmEvent {
+  id               String           @id @default(uuid()) @db.Uuid
+  deviceId         String           @map("device_id") @db.Uuid
+  device           Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  /// Anlage zum Zeitpunkt des Alarms (kann null sein, wenn Device gerade
+  /// keiner Anlage zugewiesen ist – dann wird nicht versendet).
+  anlageId         String?          @map("anlage_id") @db.Uuid
+  anlage           Anlage?          @relation(fields: [anlageId], references: [id], onDelete: SetNull)
+
+  /// Eindeutige Kennung dieser Alarm-Definition beim Pi.
+  /// Wird aus der Visu-Tabelle alarm_definitions übernommen und zusammen
+  /// mit der deviceId zur Deduplizierung wiederkehrender Alarme genutzt.
+  alarmKey         String           @map("alarm_key")
+  priority         AlarmPriority
+  message          String
+  /// Optionaler MQTT-Topic, auf dem der Pi den Trigger gelesen hat
+  /// (z.B. "modbusgateway/data/wp_status"). Reine Info.
+  source           String?
+  /// Roh-Payload vom Agent für Forensik / Debugging.
+  rawPayload       Json?            @map("raw_payload")
+  status           AlarmEventStatus @default(ACTIVE)
+  activatedAt      DateTime         @default(now()) @map("activated_at")
+  clearedAt        DateTime?        @map("cleared_at")
+  acknowledgedAt   DateTime?        @map("acknowledged_at")
+  acknowledgedById String?          @map("acknowledged_by_id") @db.Uuid
+  acknowledgedBy   User?            @relation("AlarmEventAck", fields: [acknowledgedById], references: [id])
+
+  deliveries AlarmEventDelivery[]
+
+  @@index([deviceId, activatedAt])
+  @@index([anlageId, activatedAt])
+  @@index([status])
+  @@index([deviceId, alarmKey, status])
+  @@map("alarm_events")
+}
+
+/// Versand-Log pro Empfänger: welcher Kanal, an wen, mit welchem Ergebnis.
+/// Bleibt erhalten, auch wenn der Empfänger später gelöscht wird
+/// (target/type sind kopiert).
+model AlarmEventDelivery {
+  id           String              @id @default(uuid()) @db.Uuid
+  eventId      String              @map("event_id") @db.Uuid
+  event        AlarmEvent          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  recipientId  String?             @map("recipient_id") @db.Uuid
+  recipient    AlarmRecipient?     @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  type         AlarmRecipientType
+  target       String
+  status       AlarmDeliveryStatus @default(PENDING)
+  errorMessage String?             @map("error_message")
+  attemptedAt  DateTime?           @map("attempted_at")
+  sentAt       DateTime?           @map("sent_at")
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  @@index([eventId])
+  @@index([status])
+  @@map("alarm_event_deliveries")
 }

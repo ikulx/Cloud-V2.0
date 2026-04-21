@@ -3,6 +3,7 @@ import { Server as SocketServer } from 'socket.io'
 import { prisma } from '../db/prisma'
 import { env } from '../config/env'
 import { logActivity } from './activity-log.service'
+import { handleAlarmMessage } from './alarm-ingest.service'
 
 
 let client: mqtt.MqttClient | null = null
@@ -18,9 +19,9 @@ export function initMqttService(io: SocketServer) {
 
   client.on('connect', () => {
     console.log(`[MQTT] Backend verbunden mit ${env.mqttUrl}`)
-    client!.subscribe(['yc/+/stat', 'yc/+/tele', 'yc/+/resp'], (err) => {
+    client!.subscribe(['yc/+/stat', 'yc/+/tele', 'yc/+/resp', 'yc/+/alarm'], (err) => {
       if (err) console.error('[MQTT] Subscribe Fehler:', err)
-      else console.log('[MQTT] Subscribed: yc/+/stat, yc/+/tele, yc/+/resp')
+      else console.log('[MQTT] Subscribed: yc/+/stat, yc/+/tele, yc/+/resp, yc/+/alarm')
     })
   })
 
@@ -46,6 +47,8 @@ export function initMqttService(io: SocketServer) {
         await handleTele(serial, payload.toString(), io)
       } else if (type === 'resp') {
         handleResp(serial, payload.toString(), io)
+      } else if (type === 'alarm') {
+        await handleAlarmMessage(serial, payload.toString(), io)
       }
     } catch (err) {
       console.error('[MQTT] Fehler bei Topic %s:', topic, err)

@@ -2,17 +2,14 @@ import { useMemo, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import TextField from '@mui/material/TextField'
-import InputAdornment from '@mui/material/InputAdornment'
 import Accordion from '@mui/material/Accordion'
 import AccordionSummary from '@mui/material/AccordionSummary'
 import AccordionDetails from '@mui/material/AccordionDetails'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import Checkbox from '@mui/material/Checkbox'
 import Button from '@mui/material/Button'
-import IconButton from '@mui/material/IconButton'
 import Collapse from '@mui/material/Collapse'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import type { Anlage } from '../../types/model'
 import type { ErzeugerCategoryWithTypes } from '../../features/erzeuger-types/queries'
@@ -167,22 +164,6 @@ export function AnlagenFilterPanel({ value, onChange, counts, categories, allUse
 
   return (
     <Box>
-      {/* Suche */}
-      <TextField
-        fullWidth
-        size="small"
-        placeholder="Suchen (Name, Projekt-Nr, Ort, Seriennummer …)"
-        value={value.search}
-        onChange={(e) => onChange({ ...value, search: e.target.value })}
-        InputProps={{
-          startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
-          endAdornment: value.search ? (
-            <IconButton size="small" onClick={() => onChange({ ...value, search: '' })}><ClearIcon fontSize="small" /></IconButton>
-          ) : null,
-        }}
-        sx={{ mb: 2 }}
-      />
-
       <FacetSection label="Status" count={value.statuses.size}>
         {Object.entries(STATUS_LABELS).map(([key, label]) => (
           <FilterCheckbox

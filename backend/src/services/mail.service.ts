@@ -182,6 +182,69 @@ export async function sendLoginCodeMail(email: string, code: string): Promise<vo
  * Passwort-Reset-Link. Der Token ist im Link enthalten und darf nur einmal
  * verwendet werden.
  */
+/**
+ * Alarm-Benachrichtigung per E-Mail.
+ * Wird vom Alarm-Dispatcher aufgerufen, wenn ein Gerät einen Alarm meldet.
+ */
+export async function sendAlarmMail(
+  email: string,
+  params: {
+    priority: string
+    message: string
+    anlageName: string
+    projectNumber?: string | null
+    deviceName: string
+    serial: string
+    activatedAt: Date
+    source?: string | null
+  },
+): Promise<void> {
+  const color =
+    params.priority === 'PRIO1' ? '#c62828' :
+    params.priority === 'PRIO2' ? '#e64a19' :
+    params.priority === 'PRIO3' ? '#f57c00' :
+    params.priority === 'WARNING' ? '#f9a825' : '#1976d2'
+
+  const priorityLabel =
+    params.priority === 'PRIO1' ? 'Priorität 1 – kritisch' :
+    params.priority === 'PRIO2' ? 'Priorität 2' :
+    params.priority === 'PRIO3' ? 'Priorität 3' :
+    params.priority === 'WARNING' ? 'Warnung' : 'Info'
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #333;">
+  <div style="background: ${color}; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;">
+    <h1 style="color: white; margin: 0; font-size: 20px;">${priorityLabel}</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 4px 0 0; font-size: 13px;">YControl Cloud – Alarmmeldung</p>
+  </div>
+  <div style="border: 1px solid #e0e0e0; border-top: none; padding: 28px 24px; border-radius: 0 0 8px 8px;">
+    <p style="font-size: 16px; margin-top: 0;"><strong>${escapeHtml(params.message)}</strong></p>
+    <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px;">
+      <tr><td style="padding: 6px 0; color: #666; width: 140px;">Anlage</td><td style="padding: 6px 0;">${escapeHtml(params.anlageName)}${params.projectNumber ? ' <span style="color:#999;">(' + escapeHtml(params.projectNumber) + ')</span>' : ''}</td></tr>
+      <tr><td style="padding: 6px 0; color: #666;">Gerät</td><td style="padding: 6px 0;">${escapeHtml(params.deviceName)} <span style="color:#999;">(${escapeHtml(params.serial)})</span></td></tr>
+      <tr><td style="padding: 6px 0; color: #666;">Zeitpunkt</td><td style="padding: 6px 0;">${params.activatedAt.toLocaleString('de-CH')}</td></tr>
+      ${params.source ? `<tr><td style="padding: 6px 0; color: #666;">Quelle</td><td style="padding: 6px 0; font-family: monospace; font-size: 12px;">${escapeHtml(params.source)}</td></tr>` : ''}
+    </table>
+    <p style="font-size: 13px; color: #999; margin-top: 28px; border-top: 1px solid #eee; padding-top: 16px;">
+      Diese Nachricht wurde automatisch vom YControl-Cloud-Alarmsystem erstellt.
+      Sie können Empfänger und Eskalationsregeln für diese Anlage über die Cloud verwalten.
+    </p>
+  </div>
+</body>
+</html>`
+
+  await sendMail(email, `[${priorityLabel}] ${params.anlageName}: ${params.message}`, html)
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c] as string))
+}
+
 export async function sendPasswordResetMail(email: string, token: string): Promise<void> {
   const { config } = await getTransporter()
   const link = `${config.appUrl}/reset-password/${token}`

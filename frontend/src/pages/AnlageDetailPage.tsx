@@ -61,6 +61,8 @@ import { TodoForm, EMPTY_TODO_FORM, todoFormToPayload, type TodoFormValue } from
 import { TodoEditDialog } from '../components/anlagen/TodoEditDialog'
 import { PhotoUploadField } from '../components/anlagen/PhotoUploadField'
 import { AnlagePhotosTab } from '../components/anlagen/AnlagePhotosTab'
+import { AnlageAlarmsTab } from '../components/anlagen/AnlageAlarmsTab'
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { useErzeugerTypes, useErzeugerCategories } from '../features/erzeuger-types/queries'
 import { formatCategoryPath } from '../features/erzeuger-types/helpers'
 
@@ -360,6 +362,11 @@ export function AnlageDetailPage() {
           icon={<PhotoLibraryIcon fontSize="small" />}
           iconPosition="start"
           label="Fotos"
+        />
+        <Tab
+          icon={<NotificationsActiveIcon fontSize="small" />}
+          iconPosition="start"
+          label="Alarme"
         />
         {canReadActivityLog && (
           <Tab
@@ -1025,8 +1032,13 @@ export function AnlageDetailPage() {
         <AnlagePhotosTab anlageId={id} />
       )}
 
+      {/* TAB: ALARME */}
+      {tab === ((canReadTodos ? 1 : 0) + (canReadLog ? 1 : 0) + 3) && id && (
+        <AnlageAlarmsTab anlageId={id} />
+      )}
+
       {/* TAB: AKTIVITÄTSLOG */}
-      {canReadActivityLog && tab === ((canReadTodos ? 1 : 0) + (canReadLog ? 1 : 0) + 3) && id && (
+      {canReadActivityLog && tab === ((canReadTodos ? 1 : 0) + (canReadLog ? 1 : 0) + 4) && id && (
         <EntityActivityLog entityId={id} />
       )}
 

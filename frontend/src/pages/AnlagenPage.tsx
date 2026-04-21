@@ -15,9 +15,10 @@ import Tooltip from '@mui/material/Tooltip'
 import Chip from '@mui/material/Chip'
 import MenuItem from '@mui/material/MenuItem'
 import Select from '@mui/material/Select'
+import TextField from '@mui/material/TextField'
+import InputAdornment from '@mui/material/InputAdornment'
+import SearchIcon from '@mui/icons-material/Search'
 import Drawer from '@mui/material/Drawer'
-import useMediaQuery from '@mui/material/useMediaQuery'
-import { useTheme } from '@mui/material/styles'
 import AddIcon from '@mui/icons-material/Add'
 import MapIcon from '@mui/icons-material/Map'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -136,8 +137,6 @@ export function AnlagenPage() {
   const navigate = useNavigate()
   const canCreate = usePermission('anlagen:create')
   const canDelete = usePermission('anlagen:delete')
-  const theme = useTheme()
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
 
   useDeviceStatus()
 
@@ -327,20 +326,6 @@ export function AnlagenPage() {
 
   const chips = renderActiveFilterChips()
 
-  const filterPanel = (
-    <Box sx={{ p: 2 }}>
-      <Typography variant="h6" mb={1}>Filter</Typography>
-      <AnlagenFilterPanel
-        value={filters}
-        onChange={setFilters}
-        counts={facetCounts}
-        categories={categories}
-        allUsers={allUsers}
-        allGroups={allGroups}
-      />
-    </Box>
-  )
-
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} flexWrap="wrap" gap={1}>
@@ -353,15 +338,34 @@ export function AnlagenPage() {
           )}
         </Typography>
         <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
-          {isMobile && (
-            <Button
-              startIcon={<FilterListIcon />}
-              variant="outlined"
-              onClick={() => setDrawerOpen(true)}
-            >
-              Filter{chips.length > 0 ? ` (${chips.length})` : ''}
-            </Button>
-          )}
+          <TextField
+            size="small"
+            placeholder="Suchen (Name, Projekt-Nr, Ort, Seriennummer …)"
+            value={filters.search}
+            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: filters.search ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setFilters({ ...filters, search: '' })}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+            sx={{ minWidth: 280 }}
+          />
+          <Button
+            startIcon={<FilterListIcon />}
+            variant="outlined"
+            onClick={() => setDrawerOpen(true)}
+          >
+            Filter{chips.length > 0 ? ` (${chips.length})` : ''}
+          </Button>
           <Select
             size="small"
             value={sortKey}
@@ -431,25 +435,121 @@ export function AnlagenPage() {
         </Box>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-        {!isMobile && (
-          <Paper
-            elevation={0}
-            sx={{ width: 280, minWidth: 280, border: '1px solid', borderColor: 'divider', position: 'sticky', top: 0 }}
-          >
-            {filterPanel}
-          </Paper>
-        )}
-        <Drawer anchor="left" open={isMobile && drawerOpen} onClose={() => setDrawerOpen(false)}>
-          <Box sx={{ width: 320, maxWidth: '100vw' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1 }}>
-              <IconButton onClick={() => setDrawerOpen(false)}><CloseIcon /></IconButton>
-            </Box>
-            {filterPanel}
+      <Drawer
+        anchor="left"
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        sx={{
+          '& .MuiDrawer-paper': {
+            width: 280,
+            maxWidth: '100vw',
+            boxSizing: 'border-box',
+            borderRight: '1px solid',
+            borderColor: 'rgba(255,255,255,0.12)',
+            bgcolor: 'primary.dark',
+            color: 'rgba(255,255,255,0.85)',
+            backgroundImage: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
+      >
+        <Box sx={{ p: 2, pt: 3, textAlign: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6" sx={{ fontSize: 16, fontWeight: 600, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+              <FilterListIcon fontSize="small" />
+              Filter
+            </Typography>
+            <IconButton onClick={() => setDrawerOpen(false)} size="small" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
           </Box>
-        </Drawer>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', display: 'block', mt: 0.5, textAlign: 'left' }}>
+            Anlagen eingrenzen
+          </Typography>
+        </Box>
 
-        <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Divider sx={{ borderColor: 'rgba(255,255,255,0.12)' }} />
+
+        <Box
+          sx={{
+            flex: 1,
+            overflowY: 'auto',
+            px: 2,
+            py: 1.5,
+            // Dark-Mode Overrides für das Filter-Panel innerhalb des Drawers
+            '& .MuiAccordion-root': {
+              bgcolor: 'transparent',
+              color: 'inherit',
+              borderColor: 'rgba(255,255,255,0.12) !important',
+            },
+            '& .MuiAccordionSummary-root, & .MuiAccordionDetails-root': {
+              color: 'inherit',
+            },
+            '& .MuiTypography-root': { color: 'inherit' },
+            '& .MuiTypography-caption': { color: 'rgba(255,255,255,0.6)' },
+            // Nur „neutrale" Icons (Accordion-Chevron, Clear-Button) einfärben.
+            // Checkbox-SVGs explizit ausnehmen, damit Mui-checked seine Farbe behält.
+            '& .MuiAccordionSummary-expandIconWrapper .MuiSvgIcon-root, & .MuiInputAdornment-root .MuiSvgIcon-root': {
+              color: 'rgba(255,255,255,0.7)',
+            },
+            '& .MuiCheckbox-root': { color: 'rgba(255,255,255,0.6)' },
+            '& .MuiCheckbox-root.Mui-checked, & .MuiCheckbox-root.Mui-checked .MuiSvgIcon-root': {
+              color: 'primary.main',
+            },
+            // Ausgewählte Facet-Einträge (Checkbox + Label) orange hervorheben
+            '& .MuiFormControlLabel-root:has(.Mui-checked) .MuiTypography-body2': {
+              color: 'primary.main',
+              fontWeight: 600,
+            },
+            // Aktiver Facet-Counter (z.B. "Status (2)") im Accordion-Header
+            '& .MuiAccordionSummary-root .MuiTypography-caption': {
+              color: 'primary.main',
+            },
+            '& .MuiOutlinedInput-root': {
+              color: 'white',
+              bgcolor: 'rgba(255,255,255,0.06)',
+              '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+              '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.4)' },
+              '&.Mui-focused fieldset': { borderColor: 'primary.main' },
+            },
+            '& .MuiInputBase-input::placeholder': { color: 'rgba(255,255,255,0.5)', opacity: 1 },
+          }}
+        >
+          <AnlagenFilterPanel
+            value={filters}
+            onChange={setFilters}
+            counts={facetCounts}
+            categories={categories}
+            allUsers={allUsers}
+            allGroups={allGroups}
+          />
+        </Box>
+
+        {chips.length > 0 && (
+          <>
+            <Divider sx={{ borderColor: 'rgba(255,255,255,0.12)' }} />
+            <Box sx={{ p: 1.5 }}>
+              <Button
+                size="small"
+                fullWidth
+                variant="outlined"
+                onClick={() => setFilters(EMPTY_FILTERS)}
+                sx={{
+                  color: 'white',
+                  borderColor: 'rgba(255,255,255,0.3)',
+                  '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.08)' },
+                }}
+              >
+                Alle zurücksetzen ({chips.length})
+              </Button>
+            </Box>
+          </>
+        )}
+      </Drawer>
+
+      <Box>
+        <Box sx={{ minWidth: 0 }}>
           {/* Aktive Filter Chips */}
           {chips.length > 0 && (
             <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1.5 }}>

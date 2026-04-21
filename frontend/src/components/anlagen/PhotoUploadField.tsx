@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import IconButton from '@mui/material/IconButton'
@@ -35,7 +35,22 @@ export function PhotoUploadField({ value, onChange, disabled, label = 'Fotos' }:
   const [busy, setBusy] = useState<{ total: number; done: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const cameraInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const mq = window.matchMedia('(pointer: coarse)')
+      setIsTouchDevice(mq.matches)
+      const handler = (e: MediaQueryListEvent) => setIsTouchDevice(e.matches)
+      mq.addEventListener?.('change', handler)
+      return () => mq.removeEventListener?.('change', handler)
+    } catch {
+      // noop
+    }
+  }, [])
 
   const uploadFiles = async (files: File[]) => {
     const images = files.filter((f) => f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name))
@@ -161,6 +176,17 @@ export function PhotoUploadField({ value, onChange, disabled, label = 'Fotos' }:
         >
           {busy ? `Lade hoch (${busy.done}/${busy.total}) …` : 'Fotos wählen'}
         </Button>
+        {isTouchDevice && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<PhotoCameraIcon />}
+            disabled={disabled || !!busy}
+            onClick={() => cameraInputRef.current?.click()}
+          >
+            Kamera
+          </Button>
+        )}
         <Typography variant="caption" color="text.secondary">
           oder hierher ziehen · automatisch komprimiert
         </Typography>
@@ -173,6 +199,18 @@ export function PhotoUploadField({ value, onChange, disabled, label = 'Fotos' }:
           onChange={async (e) => {
             const files = Array.from(e.target.files ?? [])
             e.target.value = '' // damit gleiche Datei nochmal gehen würde
+            if (files.length > 0) await uploadFiles(files)
+          }}
+        />
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+          onChange={async (e) => {
+            const files = Array.from(e.target.files ?? [])
+            e.target.value = ''
             if (files.length > 0) await uploadFiles(files)
           }}
         />

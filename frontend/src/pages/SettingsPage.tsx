@@ -67,6 +67,13 @@ export function SettingsPage() {
   const [deeplTestMsg, setDeeplTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [deeplTesting, setDeeplTesting] = useState(false)
 
+  // Alarm-Form (Offline-Überwachung)
+  const [alarmForm, setAlarmForm] = useState({
+    'alarm.offlineNotificationEmail': '',
+    'alarm.offlineThresholdMinutes': '180',
+  })
+  const [alarmSaved, setAlarmSaved] = useState(false)
+
   // System-Tab Retention
   const [retentionDays, setRetentionDays] = useState('90')
   const [retentionSaved, setRetentionSaved] = useState(false)
@@ -107,6 +114,10 @@ export function SettingsPage() {
       setDeeplForm({
         'deepl.apiKey': settings['deepl.apiKey'] ?? '',
         'deepl.tier': settings['deepl.tier'] ?? 'free',
+      })
+      setAlarmForm({
+        'alarm.offlineNotificationEmail': settings['alarm.offlineNotificationEmail'] ?? '',
+        'alarm.offlineThresholdMinutes': settings['alarm.offlineThresholdMinutes'] ?? '180',
       })
     }
   }, [settings])
@@ -163,6 +174,12 @@ export function SettingsPage() {
     await updateSettings.mutateAsync(deeplForm)
     setDeeplSaved(true)
     setTimeout(() => setDeeplSaved(false), 3000)
+  }
+
+  const handleSaveAlarm = async () => {
+    await updateSettings.mutateAsync(alarmForm)
+    setAlarmSaved(true)
+    setTimeout(() => setAlarmSaved(false), 3000)
   }
 
   const handleTestDeepl = async () => {
@@ -267,6 +284,7 @@ export function SettingsPage() {
   const tabs: { label: string; key: string }[] = [{ label: 'Account', key: 'account' }]
   if (canSeePiSetup) tabs.push({ label: t('settings.tabPiSetup'), key: 'pi' })
   if (isAdmin) tabs.push({ label: 'E-Mail', key: 'mail' })
+  if (isAdmin) tabs.push({ label: 'Alarme', key: 'alarm' })
   if (isAdmin) tabs.push({ label: 'Übersetzung', key: 'deepl' })
   if (isAdmin) tabs.push({ label: 'Erzeuger', key: 'erzeuger' })
   if (isAdmin) tabs.push({ label: 'System', key: 'system' })
@@ -549,6 +567,45 @@ export function SettingsPage() {
               >
                 Verbindung testen
               </Button>
+            </Box>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeKey === 'alarm' && (
+        <Card sx={{ maxWidth: 640 }}>
+          <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 3 }}>
+            <Typography variant="h6">Offline-Überwachung</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Zentrale Alarm-Adresse für den Fall, dass ein Pi länger als die
+              eingestellte Schwelle offline ist – oder wieder online kommt.
+              Die Überwachung lässt sich pro Anlage im Alarm-Tab deaktivieren.
+              Leere E-Mail = Überwachung global aus.
+            </Typography>
+
+            <TextField
+              label="Empfänger-E-Mail"
+              type="email"
+              placeholder="support@example.com"
+              value={alarmForm['alarm.offlineNotificationEmail']}
+              onChange={(e) => setAlarmForm((f) => ({ ...f, 'alarm.offlineNotificationEmail': e.target.value }))}
+              fullWidth
+            />
+
+            <TextField
+              label="Schwellwert (Minuten)"
+              type="number"
+              value={alarmForm['alarm.offlineThresholdMinutes']}
+              onChange={(e) => setAlarmForm((f) => ({ ...f, 'alarm.offlineThresholdMinutes': e.target.value }))}
+              helperText="Standard: 180 min (3 Stunden). Der Check läuft alle 5 min."
+              fullWidth
+            />
+
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <Button variant="contained" onClick={handleSaveAlarm} disabled={updateSettings.isPending}>
+                Speichern
+              </Button>
+              {alarmSaved && <Typography variant="body2" color="success.main">Gespeichert ✓</Typography>}
             </Box>
           </CardContent>
         </Card>

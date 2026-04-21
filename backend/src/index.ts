@@ -6,6 +6,7 @@ import dns from 'dns'
 import { createApp } from './app'
 import { createSocketServer } from './socket/socket-server'
 import { initMqttService } from './services/mqtt.service'
+import { startOfflineMonitor } from './services/offline-monitor.service'
 import { startActivityLogCleanupScheduler } from './services/activity-log-cleanup.service'
 import { env } from './config/env'
 import { prisma } from './db/prisma'
@@ -147,6 +148,8 @@ async function main() {
     console.log('✓ MQTT service initializing...')
     startActivityLogCleanupScheduler()
     console.log('✓ Activity-Log cleanup scheduler started (daily at 03:00)')
+    startOfflineMonitor(io)
+    console.log('✓ Offline-Monitor gestartet (5-min-Poll)')
   })
 
   process.on('SIGTERM', async () => {

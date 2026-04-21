@@ -67,10 +67,19 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC19"  # setProjectNumber Action → schreibt in SYS01_DB_Projektnummer
+AGENT_VERSION = "1.0.0-RC20"  # Alarm-Bridge + Cloud-Status für Visu-Weltkugel
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
+# Lokaler Mosquitto auf dem Pi (Visu + modbus-Gateway publishen/subscribet dort).
+# Der Agent nutzt diesen als "Briefkasten" zur Visu: er liest lokale Alarm-Events
+# von der Visu (Topic LOCAL_ALARM_TOPIC) und spiegelt sie zur Cloud; umgekehrt
+# publisht er retained seinen eigenen Cloud-Verbindungsstatus, damit das
+# Visu-Frontend den Weltkugel-Indikator anzeigen kann.
+LOCAL_MQTT_HOST        = "127.0.0.1"
+LOCAL_MQTT_PORT        = 1883
+LOCAL_ALARM_TOPIC      = "ycontrol/agent/alarm"
+LOCAL_CLOUD_STATUS_TOP = "ycontrol/agent/cloud-status"
 CONFIG_PATH   = "/etc/ycontrol/config.json"
 AGENT_PATH    = "/usr/local/bin/ycontrol-agent.py"
 SERVICE_PATH  = "/etc/systemd/system/ycontrol-agent.service"
@@ -357,10 +366,11 @@ def run_agent():
                 print("[YControl] Server nicht erreichbar (HTTP " + str(code) + ") – erneuter Versuch in 30s...")
                 time.sleep(30)
 
-    topic_stat = "yc/" + serial + "/stat"
-    topic_tele = "yc/" + serial + "/tele"
-    topic_cmnd = "yc/" + serial + "/cmnd"
-    topic_resp = "yc/" + serial + "/resp"
+    topic_stat  = "yc/" + serial + "/stat"
+    topic_tele  = "yc/" + serial + "/tele"
+    topic_cmnd  = "yc/" + serial + "/cmnd"
+    topic_resp  = "yc/" + serial + "/resp"
+    topic_alarm = "yc/" + serial + "/alarm"
 
     try:
         import paho.mqtt.client as mqtt
@@ -411,6 +421,92 @@ def run_agent():
         c.on_socket_open = _tcp_keepalive
         return c
 
+    # ── Lokaler MQTT-Client (Visu/Modbus-Broker auf dem Pi) ──
+    # Dient als Brücke zwischen Visu und Cloud:
+    #   - Subscribe: LOCAL_ALARM_TOPIC (Visu publisht hier bei Alarm-Ereignissen)
+    #     → wir leiten den Event mit der Seriennummer an die Cloud weiter.
+    #   - Publish (retained): LOCAL_CLOUD_STATUS_TOP = "online" | "offline"
+    #     damit die Visu anzeigen kann, ob der Agent mit der Cloud verbunden ist.
+    local_client     = [None]
+    local_connected  = [False]
+
+    def publish_cloud_status(online):
+        lc = local_client[0]
+        if lc is None:
+            return
+        try:
+            lc.publish(LOCAL_CLOUD_STATUS_TOP,
+                       "online" if online else "offline",
+                       retain=True, qos=1)
+        except Exception as ex:
+            print("[YControl] cloud-status publish fehlgeschlagen: " + str(ex), file=sys.stderr)
+
+    def on_local_connect(c, userdata, flags, rc):
+        if rc == 0:
+            local_connected[0] = True
+            print("[YControl] Lokaler MQTT verbunden: " + LOCAL_MQTT_HOST + ":" + str(LOCAL_MQTT_PORT))
+            try:
+                c.subscribe(LOCAL_ALARM_TOPIC, qos=1)
+            except Exception as ex:
+                print("[YControl] Lokales Subscribe fehlgeschlagen: " + str(ex), file=sys.stderr)
+            # Aktuellen Cloud-Verbindungszustand beim (Re-)Connect sofort spiegeln,
+            # damit die Visu nach lokalem Broker-Neustart korrekt updated wird.
+            try:
+                cc = client[0] if client else None
+                is_online = bool(cc and cc.is_connected())
+            except Exception:
+                is_online = False
+            publish_cloud_status(is_online)
+        else:
+            local_connected[0] = False
+            print("[YControl] Lokaler MQTT Fehler rc=" + str(rc), file=sys.stderr)
+
+    def on_local_disconnect(c, userdata, rc):
+        local_connected[0] = False
+        if rc != 0:
+            print("[YControl] Lokaler MQTT getrennt (rc=" + str(rc) + "), reconnect läuft...")
+
+    def on_local_message(c, userdata, msg):
+        # Visu publisht hier JSON-Alarm-Events ohne Seriennummer.
+        # Agent hängt die Seriennummer an und schickt an Cloud.
+        if msg.topic != LOCAL_ALARM_TOPIC:
+            return
+        try:
+            payload = json.loads(msg.payload.decode("utf-8"))
+        except Exception as ex:
+            print("[YControl] Lokaler Alarm: Payload kein JSON (" + str(ex) + ")", file=sys.stderr)
+            return
+        if not isinstance(payload, dict):
+            return
+        # Minimal-Validierung, damit wir keine Kaputtpayloads in die Cloud schicken.
+        if not payload.get("alarmKey") or not payload.get("priority") or not payload.get("message"):
+            print("[YControl] Lokaler Alarm unvollständig (alarmKey/priority/message fehlt), ignoriert")
+            return
+        # Seriennummer ergänzen – die Cloud löst darüber Device + Anlage auf.
+        payload["serial"] = serial
+        cc = client[0]
+        if cc is None or not cc.is_connected():
+            print("[YControl] Alarm kann nicht zur Cloud – MQTT nicht verbunden, gepuffert wird nicht (Agent erwartet Neuversand)", file=sys.stderr)
+            return
+        try:
+            cc.publish(topic_alarm, json.dumps(payload), retain=False, qos=1)
+            print("[YControl] Alarm an Cloud weitergeleitet: " + str(payload.get("alarmKey")) + " (" + str(payload.get("state", "active")) + ")")
+        except Exception as ex:
+            print("[YControl] Alarm-Weiterleitung fehlgeschlagen: " + str(ex), file=sys.stderr)
+
+    def make_local_client():
+        try:
+            lc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1,
+                             client_id=serial + "-bridge", protocol=mqtt.MQTTv311)
+        except AttributeError:
+            lc = mqtt.Client(client_id=serial + "-bridge", protocol=mqtt.MQTTv311)
+        lc.on_connect    = on_local_connect
+        lc.on_disconnect = on_local_disconnect
+        lc.on_message    = on_local_message
+        # Lokale Mosquitto-Instanz ist auf dem Pi üblicherweise anonym erreichbar.
+        # Falls nicht: hier username_pw_set() ergänzen.
+        return lc
+
     def _tcp_keepalive(c, userdata, sock):
         try:
             import socket as _sock
@@ -432,14 +528,20 @@ def run_agent():
             c.publish(topic_stat, "online", retain=True, qos=1)
             publish_tele(c)
             c.subscribe(topic_cmnd, qos=1)
+            # Visu-Weltkugel grün: Cloud erreichbar.
+            publish_cloud_status(True)
             print("[YControl] Agent bereit v" + AGENT_VERSION)
         else:
             print("[YControl] MQTT Fehler: " + codes.get(rc, str(rc)), file=sys.stderr)
+            # Visu-Weltkugel rot: Verbindung fehlgeschlagen.
+            publish_cloud_status(False)
             if rc in (4, 5):
                 auth_failed[0] = True
                 c.loop_stop()
 
     def on_disconnect(c, userdata, rc):
+        # Visu-Weltkugel rot: Cloud weg (egal ob sauber getrennt oder Fehler).
+        publish_cloud_status(False)
         if rc != 0:
             print("[YControl] MQTT getrennt (rc=" + str(rc) + "), verbinde neu...")
 
@@ -584,11 +686,21 @@ def run_agent():
     def shutdown(sig, frame):
         print("[YControl] Beende Agent...")
         running[0] = False
+        # Visu-Weltkugel vor dem echten Disconnect auf "offline" setzen,
+        # damit die Visu den Zustand nicht über retained-stale-Messages
+        # mitnimmt.
+        publish_cloud_status(False)
         try:
             client[0].publish(topic_stat, "offline", retain=True, qos=1)
             time.sleep(1)
             client[0].loop_stop()
             client[0].disconnect()
+        except Exception:
+            pass
+        try:
+            if local_client[0] is not None:
+                local_client[0].loop_stop()
+                local_client[0].disconnect()
         except Exception:
             pass
         sys.exit(0)
@@ -597,6 +709,17 @@ def run_agent():
     signal.signal(signal.SIGINT,  shutdown)
 
     client = [make_client()]
+
+    # Lokalen MQTT-Client starten (non-blocking, reconnectet automatisch via loop_start).
+    # Wir tolerieren, wenn Mosquitto lokal (noch) nicht läuft – paho versucht
+    # periodisch neu zu verbinden.
+    try:
+        local_client[0] = make_local_client()
+        local_client[0].connect_async(LOCAL_MQTT_HOST, LOCAL_MQTT_PORT, keepalive=30)
+        local_client[0].loop_start()
+        print("[YControl] Lokaler MQTT-Bridge-Client gestartet (" + LOCAL_MQTT_HOST + ":" + str(LOCAL_MQTT_PORT) + ")")
+    except Exception as ex:
+        print("[YControl] Lokaler MQTT-Client konnte nicht gestartet werden: " + str(ex), file=sys.stderr)
 
     while running[0]:
         auth_failed[0] = False

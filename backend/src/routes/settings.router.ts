@@ -25,6 +25,8 @@ export const SETTING_KEYS = [
   'activityLog.retentionDays',
   'deepl.apiKey',
   'deepl.tier',
+  'alarm.offlineNotificationEmail',
+  'alarm.offlineThresholdMinutes',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -43,6 +45,10 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'activityLog.retentionDays': '90',
   'deepl.apiKey': '',
   'deepl.tier': 'free',
+  // Empfänger für automatische Offline-Alerts (leer = deaktiviert global)
+  'alarm.offlineNotificationEmail': '',
+  // Schwellwert in Minuten, ab wann ein Gerät als "lange offline" gilt (3h = 180)
+  'alarm.offlineThresholdMinutes': '180',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {

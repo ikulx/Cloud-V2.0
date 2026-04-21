@@ -99,6 +99,7 @@ export interface Anlage {
   longitude: number | null
   hasHeatPump: boolean
   hasBoiler: boolean
+  offlineMonitoringEnabled: boolean
   anlageDevices: { device: { id: string; name: string; status: DeviceStatus; isApproved: boolean } }[]
   directUsers: { user: { id: string; firstName: string; lastName: string } }[]
   groupAnlagen: { group: { id: string; name: string } }[]
