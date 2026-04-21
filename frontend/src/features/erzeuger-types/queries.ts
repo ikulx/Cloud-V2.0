@@ -4,6 +4,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '../../lib/api'
 export interface ErzeugerCategory {
   id: string
   name: string
+  parentId: string | null
   sortOrder: number
   isActive: boolean
 }
@@ -80,7 +81,7 @@ export function useErzeugerCategories() {
 export function useCreateErzeugerCategory() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Partial<Pick<ErzeugerCategory, 'name' | 'sortOrder' | 'isActive'>>) =>
+    mutationFn: (data: Partial<Pick<ErzeugerCategory, 'name' | 'parentId' | 'sortOrder' | 'isActive'>>) =>
       apiPost<ErzeugerCategory>('/erzeuger-categories', data),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.categories }),
   })
@@ -89,7 +90,7 @@ export function useCreateErzeugerCategory() {
 export function useUpdateErzeugerCategory(id: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Partial<Pick<ErzeugerCategory, 'name' | 'sortOrder' | 'isActive'>>) =>
+    mutationFn: (data: Partial<Pick<ErzeugerCategory, 'name' | 'parentId' | 'sortOrder' | 'isActive'>>) =>
       apiPatch<ErzeugerCategory>(`/erzeuger-categories/${id}`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.categories }),
   })

@@ -16,7 +16,8 @@ import Divider from '@mui/material/Divider'
 import Snackbar from '@mui/material/Snackbar'
 import Chip from '@mui/material/Chip'
 import { ErzeugerPicker, type ErzeugerEntry } from './anlagen/ErzeugerPicker'
-import { useErzeugerTypes } from '../features/erzeuger-types/queries'
+import { useErzeugerTypes, useErzeugerCategories } from '../features/erzeuger-types/queries'
+import { formatCategoryPath } from '../features/erzeuger-types/helpers'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
 import { useTranslation } from 'react-i18next'
 import { useCreateAnlage } from '../features/anlagen/queries'
@@ -63,8 +64,13 @@ export function AnlageCreateWizard({
   const [showErrors, setShowErrors] = useState(false)
 
   const { data: erzeugerTypes = [] } = useErzeugerTypes()
+  const { data: erzeugerCategories = [] } = useErzeugerCategories()
   const erzeugerTypeName = (id: string) =>
     erzeugerTypes.find((t) => t.id === id)?.name ?? 'Unbekannt'
+  const erzeugerCategoryPath = (id: string) => {
+    const t = erzeugerTypes.find((x) => x.id === id)
+    return t ? formatCategoryPath(t.categoryId, erzeugerCategories) : ''
+  }
   /** Validiert jede Zeile gegen das serialRequired-Flag ihres Typs. */
   const erzeugerRowValid = (row: ErzeugerEntry) => {
     const t = erzeugerTypes.find((x) => x.id === row.typeId)
@@ -289,16 +295,23 @@ export function AnlageCreateWizard({
                 <Typography variant="body2"><strong>Projekt-Nr.:</strong> {form.projectNumber}</Typography>
                 <Typography variant="body2"><strong>{t('common.name')}:</strong> {form.name}</Typography>
                 {form.description && <Typography variant="body2"><strong>{t('common.description')}:</strong> {form.description}</Typography>}
-                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                <Box display="flex" flexDirection="column" gap={0.5}>
                   <Typography variant="body2"><strong>Erzeuger:</strong></Typography>
-                  {erzeuger.map((e, i) => (
-                    <Chip
-                      key={i}
-                      size="small"
-                      color="primary"
-                      label={e.serialNumber ? `${erzeugerTypeName(e.typeId)} · ${e.serialNumber}` : erzeugerTypeName(e.typeId)}
-                    />
-                  ))}
+                  {erzeuger.map((e, i) => {
+                    const path = erzeugerCategoryPath(e.typeId)
+                    const name = erzeugerTypeName(e.typeId)
+                    const label = e.serialNumber ? `${name} · SN ${e.serialNumber}` : name
+                    return (
+                      <Box key={i} sx={{ pl: 1 }}>
+                        {path && (
+                          <Typography variant="caption" color="text.secondary">{path}</Typography>
+                        )}
+                        <Box>
+                          <Chip size="small" color="primary" label={label} />
+                        </Box>
+                      </Box>
+                    )
+                  })}
                 </Box>
               </Stack>
             </Box>

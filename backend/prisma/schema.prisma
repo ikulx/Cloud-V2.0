@@ -263,11 +263,16 @@ model Anlage {
   @@map("anlagen")
 }
 
-/// Oberkategorie für Erzeuger (z.B. "Wärmepumpe", "Kessel"). Enthält
-/// mehrere konkrete Typen (z.B. "Wärmepumpe XY").
+/// Ordner im Erzeuger-Katalog. Beliebig tief verschachtelbar via
+/// parentId. Die Wurzel-Ebene entspricht einer "Kategorie", darunter
+/// können weitere Unter-Ordner liegen (z.B. Hersteller, Baureihen).
+/// Typen hängen an beliebigen Knoten im Baum.
 model ErzeugerCategory {
   id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique
+  name      String
+  parentId  String?  @map("parent_id") @db.Uuid
+  parent    ErzeugerCategory?  @relation("ErzeugerCategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  ErzeugerCategory[] @relation("ErzeugerCategoryTree")
   sortOrder Int      @default(0) @map("sort_order")
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
@@ -275,6 +280,8 @@ model ErzeugerCategory {
 
   types ErzeugerType[]
 
+  @@unique([name, parentId])
+  @@index([parentId])
   @@map("erzeuger_categories")
 }
 

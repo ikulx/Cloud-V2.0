@@ -55,7 +55,8 @@ import { geocodeAddress } from '../lib/geocode'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '../types/model'
 import { ErzeugerPicker, type ErzeugerEntry } from '../components/anlagen/ErzeugerPicker'
-import { useErzeugerTypes } from '../features/erzeuger-types/queries'
+import { useErzeugerTypes, useErzeugerCategories } from '../features/erzeuger-types/queries'
+import { formatCategoryPath } from '../features/erzeuger-types/helpers'
 
 const EMPTY_INFO_FORM = {
   projectNumber: '', name: '', description: '',
@@ -162,8 +163,13 @@ export function AnlageDetailPage() {
   const [logMessage, setLogMessage] = useState('')
 
   const { data: erzeugerTypes = [] } = useErzeugerTypes()
+  const { data: erzeugerCategories = [] } = useErzeugerCategories()
   const erzeugerTypeName = (id: string) =>
     erzeugerTypes.find((t) => t.id === id)?.name ?? 'Unbekannt'
+  const erzeugerCategoryPath = (id: string) => {
+    const t = erzeugerTypes.find((x) => x.id === id)
+    return t ? formatCategoryPath(t.categoryId, erzeugerCategories) : ''
+  }
   const erzeugerRowValid = (row: ErzeugerEntry) => {
     const t = erzeugerTypes.find((x) => x.id === row.typeId)
     return !(t?.serialRequired ?? true) || row.serialNumber.trim().length > 0
@@ -447,13 +453,23 @@ export function AnlageDetailPage() {
                         {(anlage.erzeuger ?? []).length === 0 ? (
                           <Typography variant="body1">—</Typography>
                         ) : (
-                          <Stack spacing={0.5} mt={0.5}>
-                            {(anlage.erzeuger ?? []).map((e) => (
-                              <Typography key={e.id} variant="body2">
-                                <strong>{erzeugerTypeName(e.typeId)}</strong>
-                                {e.serialNumber && <span style={{ color: 'inherit', opacity: 0.7 }}> · SN {e.serialNumber}</span>}
-                              </Typography>
-                            ))}
+                          <Stack spacing={0.75} mt={0.5}>
+                            {(anlage.erzeuger ?? []).map((e) => {
+                              const path = erzeugerCategoryPath(e.typeId)
+                              return (
+                                <Box key={e.id}>
+                                  {path && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                      {path}
+                                    </Typography>
+                                  )}
+                                  <Typography variant="body2">
+                                    <strong>{erzeugerTypeName(e.typeId)}</strong>
+                                    {e.serialNumber && <span style={{ opacity: 0.7 }}> · SN {e.serialNumber}</span>}
+                                  </Typography>
+                                </Box>
+                              )
+                            })}
                           </Stack>
                         )}
                       </Box>
