@@ -62,7 +62,8 @@ export function WikiPage() {
   // etwas ändert. Über den Stift-Button wechselt man in den Schreib-Modus.
   // Beim Seitenwechsel immer zurück auf View.
   const [editMode, setEditMode] = useState(false)
-  useEffect(() => { setEditMode(false) }, [selectedId])
+  const [confirmEdit, setConfirmEdit] = useState(false)
+  useEffect(() => { setEditMode(false); setConfirmEdit(false) }, [selectedId])
   const isEditing = canUpdate && editMode
   // Getrennte Mutation für Moves (andere ID als die aktuell selektierte).
   // Wir aktualisieren den Tree-Cache zuerst optimistisch (damit der Drop
@@ -289,7 +290,10 @@ export function WikiPage() {
               {canUpdate && (
                 <Tooltip title={isEditing ? 'Schreibschutz aktivieren' : 'Bearbeiten'}>
                   <IconButton
-                    onClick={() => setEditMode((m) => !m)}
+                    onClick={() => {
+                      if (isEditing) setEditMode(false)
+                      else setConfirmEdit(true)
+                    }}
                     size="small"
                     color={isEditing ? 'primary' : 'default'}
                     sx={{
@@ -390,6 +394,16 @@ export function WikiPage() {
         onClose={() => setConfirmDeleteId(null)}
         onConfirm={handleDelete}
         confirmLabel="Löschen"
+      />
+
+      {/* Edit confirm – beim Wechsel Lese → Schreiben */}
+      <ConfirmDialog
+        open={confirmEdit}
+        title="Bearbeiten starten?"
+        message="Änderungen werden sofort beim Tippen gespeichert und können nicht rückgängig gemacht werden. Möchten Sie wirklich in den Bearbeitungsmodus wechseln?"
+        onClose={() => setConfirmEdit(false)}
+        onConfirm={() => { setEditMode(true); setConfirmEdit(false) }}
+        confirmLabel="Ja, bearbeiten"
       />
     </Box>
   )
