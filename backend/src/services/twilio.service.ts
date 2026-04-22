@@ -14,22 +14,27 @@ import { getSetting } from '../routes/settings.router'
 interface TwilioConfig {
   accountSid: string
   authToken: string
-  fromNumber: string
+  /** SMS-Sender (Alphanumeric Sender ID oder ausnahmsweise auch E.164-Nummer). */
+  smsSenderId: string
+  /** Absender-Nummer für Voice-Calls – muss eine echte Twilio-Nummer (E.164) sein. */
+  callFromNumber: string
   enabled: boolean
 }
 
 async function readConfig(): Promise<TwilioConfig> {
-  const [sid, token, from, enabled] = await Promise.all([
+  const [sid, token, sms, call, enabled] = await Promise.all([
     getSetting('twilio.accountSid'),
     getSetting('twilio.authToken'),
-    getSetting('twilio.fromNumber'),
+    getSetting('twilio.smsSenderId'),
+    getSetting('twilio.callFromNumber'),
     getSetting('twilio.enabled'),
   ])
   return {
-    accountSid: sid.trim(),
-    authToken:  token.trim(),
-    fromNumber: from.trim(),
-    enabled:    enabled === 'true' || enabled === '1',
+    accountSid:     sid.trim(),
+    authToken:      token.trim(),
+    smsSenderId:    sms.trim(),
+    callFromNumber: call.trim(),
+    enabled:        enabled === 'true' || enabled === '1',
   }
 }
 
@@ -51,14 +56,14 @@ export interface TwilioResult {
 export async function sendSms(to: string, body: string): Promise<TwilioResult> {
   const cfg = await readConfig()
   if (!cfg.enabled)    return { ok: false, error: 'twilio_disabled' }
-  if (!cfg.accountSid || !cfg.authToken || !cfg.fromNumber) {
-    return { ok: false, error: 'twilio_not_configured' }
+  if (!cfg.accountSid || !cfg.authToken || !cfg.smsSenderId) {
+    return { ok: false, error: 'twilio_not_configured_for_sms' }
   }
   if (!to?.trim()) return { ok: false, error: 'missing_to' }
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${cfg.accountSid}/Messages.json`
   const params = new URLSearchParams({
-    From: cfg.fromNumber,
+    From: cfg.smsSenderId,
     To:   to.trim(),
     Body: body.slice(0, 1550), // Twilio akzeptiert max 1600 Zeichen
   })
@@ -88,8 +93,8 @@ export async function sendSms(to: string, body: string): Promise<TwilioResult> {
 export async function makeCall(to: string, sayText: string): Promise<TwilioResult> {
   const cfg = await readConfig()
   if (!cfg.enabled) return { ok: false, error: 'twilio_disabled' }
-  if (!cfg.accountSid || !cfg.authToken || !cfg.fromNumber) {
-    return { ok: false, error: 'twilio_not_configured' }
+  if (!cfg.accountSid || !cfg.authToken || !cfg.callFromNumber) {
+    return { ok: false, error: 'twilio_not_configured_for_calls' }
   }
   if (!to?.trim()) return { ok: false, error: 'missing_to' }
 
@@ -98,7 +103,7 @@ export async function makeCall(to: string, sayText: string): Promise<TwilioResul
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${cfg.accountSid}/Calls.json`
   const params = new URLSearchParams({
-    From: cfg.fromNumber,
+    From: cfg.callFromNumber,
     To:   to.trim(),
     Twiml: twiml,
   })

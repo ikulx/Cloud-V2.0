@@ -29,7 +29,8 @@ export const SETTING_KEYS = [
   'alarm.offlineThresholdMinutes',
   'twilio.accountSid',
   'twilio.authToken',
-  'twilio.fromNumber',
+  'twilio.smsSenderId',
+  'twilio.callFromNumber',
   'twilio.enabled',
 ] as const
 
@@ -56,7 +57,11 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   // Twilio SMS / Voice
   'twilio.accountSid': '',
   'twilio.authToken': '',
-  'twilio.fromNumber': '',
+  // SMS: Alphanumeric Sender ID (3–11 Zeichen, A-Z/0-9, z.B. "YControl").
+  // Nicht in allen Ländern möglich (z.B. USA nicht) – dort Twilio-Nummer stattdessen.
+  'twilio.smsSenderId': '',
+  // Voice: E.164-Absender-Nummer für ausgehende Anrufe.
+  'twilio.callFromNumber': '',
   'twilio.enabled': 'false',
 }
 

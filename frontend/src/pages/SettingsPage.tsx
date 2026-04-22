@@ -79,7 +79,8 @@ export function SettingsPage() {
   const [twilioForm, setTwilioForm] = useState({
     'twilio.accountSid': '',
     'twilio.authToken': '',
-    'twilio.fromNumber': '',
+    'twilio.smsSenderId': '',
+    'twilio.callFromNumber': '',
     'twilio.enabled': 'false',
   })
   const [twilioSaved, setTwilioSaved] = useState(false)
@@ -135,7 +136,8 @@ export function SettingsPage() {
       setTwilioForm({
         'twilio.accountSid': settings['twilio.accountSid'] ?? '',
         'twilio.authToken': settings['twilio.authToken'] ?? '',
-        'twilio.fromNumber': settings['twilio.fromNumber'] ?? '',
+        'twilio.smsSenderId': settings['twilio.smsSenderId'] ?? '',
+        'twilio.callFromNumber': settings['twilio.callFromNumber'] ?? '',
         'twilio.enabled': settings['twilio.enabled'] ?? 'false',
       })
     }
@@ -700,12 +702,20 @@ export function SettingsPage() {
                 inputProps={{ style: { fontFamily: 'monospace' } }}
               />
               <TextField
-                label="Absender-Nummer (E.164)"
-                value={twilioForm['twilio.fromNumber']}
-                onChange={(e) => setTwilioForm((f) => ({ ...f, 'twilio.fromNumber': e.target.value }))}
+                label="SMS – Alphanumeric Sender ID"
+                value={twilioForm['twilio.smsSenderId']}
+                onChange={(e) => setTwilioForm((f) => ({ ...f, 'twilio.smsSenderId': e.target.value }))}
+                fullWidth
+                placeholder="YControl"
+                helperText="3–11 Zeichen, A–Z / 0–9 / Leerzeichen. In CH/EU erlaubt, in US nicht – dort stattdessen eine Twilio-Nummer eintragen."
+              />
+              <TextField
+                label="Anruf – Absender-Nummer (E.164)"
+                value={twilioForm['twilio.callFromNumber']}
+                onChange={(e) => setTwilioForm((f) => ({ ...f, 'twilio.callFromNumber': e.target.value }))}
                 fullWidth
                 placeholder="+41791234567"
-                helperText="Verifizierte Twilio-Nummer oder Messaging-Service-SID."
+                helperText="Verifizierte Twilio-Nummer für ausgehende Anrufe (Piket-Eskalation)."
               />
 
               <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
