@@ -87,6 +87,15 @@ export async function handleAlarmMessage(
       where: { id: existing.id },
       data: { status: 'CLEARED', clearedAt: new Date() },
     })
+    // Noch offene (verzögerte) Zustellungen abbrechen – die Eskalation
+    // soll nicht mehr abgesetzt werden, wenn der Alarm schon wieder weg ist.
+    const cancelled = await prisma.alarmEventDelivery.updateMany({
+      where: { eventId: existing.id, status: 'PENDING' },
+      data: { status: 'SKIPPED', errorMessage: 'event_cleared' },
+    })
+    if (cancelled.count > 0) {
+      console.log(`[AlarmIngest] ${serial}/${alarmKey}: ${cancelled.count} ausstehende Delivery(s) storniert`)
+    }
     console.log(`[AlarmIngest] ${serial}/${alarmKey}: CLEARED`)
     if (anlageId) {
       io.to(`anlage:${anlageId}`).emit('alarm:cleared', { id: cleared.id, deviceId: device.id, alarmKey })

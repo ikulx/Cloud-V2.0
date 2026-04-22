@@ -14,15 +14,30 @@ const router = Router()
 const PRIORITIES = ['PRIO1', 'PRIO2', 'PRIO3', 'WARNING', 'INFO'] as const
 const TYPES = ['EMAIL', 'SMS', 'TELEGRAM'] as const
 
-// Wochenzeitplan: 7 Einträge (Mon..Son) oder "always"-Modus.
+// Wochenzeitplan: 7 Einträge (Mo..So), pro Tag 0..n Zeitfenster.
+// Legacy-Format ({enabled,start,end}) wird zur Vorwärts-Kompatibilität
+// im selben Schema toleriert (z.union mit beiden Shapes).
 const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/
-const scheduleSchema = z.object({
-  mode: z.enum(['always', 'weekly']),
-  days: z.array(z.object({
+const scheduleWindowSchema = z.object({
+  start: z.string().regex(HHMM_RE, 'HH:MM'),
+  end:   z.string().regex(HHMM_RE, 'HH:MM'),
+})
+const scheduleDaySchema = z.union([
+  // v2: {enabled, windows: [...]}
+  z.object({
+    enabled: z.boolean(),
+    windows: z.array(scheduleWindowSchema).max(6),
+  }),
+  // v1 legacy: {enabled, start, end}
+  z.object({
     enabled: z.boolean(),
     start: z.string().regex(HHMM_RE, 'HH:MM'),
     end:   z.string().regex(HHMM_RE, 'HH:MM'),
-  })).length(7).optional(),
+  }),
+])
+const scheduleSchema = z.object({
+  mode: z.enum(['always', 'weekly']),
+  days: z.array(scheduleDaySchema).length(7).optional(),
 }).nullable().optional()
 
 const recipientSchema = z.object({

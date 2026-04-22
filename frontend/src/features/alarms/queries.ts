@@ -6,15 +6,47 @@ export type AlarmRecipientType = 'EMAIL' | 'SMS' | 'TELEGRAM'
 export type AlarmEventStatus = 'ACTIVE' | 'CLEARED' | 'ACKNOWLEDGED'
 export type AlarmDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'
 
-export interface RecipientScheduleDay {
-  enabled: boolean
+export interface RecipientScheduleWindow {
   start: string // "HH:MM"
   end: string   // "HH:MM"
+}
+
+export interface RecipientScheduleDay {
+  enabled: boolean
+  windows: RecipientScheduleWindow[]
 }
 
 export interface RecipientSchedule {
   mode: 'always' | 'weekly'
   days?: RecipientScheduleDay[] // 7 Einträge, index 0 = Montag ... 6 = Sonntag
+}
+
+// Legacy v1-Shape; vom Backend theoretisch noch ausliefer­bar, wenn Altbestand
+// gespeichert ist. Im Frontend normalisieren wir auf v2 beim Laden.
+interface LegacyScheduleDay { enabled: boolean; start?: string; end?: string }
+
+/** Macht beliebige (v1/v2) Zeitplan-Daten zum einheitlichen v2-Format. */
+export function normalizeSchedule(raw: unknown): RecipientSchedule | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as { mode?: string; days?: unknown[] }
+  if (s.mode !== 'weekly') return { mode: 'always' }
+  if (!Array.isArray(s.days)) return { mode: 'always' }
+
+  const days: RecipientScheduleDay[] = []
+  for (let i = 0; i < 7; i++) {
+    const d = s.days[i] as (RecipientScheduleDay & LegacyScheduleDay) | undefined
+    const enabled = !!d?.enabled
+    let windows: RecipientScheduleWindow[] = []
+    if (d && Array.isArray(d.windows)) {
+      windows = d.windows
+        .filter((w) => w && typeof w.start === 'string' && typeof w.end === 'string')
+        .map((w) => ({ start: w.start, end: w.end }))
+    } else if (d && typeof d.start === 'string' && typeof d.end === 'string') {
+      windows = [{ start: d.start, end: d.end }]
+    }
+    days.push({ enabled, windows })
+  }
+  return { mode: 'weekly', days }
 }
 
 export interface AlarmRecipient {

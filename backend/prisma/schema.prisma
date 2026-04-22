@@ -807,18 +807,24 @@ model AlarmRecipient {
   /// Verzögerung in Minuten, bevor der Versand ausgelöst wird (Eskalation).
   /// 0 = sofort.
   delayMinutes Int                @default(0) @map("delay_minutes")
-  /// Wochenzeitplan. JSON-Struktur:
+  /// Wochenzeitplan. JSON-Struktur (ab v2):
   ///   {
   ///     "mode": "always" | "weekly",
   ///     "days": [                 // index 0 = Montag ... 6 = Sonntag
-  ///       { "enabled": true,  "start": "HH:MM", "end": "HH:MM" },
+  ///       {
+  ///         "enabled": true,
+  ///         "windows": [           // 0..n Zeitfenster pro Tag
+  ///           { "start": "HH:MM", "end": "HH:MM" }
+  ///         ]
+  ///       },
   ///       ... (7 Einträge)
   ///     ]
   ///   }
   /// mode="always" → Empfänger bekommt Alarme jederzeit.
   /// mode="weekly" → nur wenn der aktuelle Wochentag `enabled` ist und die
-  ///                  Uhrzeit im [start, end]-Fenster liegt (Fenster darf
+  ///                  Uhrzeit in einem der Fenster liegt (Fenster darf
   ///                  mitternacht umschlagen, z.B. 22:00–06:00).
+  /// Legacy v1-Struktur ({ enabled, start, end }) wird weiterhin toleriert.
   /// Ausserhalb des Zeitplans wird der Alarm NICHT nachgeholt, sondern
   /// definitiv verworfen (Delivery=SKIPPED, Grund "out_of_schedule").
   /// null = wie "always".
@@ -885,11 +891,17 @@ model AlarmEventDelivery {
   target       String
   status       AlarmDeliveryStatus @default(PENDING)
   errorMessage String?             @map("error_message")
+  /// Zeitpunkt, zu dem der Versand frühestens ausgeführt werden soll.
+  /// Bei `delayMinutes = 0` ist das now() und wird sofort bearbeitet.
+  /// Bei Eskalations-Verzögerung zeigt scheduledAt in die Zukunft; der
+  /// Delivery-Worker pollt ≤scheduledAt fällige PENDING-Einträge.
+  scheduledAt  DateTime?           @map("scheduled_at")
   attemptedAt  DateTime?           @map("attempted_at")
   sentAt       DateTime?           @map("sent_at")
   createdAt    DateTime            @default(now()) @map("created_at")
 
   @@index([eventId])
   @@index([status])
+  @@index([status, scheduledAt])
   @@map("alarm_event_deliveries")
 }

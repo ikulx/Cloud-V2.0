@@ -39,12 +39,13 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import {
   useAlarmRecipients, useCreateAlarmRecipient, useUpdateAlarmRecipient, useDeleteAlarmRecipient,
-  useAlarmEvents,
+  useAlarmEvents, normalizeSchedule,
   type AlarmRecipient, type AlarmPriority, type AlarmRecipientType, type AlarmEvent,
-  type RecipientSchedule, type RecipientScheduleDay,
+  type RecipientSchedule,
 } from '../../features/alarms/queries'
 import { useAnlage, useUpdateAnlage } from '../../features/anlagen/queries'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
+import { ScheduleEditor } from './ScheduleEditor'
 
 const PRIORITIES: AlarmPriority[] = ['PRIO1', 'PRIO2', 'PRIO3', 'WARNING', 'INFO']
 const PRIO_LABEL: Record<AlarmPriority, string> = {
@@ -57,30 +58,44 @@ const PRIO_COLOR: Record<AlarmPriority, 'error' | 'warning' | 'info' | 'default'
 const DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
 
 function defaultSchedule(): RecipientSchedule {
-  return {
-    mode: 'always',
-    days: Array.from({ length: 7 }, () => ({ enabled: true, start: '00:00', end: '23:59' })),
-  }
+  return { mode: 'always' }
 }
 
-/** Menschlich lesbare Kurzform des Zeitplans, z.B. "Mo-Fr 06–22" */
-function formatScheduleSummary(s: RecipientSchedule | null | undefined): string {
+/** Serialisiert die Zeitfenster eines Tages als vergleichbaren String. */
+function windowsKey(ws: Array<{ start: string; end: string }>): string {
+  return ws.map((w) => `${w.start}-${w.end}`).join(',')
+}
+
+/** Menschlich lesbare Kurzform des Zeitplans, z.B. "Mo–Fr 08–17, Sa 09–12" */
+function formatScheduleSummary(raw: RecipientSchedule | null | undefined): string {
+  const s = normalizeSchedule(raw)
   if (!s || s.mode !== 'weekly' || !s.days) return 'immer'
-  const active = s.days.map((d, i) => (d.enabled ? i : -1)).filter((i) => i >= 0)
+  const active = s.days
+    .map((d, i) => (d.enabled && d.windows.length > 0 ? i : -1))
+    .filter((i) => i >= 0)
   if (active.length === 0) return 'nie aktiv'
-  // Kompakte Bereich-Erkennung: zusammenhängende Day-Indizes zusammenfassen
-  const ranges: string[] = []
-  let i = 0
-  while (i < active.length) {
-    let j = i
-    while (j + 1 < active.length && active[j + 1] === active[j] + 1) j++
-    ranges.push(i === j ? DAY_LABELS[active[i]] : `${DAY_LABELS[active[i]]}-${DAY_LABELS[active[j]]}`)
-    i = j + 1
+
+  // Gruppiere aufeinanderfolgende Tage mit identischen Fenster-Signaturen.
+  interface Group { start: number; end: number; key: string; label: string }
+  const groups: Group[] = []
+  for (const i of active) {
+    const key = windowsKey(s.days[i].windows)
+    const last = groups[groups.length - 1]
+    if (last && last.end === i - 1 && last.key === key) {
+      last.end = i
+    } else {
+      const label = s.days[i].windows.map((w) => `${w.start}–${w.end}`).join(' + ')
+      groups.push({ start: i, end: i, key, label })
+    }
   }
-  const first = s.days[active[0]]
-  const sameTimes = active.every((d) => s.days![d].start === first.start && s.days![d].end === first.end)
-  if (sameTimes) return `${ranges.join(', ')} ${first.start}–${first.end}`
-  return `${ranges.join(', ')} (gemischt)`
+
+  const parts = groups.map((g) => {
+    const range = g.start === g.end
+      ? DAY_LABELS[g.start]
+      : `${DAY_LABELS[g.start]}–${DAY_LABELS[g.end]}`
+    return `${range} ${g.label}`
+  })
+  return parts.join(', ')
 }
 
 function TypeIcon({ type }: { type: AlarmRecipientType }) {
@@ -346,14 +361,16 @@ function RecipientDialog({
   const [priorities, setPriorities] = useState<AlarmPriority[]>(editing?.priorities ?? [])
   const [delayMinutes, setDelayMinutes] = useState(editing?.delayMinutes ?? 0)
   const [isActive, setIsActive] = useState(editing?.isActive ?? true)
-  const [schedule, setSchedule] = useState<RecipientSchedule>(() =>
-    editing?.schedule && editing.schedule.mode === 'weekly' && editing.schedule.days
-      ? { mode: 'weekly', days: editing.schedule.days.map((d) => ({ ...d })) }
-      : defaultSchedule()
-  )
+  const [schedule, setSchedule] = useState<RecipientSchedule>(() => {
+    const norm = normalizeSchedule(editing?.schedule)
+    return norm ?? defaultSchedule()
+  })
 
   const save = async () => {
     if (!target.trim()) return
+    // Nur im weekly-Modus days mitschicken
+    const cleanSchedule: RecipientSchedule =
+      schedule.mode === 'always' ? { mode: 'always' } : schedule
     const data = {
       type,
       target: target.trim(),
@@ -361,7 +378,7 @@ function RecipientDialog({
       priorities,
       delayMinutes,
       isActive,
-      schedule: schedule.mode === 'always' ? { mode: 'always' as const } : schedule,
+      schedule: cleanSchedule,
     }
     if (editing) {
       await update.mutateAsync({ id: editing.id, ...data })
@@ -376,13 +393,6 @@ function RecipientDialog({
     if (!window.confirm('Empfänger wirklich löschen?')) return
     await del.mutateAsync(editing.id)
     onClose()
-  }
-
-  const setDay = (i: number, patch: Partial<RecipientScheduleDay>) => {
-    setSchedule((s) => ({
-      ...s,
-      days: (s.days ?? defaultSchedule().days!).map((d, idx) => idx === i ? { ...d, ...patch } : d),
-    }))
   }
 
   return (
@@ -440,50 +450,12 @@ function RecipientDialog({
           </Box>
 
           <Box>
-            <Typography variant="body2" sx={{ mb: 1 }}>Zeitplan</Typography>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>Zeitplan</Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-              Alarme ausserhalb des Zeitplans werden nicht an diesen Empfänger versendet
-              – sie werden <strong>nicht</strong> nachgeholt.
+              Alarme ausserhalb des Zeitplans werden <strong>nicht</strong> an diesen
+              Empfänger versendet – sie werden auch nicht nachgeholt.
             </Typography>
-            <RadioGroup
-              row
-              value={schedule.mode}
-              onChange={(e) => setSchedule((s) => ({ ...s, mode: e.target.value as 'always' | 'weekly' }))}
-            >
-              <FormControlLabel value="always" control={<Radio size="small" />} label="Immer" />
-              <FormControlLabel value="weekly" control={<Radio size="small" />} label="Wochenplan" />
-            </RadioGroup>
-
-            {schedule.mode === 'weekly' && (
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto', gap: 1, alignItems: 'center', mt: 1 }}>
-                {(schedule.days ?? defaultSchedule().days!).map((d, i) => (
-                  <Box key={i} sx={{ display: 'contents' }}>
-                    <FormControlLabel
-                      control={<Checkbox size="small" checked={d.enabled} onChange={(e) => setDay(i, { enabled: e.target.checked })} />}
-                      label={DAY_LABELS[i]}
-                    />
-                    <Box />
-                    <TextField
-                      type="time" size="small"
-                      value={d.start}
-                      disabled={!d.enabled}
-                      onChange={(e) => setDay(i, { start: e.target.value })}
-                      sx={{ width: 110 }}
-                    />
-                    <TextField
-                      type="time" size="small"
-                      value={d.end}
-                      disabled={!d.enabled}
-                      onChange={(e) => setDay(i, { end: e.target.value })}
-                      sx={{ width: 110 }}
-                    />
-                  </Box>
-                ))}
-                <Typography variant="caption" color="text.secondary" sx={{ gridColumn: '1 / -1', mt: 0.5 }}>
-                  Tipp: Endzeit vor Startzeit ergibt ein Fenster über Mitternacht (z.&nbsp;B. 22:00 → 06:00).
-                </Typography>
-              </Box>
-            )}
+            <ScheduleEditor value={schedule} onChange={setSchedule} />
           </Box>
 
           <TextField
@@ -492,7 +464,7 @@ function RecipientDialog({
             fullWidth size="small"
             value={delayMinutes}
             onChange={(e) => setDelayMinutes(Math.max(0, parseInt(e.target.value, 10) || 0))}
-            helperText="0 = sofort. Kann für Eskalationsstufen genutzt werden."
+            helperText="0 = sofort. Gilt NUR wenn der Alarm-Zeitpunkt im Zeitplan liegt – dann wird der Versand um so viele Minuten verzögert. Sinnvoll für Eskalationsstufen (z.B. 15 min später an Bereitschaftsleiter)."
           />
 
           <FormControlLabel
