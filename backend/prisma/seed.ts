@@ -296,7 +296,27 @@ async function main() {
   // Änderungen (isActive/label) bleiben bei erneuten Seed-Läufen bestehen.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pAny = prisma as any
-  const { LUZERN_HOLIDAY_RULES } = await import('../src/lib/holidays')
+  // Inline (keine src/-Imports, damit der Seed-Build mit tsconfig.seed.json
+  // sauber nach dist/prisma/seed.js kompiliert).
+  const LUZERN_HOLIDAY_RULES: Array<{
+    key: string; label: string; type: 'FIXED' | 'EASTER_OFFSET';
+    fixedMonth?: number; fixedDay?: number; easterOffset?: number;
+    region?: string; sortOrder: number;
+  }> = [
+    { key: 'neujahr',           label: 'Neujahr',           type: 'FIXED',         fixedMonth: 1,  fixedDay: 1,  region: 'CH', sortOrder: 10 },
+    { key: 'berchtoldstag',     label: 'Berchtoldstag',     type: 'FIXED',         fixedMonth: 1,  fixedDay: 2,  region: 'LU', sortOrder: 20 },
+    { key: 'karfreitag',        label: 'Karfreitag',        type: 'EASTER_OFFSET', easterOffset: -2, region: 'CH',             sortOrder: 30 },
+    { key: 'ostermontag',       label: 'Ostermontag',       type: 'EASTER_OFFSET', easterOffset: 1,  region: 'CH',             sortOrder: 40 },
+    { key: 'auffahrt',          label: 'Auffahrt',          type: 'EASTER_OFFSET', easterOffset: 39, region: 'CH',             sortOrder: 50 },
+    { key: 'pfingstmontag',     label: 'Pfingstmontag',     type: 'EASTER_OFFSET', easterOffset: 50, region: 'CH',             sortOrder: 60 },
+    { key: 'fronleichnam',      label: 'Fronleichnam',      type: 'EASTER_OFFSET', easterOffset: 60, region: 'LU',             sortOrder: 70 },
+    { key: 'bundesfeier',       label: 'Bundesfeier',       type: 'FIXED',         fixedMonth: 8,  fixedDay: 1,  region: 'CH', sortOrder: 80 },
+    { key: 'mariae_himmelfahrt',label: 'Mariä Himmelfahrt', type: 'FIXED',         fixedMonth: 8,  fixedDay: 15, region: 'LU', sortOrder: 90 },
+    { key: 'allerheiligen',     label: 'Allerheiligen',     type: 'FIXED',         fixedMonth: 11, fixedDay: 1,  region: 'LU', sortOrder: 100 },
+    { key: 'mariae_empfaengnis',label: 'Mariä Empfängnis',  type: 'FIXED',         fixedMonth: 12, fixedDay: 8,  region: 'LU', sortOrder: 110 },
+    { key: 'weihnachten',       label: 'Weihnachten',       type: 'FIXED',         fixedMonth: 12, fixedDay: 25, region: 'CH', sortOrder: 120 },
+    { key: 'stephanstag',       label: 'Stephanstag',       type: 'FIXED',         fixedMonth: 12, fixedDay: 26, region: 'LU', sortOrder: 130 },
+  ]
   for (const r of LUZERN_HOLIDAY_RULES) {
     await pAny.holidayRule.upsert({
       where: { key: r.key },
