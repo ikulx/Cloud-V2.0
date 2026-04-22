@@ -266,10 +266,18 @@ export function useDeleteAlarmRecipient(anlageId: string) {
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
+export function useForceClearAlarmEvent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiPost<AlarmEvent>(`/alarms/events/${id}/force-clear`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['alarms', 'events'] }),
+  })
+}
+
 export function useAlarmEvents(filters: {
   anlageId?: string
   deviceId?: string
-  status?: AlarmEventStatus
+  status?: AlarmEventStatus | 'ALL'
   priority?: AlarmPriority
   limit?: number
 }) {

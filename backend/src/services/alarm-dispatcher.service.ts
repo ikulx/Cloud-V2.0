@@ -238,17 +238,11 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
       && rAny.template?.key === 'piketdienst'
       && rAny.template?.deliveryChannel === 'PIKET_MANAGER'
     ) {
-      // Piket-Manager benötigt SMS/Anruf – nur bei Vertrag B oder C sinnvoll.
-      const contract = (anlage as unknown as { contract?: string }).contract ?? 'NONE'
-      if (contract !== 'B' && contract !== 'C') {
-        await prisma.alarmEventDelivery.create({
-          data: {
-            eventId: event.id, recipientId: r.id, type: r.type, target: '[piket-manager]',
-            status: 'SKIPPED', errorMessage: 'piket_requires_contract_b_or_c', attemptedAt: now,
-          },
-        })
-        continue
-      }
+      // Hinweis: Kein harter Contract-B/C-Gate mehr. Wenn der Admin
+      // Piketdienst für eine Anlage aktiviert hat, wird der Piket-Flow
+      // gestartet. SMS/Anruf werden intern über das Twilio-Gate nur
+      // wirklich versendet, wenn die Config stimmt – sonst landet der
+      // Fehler im attempts-Log des PiketAlarmEvent.
       if (rateLimited) {
         await prisma.alarmEventDelivery.create({
           data: {

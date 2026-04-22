@@ -37,7 +37,7 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import {
   useAlarmRecipients, useCreateAlarmRecipient, useUpdateAlarmRecipient, useDeleteAlarmRecipient,
-  useAlarmEvents, normalizeSchedule,
+  useAlarmEvents, useForceClearAlarmEvent, normalizeSchedule,
   type AlarmRecipient, type AlarmPriority, type AlarmRecipientType, type AlarmEvent,
   type RecipientSchedule,
 } from '../../features/alarms/queries'
@@ -246,7 +246,7 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
             {t('anlageAlarms.activeNone')}
           </Typography>
         ) : (
-          <ActiveAlarmList events={events} />
+          <ActiveAlarmList events={events} isAdmin={isAdmin} />
         )}
       </Paper>
 
@@ -463,17 +463,20 @@ function RecipientTable({
 
 // ─── Event-Liste (ohne Acknowledge) ───────────────────────────────────────────
 
-function ActiveAlarmList({ events }: { events: AlarmEvent[] }) {
+function ActiveAlarmList({ events, isAdmin }: { events: AlarmEvent[]; isAdmin: boolean }) {
+  const { t } = useTranslation()
+  const forceClear = useForceClearAlarmEvent()
   return (
     <TableContainer>
       <Table size="small">
         <TableHead>
           <TableRow>
-            <TableCell>Zeit</TableCell>
-            <TableCell>Priorität</TableCell>
-            <TableCell>Meldung</TableCell>
-            <TableCell>Gerät</TableCell>
-            <TableCell>Versand</TableCell>
+            <TableCell>{t('anlageAlarms.cols.time')}</TableCell>
+            <TableCell>{t('anlageAlarms.cols.priority')}</TableCell>
+            <TableCell>{t('anlageAlarms.cols.message')}</TableCell>
+            <TableCell>{t('anlageAlarms.cols.device')}</TableCell>
+            <TableCell>{t('anlageAlarms.cols.deliveries')}</TableCell>
+            {isAdmin && <TableCell align="right" sx={{ width: 60 }} />}
           </TableRow>
         </TableHead>
         <TableBody>
@@ -497,6 +500,25 @@ function ActiveAlarmList({ events }: { events: AlarmEvent[] }) {
                   )}
                   {e.deliveries.length === 0 && <span style={{ color: '#9e9e9e' }}>—</span>}
                 </TableCell>
+                {isAdmin && (
+                  <TableCell align="right">
+                    <Tooltip title="Hängenden Alarm manuell als gelöscht markieren (z.B. wenn das cleared-Signal vom Pi verloren ging)">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={forceClear.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Alarm "${e.message}" wirklich manuell als gelöscht markieren?`)) {
+                              void forceClear.mutate(e.id)
+                            }
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </TableCell>
+                )}
               </TableRow>
             )
           })}

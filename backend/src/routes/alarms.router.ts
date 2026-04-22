@@ -251,8 +251,29 @@ router.get('/events', authenticate, requirePermission('anlagen:read'), async (re
   res.json(events)
 })
 
-// Hinweis: Es gibt bewusst KEIN Acknowledge-Endpoint mehr. Der Alarm-Lifecycle
-// ist Pi-seitig: ACTIVE bei Auslösung, CLEARED beim Wegfall. Die Cloud zeigt
-// nur den aktuellen Zustand, kein manuelles Quittieren.
+// POST /api/alarms/events/:id/force-clear – Admin-Escape-Hatch.
+// Setzt ein hängendes AlarmEvent auf CLEARED, ohne auf ein Pi-cleared-Event
+// zu warten. Nützlich, wenn das cleared-MQTT-Signal verloren ging (Agent-
+// Restart, Netzwerkabbruch) und der Alarm auf der Visu längst weg ist.
+router.post('/events/:id/force-clear', authenticate, requirePermission('anlagen:update'), async (req, res) => {
+  const id = req.params.id as string
+  const existing = await prisma.alarmEvent.findUnique({ where: { id } })
+  if (!existing) { res.status(404).json({ message: 'Alarm-Event nicht gefunden' }); return }
+  if (existing.status !== 'ACTIVE') {
+    res.status(400).json({ message: 'Alarm ist nicht aktiv' })
+    return
+  }
+  const updated = await prisma.alarmEvent.update({
+    where: { id: existing.id },
+    data: { status: 'CLEARED', clearedAt: new Date() },
+  })
+  // Noch ausstehende Deliveries stornieren.
+  await prisma.alarmEventDelivery.updateMany({
+    where: { eventId: existing.id, status: 'PENDING' },
+    data: { status: 'SKIPPED', errorMessage: 'force_cleared' },
+  })
+  console.log(`[Alarms] Event ${id} manuell als CLEARED markiert von ${req.user?.email}`)
+  res.json(updated)
+})
 
 export default router
