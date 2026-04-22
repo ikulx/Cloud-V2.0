@@ -128,6 +128,13 @@ router.post('/shifts', authenticate, requirePermission(PERM_PLANNING), async (re
     })
     return
   }
+  if (!/^\+[1-9]\d{7,14}$/.test(user.phone.trim())) {
+    res.status(400).json({
+      message: `Die Mobilnummer von ${user.firstName} ${user.lastName} ist nicht im E.164-Format (z.B. +41791234567) – bitte in der Benutzerverwaltung korrigieren.`,
+      code: 'invalid_phone',
+    })
+    return
+  }
 
   const date = new Date(parsed.data.date + 'T00:00:00.000Z')
   const saved = await p.piketShift.upsert({

@@ -73,6 +73,10 @@ function validateRecipient(data: z.infer<typeof recipientSchema>): string | null
     return null
   }
   if (!data.target?.trim()) return 'Empfänger-Adresse (target) erforderlich'
+  // Bei SMS muss die Zielnummer im E.164-Format sein.
+  if (data.type === 'SMS' && !/^\+[1-9]\d{7,14}$/.test(data.target.trim())) {
+    return 'SMS-Empfänger muss im E.164-Format sein (z.B. +41791234567)'
+  }
   return null
 }
 

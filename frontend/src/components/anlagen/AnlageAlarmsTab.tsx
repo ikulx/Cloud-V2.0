@@ -599,11 +599,18 @@ function RecipientDialog({
               </FormControl>
 
               <TextField
-                label={type === 'EMAIL' ? 'E-Mail-Adresse' : type === 'SMS' ? 'Telefonnummer (+41…)' : 'Telegram-Chat-ID'}
+                label={type === 'EMAIL' ? 'E-Mail-Adresse' : type === 'SMS' ? 'Telefonnummer (E.164, z.B. +41791234567)' : 'Telegram-Chat-ID'}
                 fullWidth size="small"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
                 autoFocus
+                placeholder={type === 'SMS' ? '+41791234567' : undefined}
+                error={type === 'SMS' && !!target.trim() && !/^\+[1-9]\d{7,14}$/.test(target.trim())}
+                helperText={
+                  type === 'SMS' && !!target.trim() && !/^\+[1-9]\d{7,14}$/.test(target.trim())
+                    ? 'E.164 erforderlich: + Landesvorwahl und 8–15 Ziffern (keine Leerzeichen/Klammern).'
+                    : undefined
+                }
               />
             </>
           )}

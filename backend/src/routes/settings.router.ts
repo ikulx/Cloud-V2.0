@@ -83,6 +83,13 @@ router.patch('/', authenticate, requirePermission('devices:update'), async (req,
   const parsed = z.record(z.string(), z.string()).safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
 
+  // twilio.callFromNumber MUSS im E.164-Format sein (wenn gesetzt).
+  const callFrom = parsed.data['twilio.callFromNumber']
+  if (callFrom && callFrom.trim() && !/^\+[1-9]\d{7,14}$/.test(callFrom.trim())) {
+    res.status(400).json({ message: 'Anruf-Absender muss im E.164-Format sein (z.B. +41791234567)' })
+    return
+  }
+
   const allowed = new Set<string>(SETTING_KEYS)
   const updates = Object.entries(parsed.data).filter(([k]) => allowed.has(k))
 
@@ -111,10 +118,15 @@ router.post('/test-twilio', authenticate, requirePermission('roles:read'), async
 })
 
 // POST /api/settings/test-twilio-sms – versendet eine SMS an `to`
-const testSmsSchema = z.object({ to: z.string().min(1).max(40) })
+const testSmsSchema = z.object({
+  to: z.string().regex(/^\+[1-9]\d{7,14}$/, 'Zielnummer muss im E.164-Format sein (z.B. +41791234567)'),
+})
 router.post('/test-twilio-sms', authenticate, requirePermission('roles:read'), async (req, res) => {
   const parsed = testSmsSchema.safeParse(req.body)
-  if (!parsed.success) { res.status(400).json({ ok: false, message: 'Zielnummer fehlt' }); return }
+  if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message ?? 'Zielnummer ungültig'
+    res.status(400).json({ ok: false, message: msg }); return
+  }
   const { sendSms } = await import('../services/twilio.service')
   const r = await sendSms(parsed.data.to, 'YControl Cloud – Test-SMS. Konfiguration funktioniert.')
   if (r.ok) res.json({ ok: true, message: `OK – SID ${r.sid}` })

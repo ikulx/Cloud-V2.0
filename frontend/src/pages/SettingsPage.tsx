@@ -715,7 +715,12 @@ export function SettingsPage() {
                 onChange={(e) => setTwilioForm((f) => ({ ...f, 'twilio.callFromNumber': e.target.value }))}
                 fullWidth
                 placeholder="+41791234567"
-                helperText="Verifizierte Twilio-Nummer für ausgehende Anrufe (Piket-Eskalation)."
+                error={!!twilioForm['twilio.callFromNumber'].trim() && !/^\+[1-9]\d{7,14}$/.test(twilioForm['twilio.callFromNumber'].trim())}
+                helperText={
+                  !!twilioForm['twilio.callFromNumber'].trim() && !/^\+[1-9]\d{7,14}$/.test(twilioForm['twilio.callFromNumber'].trim())
+                    ? 'Ungültig: E.164 erforderlich (+ Landesvorwahl, 8–15 Ziffern, keine Leerzeichen).'
+                    : 'Verifizierte Twilio-Nummer für ausgehende Anrufe (Piket-Eskalation).'
+                }
               />
 
               <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -736,8 +741,18 @@ export function SettingsPage() {
                   onChange={(e) => setTwilioSmsTo(e.target.value)}
                   placeholder="+41791234567"
                   sx={{ flex: 1 }}
+                  error={!!twilioSmsTo.trim() && !/^\+[1-9]\d{7,14}$/.test(twilioSmsTo.trim())}
+                  helperText={
+                    !!twilioSmsTo.trim() && !/^\+[1-9]\d{7,14}$/.test(twilioSmsTo.trim())
+                      ? 'E.164 erforderlich (z.B. +41791234567).'
+                      : undefined
+                  }
                 />
-                <Button variant="outlined" onClick={handleTestTwilioSms} disabled={twilioTesting || !twilioSmsTo.trim()}>
+                <Button
+                  variant="outlined"
+                  onClick={handleTestTwilioSms}
+                  disabled={twilioTesting || !/^\+[1-9]\d{7,14}$/.test(twilioSmsTo.trim())}
+                >
                   SMS senden
                 </Button>
               </Box>

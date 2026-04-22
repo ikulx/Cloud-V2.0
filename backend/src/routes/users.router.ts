@@ -14,7 +14,12 @@ const createUserSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   address: z.string().optional(),
-  phone: z.string().max(40).optional().nullable(),
+  // E.164: + gefolgt von 8-15 Ziffern (keine Leerzeichen, Bindestriche oder Klammern).
+  phone: z.string()
+    .regex(/^\+[1-9]\d{7,14}$/, 'Mobilnummer muss im E.164-Format sein (+ Landesvorwahl, 8–15 Ziffern, z.B. +41791234567)')
+    .optional()
+    .nullable()
+    .or(z.literal('')),
   roleId: z.string().uuid().nullable().optional(),
   groupIds: z.array(z.string().uuid()).optional(),
   anlageIds: z.array(z.string().uuid()).optional(),

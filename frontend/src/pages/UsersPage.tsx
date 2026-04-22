@@ -226,7 +226,13 @@ export function UsersPage() {
                   value={form.phone}
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                   fullWidth
-                  helperText="Pflicht für Piket-Techniker (SMS + Anruf)"
+                  placeholder="+41791234567"
+                  error={!!form.phone.trim() && !/^\+[1-9]\d{7,14}$/.test(form.phone.trim())}
+                  helperText={
+                    !!form.phone.trim() && !/^\+[1-9]\d{7,14}$/.test(form.phone.trim())
+                      ? 'Ungültig: mit + Landesvorwahl, 8–15 Ziffern, keine Leerzeichen/Klammern.'
+                      : 'Pflicht für Piket-Techniker (SMS + Anruf). Format: E.164, beginnt mit +.'
+                  }
                 />
                 <TextField select label={t('common.role')} value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })} fullWidth>
                   <MenuItem value="">{t('common.noRole')}</MenuItem>
