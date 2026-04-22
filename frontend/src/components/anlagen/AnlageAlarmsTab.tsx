@@ -523,6 +523,7 @@ function RecipientDialog({
 
   const [type, setType] = useState<AlarmRecipientType>(editing?.type ?? 'EMAIL')
   const [target, setTarget] = useState(editing?.target ?? '')
+  const [smsTarget, setSmsTarget] = useState(editing?.smsTarget ?? '')
   const [label, setLabel] = useState(editing?.label ?? '')
   const [priorities, setPriorities] = useState<AlarmPriority[]>(editing?.priorities ?? [])
   const [delayMinutes, setDelayMinutes] = useState(editing?.delayMinutes ?? 0)
@@ -533,13 +534,20 @@ function RecipientDialog({
   })
   const isInternal = kind === 'internal'
 
+  const phoneValid = /^\+[1-9]\d{7,14}$/.test(target.trim())
+  const smsTargetValid = /^\+[1-9]\d{7,14}$/.test(smsTarget.trim())
+
   const save = async () => {
     if (!target.trim()) return
+    const effType: AlarmRecipientType = isInternal ? 'EMAIL' : type
+    if (effType === 'SMS' && !phoneValid) return
+    if (effType === 'EMAIL_AND_SMS' && !smsTargetValid) return
     const cleanSchedule: RecipientSchedule =
       schedule.mode === 'always' ? { mode: 'always' } : schedule
     const data = {
-      type: isInternal ? ('EMAIL' as AlarmRecipientType) : type,
+      type: effType,
       target: target.trim(),
+      smsTarget: effType === 'EMAIL_AND_SMS' ? smsTarget.trim() : null,
       label: label.trim() || null,
       priorities,
       delayMinutes,
@@ -594,6 +602,7 @@ function RecipientDialog({
                 <Select value={type} label="Kanal" onChange={(e) => setType(e.target.value as AlarmRecipientType)}>
                   <MenuItem value="EMAIL">E-Mail</MenuItem>
                   <MenuItem value="SMS">SMS (Twilio – nur Vertrag B/C)</MenuItem>
+                  <MenuItem value="EMAIL_AND_SMS">E-Mail und SMS</MenuItem>
                 </Select>
               </FormControl>
 
@@ -604,13 +613,29 @@ function RecipientDialog({
                 onChange={(e) => setTarget(e.target.value)}
                 autoFocus
                 placeholder={type === 'SMS' ? '+41791234567' : undefined}
-                error={type === 'SMS' && !!target.trim() && !/^\+[1-9]\d{7,14}$/.test(target.trim())}
+                error={type === 'SMS' && !!target.trim() && !phoneValid}
                 helperText={
-                  type === 'SMS' && !!target.trim() && !/^\+[1-9]\d{7,14}$/.test(target.trim())
+                  type === 'SMS' && !!target.trim() && !phoneValid
                     ? 'E.164 erforderlich: + Landesvorwahl und 8–15 Ziffern (keine Leerzeichen/Klammern).'
                     : undefined
                 }
               />
+
+              {type === 'EMAIL_AND_SMS' && (
+                <TextField
+                  label="Telefonnummer für SMS (E.164)"
+                  fullWidth size="small"
+                  value={smsTarget}
+                  onChange={(e) => setSmsTarget(e.target.value)}
+                  placeholder="+41791234567"
+                  error={!!smsTarget.trim() && !smsTargetValid}
+                  helperText={
+                    !!smsTarget.trim() && !smsTargetValid
+                      ? 'E.164 erforderlich (z.B. +41791234567).'
+                      : 'SMS geht nur bei Vertrag B/C raus.'
+                  }
+                />
+              )}
             </>
           )}
 
@@ -684,7 +709,10 @@ function RecipientDialog({
             variant="contained"
             onClick={save}
             disabled={
-              !target.trim() || create.isPending || update.isPending
+              !target.trim() ||
+              (!isInternal && type === 'SMS' && !phoneValid) ||
+              (!isInternal && type === 'EMAIL_AND_SMS' && !smsTargetValid) ||
+              create.isPending || update.isPending
             }
           >
             Speichern

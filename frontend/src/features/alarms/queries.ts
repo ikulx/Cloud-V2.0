@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiGet, apiPost, apiPatch, apiDelete } from '../../lib/api'
 
 export type AlarmPriority = 'PRIO1' | 'PRIO2' | 'PRIO3' | 'WARNING' | 'INFO'
-export type AlarmRecipientType = 'EMAIL' | 'SMS' | 'TELEGRAM'
+export type AlarmRecipientType = 'EMAIL' | 'SMS' | 'EMAIL_AND_SMS' | 'TELEGRAM'
 export type AlarmEventStatus = 'ACTIVE' | 'CLEARED' | 'ACKNOWLEDGED'
 export type AlarmDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'
 
@@ -72,6 +72,8 @@ export interface AlarmRecipient {
   anlageId: string
   type: AlarmRecipientType
   target: string
+  /** Nur bei type = EMAIL_AND_SMS: Telefonnummer (E.164). */
+  smsTarget: string | null
   label: string | null
   priorities: AlarmPriority[]
   delayMinutes: number

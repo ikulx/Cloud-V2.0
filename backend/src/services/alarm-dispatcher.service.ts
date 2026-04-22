@@ -335,14 +335,29 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
     // Zeitplan ok → Delivery für scheduledAt planen (= now + delayMinutes).
     const delay = Math.max(0, eff.delayMinutes ?? 0)
     const scheduledAt = new Date(now.getTime() + delay * 60_000)
-    const delivery = await prisma.alarmEventDelivery.create({
-      data: {
-        eventId: event.id, recipientId: r.id, type: r.type, target: effectiveTarget,
-        status: 'PENDING', scheduledAt,
-      } as never,
-    })
-    if (delay === 0) immediateIds.push(delivery.id)
-    else console.log(`[AlarmDispatcher] Delivery ${delivery.id} geplant für ${scheduledAt.toISOString()} (+${delay} min)`)
+
+    // Für EMAIL_AND_SMS je eine Delivery pro Kanal anlegen. target → E-Mail
+    // kommt aus effectiveTarget, SMS-Nummer aus r.smsTarget.
+    const rSms = (r as unknown as { smsTarget?: string | null }).smsTarget?.trim() ?? ''
+    const plannedChannels: Array<{ type: 'EMAIL' | 'SMS'; target: string }> =
+      r.type === ('EMAIL_AND_SMS' as typeof r.type)
+        ? [
+            { type: 'EMAIL', target: effectiveTarget },
+            { type: 'SMS',   target: rSms },
+          ]
+        : [{ type: r.type as 'EMAIL' | 'SMS', target: effectiveTarget }]
+
+    for (const ch of plannedChannels) {
+      if (!ch.target) continue
+      const delivery = await prisma.alarmEventDelivery.create({
+        data: {
+          eventId: event.id, recipientId: r.id, type: ch.type, target: ch.target,
+          status: 'PENDING', scheduledAt,
+        } as never,
+      })
+      if (delay === 0) immediateIds.push(delivery.id)
+      else console.log(`[AlarmDispatcher] Delivery ${delivery.id} (${ch.type}) geplant für ${scheduledAt.toISOString()} (+${delay} min)`)
+    }
   }
 
   // Sofort-Fälligkeiten (delay = 0) direkt abarbeiten statt auf den Worker zu warten.

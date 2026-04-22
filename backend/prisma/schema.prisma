@@ -61,6 +61,9 @@ enum AlarmPriority {
 enum AlarmRecipientType {
   EMAIL
   SMS
+  /// Beides: target = E-Mail-Adresse, smsTarget = Telefonnummer.
+  /// Dispatcher erzeugt zwei Deliveries (eine pro Kanal).
+  EMAIL_AND_SMS
   TELEGRAM
 }
 
@@ -858,6 +861,8 @@ model AlarmRecipient {
   /// Bei internen Empfängern (templateId gesetzt) leer – die Adresse kommt
   /// dynamisch aus dem Template, damit zentrale Änderungen überall greifen.
   target       String
+  /// Nur bei type = EMAIL_AND_SMS verwendet: Telefonnummer (E.164).
+  smsTarget    String?            @map("sms_target")
   /// Optionaler Anzeigename (z.B. "Bereitschaft Müller").
   label        String?
   /// Liste der Prioritäten, die an diesen Empfänger gehen. Leere Liste =

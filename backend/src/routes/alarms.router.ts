@@ -12,7 +12,7 @@ const router = Router()
 // ──────────────────────────────────────────────────────────────────────────────
 
 const PRIORITIES = ['PRIO1', 'PRIO2', 'PRIO3', 'WARNING', 'INFO'] as const
-const TYPES = ['EMAIL', 'SMS', 'TELEGRAM'] as const
+const TYPES = ['EMAIL', 'SMS', 'EMAIL_AND_SMS', 'TELEGRAM'] as const
 
 // Wochenzeitplan: 7 Einträge (Mo..So), pro Tag 0..n Zeitfenster.
 // Legacy-Format ({enabled,start,end}) wird zur Vorwärts-Kompatibilität
@@ -45,6 +45,8 @@ const recipientSchema = z.object({
   // templateId, target darf leer sein (wird aus Template aufgelöst).
   type: z.enum(TYPES),
   target: z.string().max(200).default(''),
+  /// Nur bei type = EMAIL_AND_SMS: Telefonnummer (E.164).
+  smsTarget: z.string().max(40).nullable().optional(),
   label: z.string().max(100).nullable().optional(),
   priorities: z.array(z.enum(PRIORITIES)).default([]),
   delayMinutes: z.number().int().min(0).max(1440).default(0),
@@ -76,6 +78,14 @@ function validateRecipient(data: z.infer<typeof recipientSchema>): string | null
   // Bei SMS muss die Zielnummer im E.164-Format sein.
   if (data.type === 'SMS' && !/^\+[1-9]\d{7,14}$/.test(data.target.trim())) {
     return 'SMS-Empfänger muss im E.164-Format sein (z.B. +41791234567)'
+  }
+  // Bei EMAIL_AND_SMS: target = Mail, smsTarget = E.164-Nummer.
+  if (data.type === 'EMAIL_AND_SMS') {
+    const phone = (data.smsTarget ?? '').trim()
+    if (!phone) return 'Telefonnummer für SMS erforderlich'
+    if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+      return 'Telefonnummer muss im E.164-Format sein (z.B. +41791234567)'
+    }
   }
   return null
 }
