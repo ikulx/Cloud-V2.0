@@ -116,9 +116,12 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
   const { data: anlage } = useAnlage(anlageId)
   const updateAnlage = useUpdateAnlage(anlageId)
   const { data: recipients = [], isLoading: rLoading } = useAlarmRecipients(anlageId)
-  // Bewusst nur aktive Events – die Cloud zeigt nicht mehr die volle Historie.
   const { data: events = [], isLoading: eLoading } = useAlarmEvents({
     anlageId, status: 'ACTIVE', limit: 100,
+  })
+  // Verlauf: alle Events (ACTIVE + CLEARED + ACKNOWLEDGED), max. 50.
+  const { data: history = [], isLoading: hLoading } = useAlarmEvents({
+    anlageId, status: 'ALL', limit: 50,
   })
 
   // Split extern / intern. Nicht-Admins bekommen intern schon vom Backend
@@ -247,6 +250,24 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
           </Typography>
         ) : (
           <ActiveAlarmList events={events} isAdmin={isAdmin} />
+        )}
+      </Paper>
+
+      {/* ── Verlauf (letzte 50 Alarme inkl. Deliveries) ─────── */}
+      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
+        <Typography variant="h6">{t('anlageAlarms.historyTitle')}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+          {t('anlageAlarms.historyInfo')}
+        </Typography>
+        <Divider sx={{ mb: 2 }} />
+        {hLoading ? (
+          <Typography variant="body2" color="text.secondary">{t('common.loading')}</Typography>
+        ) : history.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+            {t('anlageAlarms.historyEmpty')}
+          </Typography>
+        ) : (
+          <AlarmHistoryList events={history} />
         )}
       </Paper>
 
@@ -522,6 +543,98 @@ function ActiveAlarmList({ events, isAdmin }: { events: AlarmEvent[]; isAdmin: b
               </TableRow>
             )
           })}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  )
+}
+
+// ─── Verlauf-Liste ────────────────────────────────────────────────────────────
+
+const DELIVERY_COLOR: Record<string, 'success' | 'error' | 'warning' | 'info' | 'default'> = {
+  SENT: 'success',
+  FAILED: 'error',
+  SKIPPED: 'default',
+  PENDING: 'warning',
+}
+
+const EVENT_STATUS_COLOR: Record<string, 'success' | 'error' | 'info' | 'default'> = {
+  ACTIVE: 'error',
+  CLEARED: 'success',
+  ACKNOWLEDGED: 'info',
+}
+
+function AlarmHistoryList({ events }: { events: AlarmEvent[] }) {
+  const { t } = useTranslation()
+  return (
+    <TableContainer>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell sx={{ width: 150 }}>{t('anlageAlarms.cols.time')}</TableCell>
+            <TableCell sx={{ width: 85 }}>{t('anlageAlarms.cols.priority')}</TableCell>
+            <TableCell sx={{ width: 110 }}>Status</TableCell>
+            <TableCell>{t('anlageAlarms.cols.message')}</TableCell>
+            <TableCell sx={{ width: 130 }}>{t('anlageAlarms.cols.device')}</TableCell>
+            <TableCell>Versand an</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {events.map((e) => (
+            <TableRow key={e.id} hover sx={{ verticalAlign: 'top' }}>
+              <TableCell sx={{ whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 12 }}>
+                {new Date(e.activatedAt).toLocaleString('de-CH')}
+                {e.clearedAt && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    ↳ cleared {new Date(e.clearedAt).toLocaleString('de-CH')}
+                  </Typography>
+                )}
+              </TableCell>
+              <TableCell>
+                <Chip size="small" label={PRIO_LABEL[e.priority]} color={PRIO_COLOR[e.priority]} variant="outlined" />
+              </TableCell>
+              <TableCell>
+                <Chip size="small" label={e.status} color={EVENT_STATUS_COLOR[e.status] ?? 'default'} variant="filled" />
+              </TableCell>
+              <TableCell>{e.message}</TableCell>
+              <TableCell sx={{ fontSize: 13 }}>{e.device.name}</TableCell>
+              <TableCell>
+                {e.deliveries.length === 0 ? (
+                  <Typography variant="caption" color="text.secondary">–</Typography>
+                ) : (
+                  <Stack gap={0.5}>
+                    {e.deliveries.map((d) => (
+                      <Stack key={d.id} direction="row" spacing={0.75} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+                        <Chip size="small" label={d.type} variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 12 }}>
+                          {d.target || '—'}
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={d.status}
+                          color={DELIVERY_COLOR[d.status] ?? 'default'}
+                          variant={d.status === 'SKIPPED' ? 'outlined' : 'filled'}
+                          sx={{ height: 20, fontSize: 11 }}
+                        />
+                        {d.errorMessage && (
+                          <Tooltip title={d.errorMessage}>
+                            <Typography variant="caption" color="text.secondary" sx={{ cursor: 'help', fontStyle: 'italic' }}>
+                              ({d.errorMessage.length > 30 ? d.errorMessage.slice(0, 30) + '…' : d.errorMessage})
+                            </Typography>
+                          </Tooltip>
+                        )}
+                        {d.sentAt && (
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+                            {new Date(d.sentAt).toLocaleTimeString('de-CH')}
+                          </Typography>
+                        )}
+                      </Stack>
+                    ))}
+                  </Stack>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
     </TableContainer>
