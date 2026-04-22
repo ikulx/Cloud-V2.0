@@ -592,14 +592,13 @@ function RecipientDialog({
               <FormControl fullWidth size="small">
                 <InputLabel>Kanal</InputLabel>
                 <Select value={type} label="Kanal" onChange={(e) => setType(e.target.value as AlarmRecipientType)}>
-                  <MenuItem value="EMAIL">Email</MenuItem>
+                  <MenuItem value="EMAIL">E-Mail</MenuItem>
                   <MenuItem value="SMS">SMS (Twilio – nur Vertrag B/C)</MenuItem>
-                  <MenuItem value="TELEGRAM" disabled>Telegram (bald verfügbar)</MenuItem>
                 </Select>
               </FormControl>
 
               <TextField
-                label={type === 'EMAIL' ? 'E-Mail-Adresse' : type === 'SMS' ? 'Telefonnummer (E.164, z.B. +41791234567)' : 'Telegram-Chat-ID'}
+                label={type === 'SMS' ? 'Telefonnummer (E.164, z.B. +41791234567)' : 'E-Mail-Adresse'}
                 fullWidth size="small"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
