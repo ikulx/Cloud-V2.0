@@ -593,7 +593,7 @@ function RecipientDialog({
                 <InputLabel>Kanal</InputLabel>
                 <Select value={type} label="Kanal" onChange={(e) => setType(e.target.value as AlarmRecipientType)}>
                   <MenuItem value="EMAIL">Email</MenuItem>
-                  <MenuItem value="SMS" disabled>SMS (bald verfügbar)</MenuItem>
+                  <MenuItem value="SMS">SMS (Twilio – nur Vertrag B/C)</MenuItem>
                   <MenuItem value="TELEGRAM" disabled>Telegram (bald verfügbar)</MenuItem>
                 </Select>
               </FormControl>

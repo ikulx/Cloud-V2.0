@@ -121,12 +121,24 @@ export async function startPiketAlarm({ alarmEventId, anlage, smsToCallMinutes, 
 // ── Transport-Stubs (echte Twilio-Anbindung später) ────────────────────────
 
 async function sendSmsStub(to: string, text: string): Promise<{ ok: boolean; error?: string }> {
-  console.log(`[PiketManager] [SMS-STUB] → ${to}: ${text.slice(0, 120)}`)
-  return { ok: true }
+  const { sendSms } = await import('./twilio.service')
+  const res = await sendSms(to, text)
+  if (res.ok) {
+    console.log(`[PiketManager] SMS → ${to} (sid=${res.sid})`)
+  } else {
+    console.warn(`[PiketManager] SMS-Versand fehlgeschlagen: ${res.error}`)
+  }
+  return { ok: res.ok, error: res.error }
 }
 async function callStub(to: string, text: string): Promise<{ ok: boolean; error?: string }> {
-  console.log(`[PiketManager] [CALL-STUB] → ${to}: ${text.slice(0, 120)}`)
-  return { ok: true }
+  const { makeCall } = await import('./twilio.service')
+  const res = await makeCall(to, text)
+  if (res.ok) {
+    console.log(`[PiketManager] Anruf → ${to} (sid=${res.sid})`)
+  } else {
+    console.warn(`[PiketManager] Anruf fehlgeschlagen: ${res.error}`)
+  }
+  return { ok: res.ok, error: res.error }
 }
 
 function alarmText(ev: {

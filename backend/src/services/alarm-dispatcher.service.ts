@@ -100,6 +100,7 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
         select: {
           id: true,
           alarmRateLimitMinutes: true,
+          contract: true,
           alarmRecipients: {
             where: { isActive: true },
             // Template wird geladen, damit der Dispatcher bei internen
@@ -237,6 +238,17 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
       && rAny.template?.key === 'piketdienst'
       && rAny.template?.deliveryChannel === 'PIKET_MANAGER'
     ) {
+      // Piket-Manager benötigt SMS/Anruf – nur bei Vertrag B oder C sinnvoll.
+      const contract = (anlage as unknown as { contract?: string }).contract ?? 'NONE'
+      if (contract !== 'B' && contract !== 'C') {
+        await prisma.alarmEventDelivery.create({
+          data: {
+            eventId: event.id, recipientId: r.id, type: r.type, target: '[piket-manager]',
+            status: 'SKIPPED', errorMessage: 'piket_requires_contract_b_or_c', attemptedAt: now,
+          },
+        })
+        continue
+      }
       if (rateLimited) {
         await prisma.alarmEventDelivery.create({
           data: {
@@ -364,7 +376,7 @@ export async function processDueDeliveries(onlyIds?: string[]): Promise<void> {
       source: string | null
       activatedAt: Date
       device: { name: string; serialNumber: string }
-      anlage: { name: string; projectNumber: string | null } | null
+      anlage: { name: string; projectNumber: string | null; contract?: string | null } | null
     }
   }
   const due = (await prisma.alarmEventDelivery.findMany({
@@ -375,7 +387,7 @@ export async function processDueDeliveries(onlyIds?: string[]): Promise<void> {
       event: {
         include: {
           device: { select: { name: true, serialNumber: true } },
-          anlage: { select: { name: true, projectNumber: true } },
+          anlage: { select: { name: true, projectNumber: true, contract: true } as never } as never,
         },
       },
     },
@@ -419,10 +431,40 @@ export async function processDueDeliveries(onlyIds?: string[]): Promise<void> {
           })
         }
       } else if (d.type === 'SMS') {
-        await prisma.alarmEventDelivery.update({
-          where: { id: d.id },
-          data: { status: 'SKIPPED', errorMessage: 'sms_transport_not_configured', attemptedAt: now },
-        })
+        // SMS nur bei Vertrag B oder C zulassen (NONE / A → nie SMS).
+        const contract = d.event.anlage?.contract ?? 'NONE'
+        if (contract !== 'B' && contract !== 'C') {
+          await prisma.alarmEventDelivery.update({
+            where: { id: d.id },
+            data: { status: 'SKIPPED', errorMessage: 'sms_requires_contract_b_or_c', attemptedAt: now },
+          })
+          continue
+        }
+        try {
+          const { sendSms } = await import('./twilio.service')
+          const anlageStr = d.event.anlage
+            ? `${d.event.anlage.name}${d.event.anlage.projectNumber ? ' (' + d.event.anlage.projectNumber + ')' : ''}`
+            : '—'
+          const body = `[${d.event.priority}] ${anlageStr}: ${d.event.message} – ${d.event.device.name}`
+          const res = await sendSms(d.target, body)
+          if (res.ok) {
+            await prisma.alarmEventDelivery.update({
+              where: { id: d.id },
+              data: { status: 'SENT', sentAt: new Date(), attemptedAt: now },
+            })
+          } else {
+            await prisma.alarmEventDelivery.update({
+              where: { id: d.id },
+              data: { status: 'FAILED', errorMessage: (res.error ?? 'sms_failed').slice(0, 500), attemptedAt: now },
+            })
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          await prisma.alarmEventDelivery.update({
+            where: { id: d.id },
+            data: { status: 'FAILED', errorMessage: msg.slice(0, 500), attemptedAt: now },
+          })
+        }
       } else if (d.type === 'TELEGRAM') {
         await prisma.alarmEventDelivery.update({
           where: { id: d.id },

@@ -75,6 +75,18 @@ export function SettingsPage() {
   })
   const [alarmSaved, setAlarmSaved] = useState(false)
 
+  // Twilio-Form
+  const [twilioForm, setTwilioForm] = useState({
+    'twilio.accountSid': '',
+    'twilio.authToken': '',
+    'twilio.fromNumber': '',
+    'twilio.enabled': 'false',
+  })
+  const [twilioSaved, setTwilioSaved] = useState(false)
+  const [twilioTestMsg, setTwilioTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [twilioTesting, setTwilioTesting] = useState(false)
+  const [twilioSmsTo, setTwilioSmsTo] = useState('')
+
   // System-Tab Retention
   const [retentionDays, setRetentionDays] = useState('90')
   const [retentionSaved, setRetentionSaved] = useState(false)
@@ -119,6 +131,12 @@ export function SettingsPage() {
       setAlarmForm({
         'alarm.offlineNotificationEmail': settings['alarm.offlineNotificationEmail'] ?? '',
         'alarm.offlineThresholdMinutes': settings['alarm.offlineThresholdMinutes'] ?? '180',
+      })
+      setTwilioForm({
+        'twilio.accountSid': settings['twilio.accountSid'] ?? '',
+        'twilio.authToken': settings['twilio.authToken'] ?? '',
+        'twilio.fromNumber': settings['twilio.fromNumber'] ?? '',
+        'twilio.enabled': settings['twilio.enabled'] ?? 'false',
       })
     }
   }, [settings])
@@ -181,6 +199,39 @@ export function SettingsPage() {
     await updateSettings.mutateAsync(alarmForm)
     setAlarmSaved(true)
     setTimeout(() => setAlarmSaved(false), 3000)
+  }
+
+  const handleSaveTwilio = async () => {
+    await updateSettings.mutateAsync(twilioForm)
+    setTwilioSaved(true)
+    setTimeout(() => setTwilioSaved(false), 3000)
+  }
+
+  const handleTestTwilio = async () => {
+    setTwilioTestMsg(null)
+    setTwilioTesting(true)
+    try {
+      const result = await apiPost<{ message: string }>('/settings/test-twilio', {})
+      setTwilioTestMsg({ type: 'success', text: result.message })
+    } catch (err) {
+      setTwilioTestMsg({ type: 'error', text: err instanceof Error ? err.message : 'Test fehlgeschlagen' })
+    } finally {
+      setTwilioTesting(false)
+    }
+  }
+
+  const handleTestTwilioSms = async () => {
+    setTwilioTestMsg(null)
+    if (!twilioSmsTo.trim()) { setTwilioTestMsg({ type: 'error', text: 'Zielnummer eingeben (E.164)' }); return }
+    setTwilioTesting(true)
+    try {
+      const result = await apiPost<{ message: string }>('/settings/test-twilio-sms', { to: twilioSmsTo.trim() })
+      setTwilioTestMsg({ type: 'success', text: result.message })
+    } catch (err) {
+      setTwilioTestMsg({ type: 'error', text: err instanceof Error ? err.message : 'Senden fehlgeschlagen' })
+    } finally {
+      setTwilioTesting(false)
+    }
   }
 
   const handleTestDeepl = async () => {
@@ -608,6 +659,85 @@ export function SettingsPage() {
               </Button>
               {alarmSaved && <Typography variant="body2" color="success.main">Gespeichert ✓</Typography>}
             </Box>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeKey === 'alarm' && (
+        <Card sx={{ maxWidth: 760, mt: 3 }}>
+          <CardContent sx={{ pt: 3 }}>
+            <Typography variant="h6">Twilio (SMS &amp; Anruf)</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+              Credentials aus dem Twilio-Dashboard. SMS-Versand ist nur für
+              Anlagen mit Vertrag B oder C erlaubt; der Piketdienst (Piket-Manager)
+              setzt eine aktive Twilio-Konfiguration voraus.
+            </Typography>
+
+            <Stack spacing={2}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={twilioForm['twilio.enabled'] === 'true'}
+                    onChange={(e) => setTwilioForm((f) => ({ ...f, 'twilio.enabled': e.target.checked ? 'true' : 'false' }))}
+                  />
+                }
+                label={twilioForm['twilio.enabled'] === 'true' ? 'Twilio aktiv' : 'Twilio deaktiviert'}
+              />
+              <TextField
+                label="Account SID"
+                value={twilioForm['twilio.accountSid']}
+                onChange={(e) => setTwilioForm((f) => ({ ...f, 'twilio.accountSid': e.target.value }))}
+                fullWidth
+                placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                inputProps={{ style: { fontFamily: 'monospace' } }}
+              />
+              <TextField
+                label="Auth Token"
+                type="password"
+                value={twilioForm['twilio.authToken']}
+                onChange={(e) => setTwilioForm((f) => ({ ...f, 'twilio.authToken': e.target.value }))}
+                fullWidth
+                inputProps={{ style: { fontFamily: 'monospace' } }}
+              />
+              <TextField
+                label="Absender-Nummer (E.164)"
+                value={twilioForm['twilio.fromNumber']}
+                onChange={(e) => setTwilioForm((f) => ({ ...f, 'twilio.fromNumber': e.target.value }))}
+                fullWidth
+                placeholder="+41791234567"
+                helperText="Verifizierte Twilio-Nummer oder Messaging-Service-SID."
+              />
+
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button variant="contained" onClick={handleSaveTwilio} disabled={updateSettings.isPending}>
+                  Speichern
+                </Button>
+                <Button variant="outlined" onClick={handleTestTwilio} disabled={twilioTesting}>
+                  Credentials testen
+                </Button>
+                {twilioSaved && <Typography variant="body2" color="success.main">Gespeichert ✓</Typography>}
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mt: 1 }}>
+                <TextField
+                  label="Test-SMS an"
+                  size="small"
+                  value={twilioSmsTo}
+                  onChange={(e) => setTwilioSmsTo(e.target.value)}
+                  placeholder="+41791234567"
+                  sx={{ flex: 1 }}
+                />
+                <Button variant="outlined" onClick={handleTestTwilioSms} disabled={twilioTesting || !twilioSmsTo.trim()}>
+                  SMS senden
+                </Button>
+              </Box>
+
+              {twilioTestMsg && (
+                <Alert severity={twilioTestMsg.type === 'success' ? 'success' : 'error'}>
+                  {twilioTestMsg.text}
+                </Alert>
+              )}
+            </Stack>
           </CardContent>
         </Card>
       )}

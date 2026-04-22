@@ -27,6 +27,10 @@ export const SETTING_KEYS = [
   'deepl.tier',
   'alarm.offlineNotificationEmail',
   'alarm.offlineThresholdMinutes',
+  'twilio.accountSid',
+  'twilio.authToken',
+  'twilio.fromNumber',
+  'twilio.enabled',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -49,6 +53,11 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'alarm.offlineNotificationEmail': '',
   // Schwellwert in Minuten, ab wann ein Gerät als "lange offline" gilt (3h = 180)
   'alarm.offlineThresholdMinutes': '180',
+  // Twilio SMS / Voice
+  'twilio.accountSid': '',
+  'twilio.authToken': '',
+  'twilio.fromNumber': '',
+  'twilio.enabled': 'false',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {
@@ -86,6 +95,25 @@ router.patch('/', authenticate, requirePermission('devices:update'), async (req,
   const result: Record<string, string> = { ...DEFAULT_SETTINGS }
   for (const row of rows) result[row.key] = row.value
   res.json(result)
+})
+
+// POST /api/settings/test-twilio – prüft Twilio-Credentials
+router.post('/test-twilio', authenticate, requirePermission('roles:read'), async (_req, res) => {
+  const { testTwilioCredentials } = await import('../services/twilio.service')
+  const r = await testTwilioCredentials()
+  if (r.ok) res.json({ ok: true, message: r.message })
+  else      res.status(400).json({ ok: false, message: r.message })
+})
+
+// POST /api/settings/test-twilio-sms – versendet eine SMS an `to`
+const testSmsSchema = z.object({ to: z.string().min(1).max(40) })
+router.post('/test-twilio-sms', authenticate, requirePermission('roles:read'), async (req, res) => {
+  const parsed = testSmsSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ ok: false, message: 'Zielnummer fehlt' }); return }
+  const { sendSms } = await import('../services/twilio.service')
+  const r = await sendSms(parsed.data.to, 'YControl Cloud – Test-SMS. Konfiguration funktioniert.')
+  if (r.ok) res.json({ ok: true, message: `OK – SID ${r.sid}` })
+  else      res.status(400).json({ ok: false, message: r.error ?? 'Senden fehlgeschlagen' })
 })
 
 // POST /api/settings/test-deepl – prüft API-Key + gibt Kontingent zurück
