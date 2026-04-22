@@ -66,11 +66,12 @@ function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
 }
 
 function StatusChip({ status }: { status: AnlageStatus }) {
+  const { t } = useTranslation()
   switch (status) {
-    case 'OK':       return <Chip icon={<CheckCircleIcon />} label="OK" color="success" size="small" sx={{ fontWeight: 600 }} />
-    case 'TODO':     return <Chip icon={<AssignmentLateIcon />} label="Todos offen" color="warning" size="small" sx={{ fontWeight: 600 }} />
-    case 'ERROR':    return <Chip icon={<WarningIcon />} label="Fehler" color="warning" size="small" sx={{ fontWeight: 600, bgcolor: 'warning.dark', color: 'common.white' }} />
-    case 'OFFLINE':  return <Chip icon={<ErrorIcon />} label="Offline" color="error" size="small" sx={{ fontWeight: 600 }} />
+    case 'OK':       return <Chip icon={<CheckCircleIcon />} label={t('anlagenList.statusOK')} color="success" size="small" sx={{ fontWeight: 600 }} />
+    case 'TODO':     return <Chip icon={<AssignmentLateIcon />} label={t('anlagenList.statusTodo')} color="warning" size="small" sx={{ fontWeight: 600 }} />
+    case 'ERROR':    return <Chip icon={<WarningIcon />} label={t('anlagenList.statusError')} color="warning" size="small" sx={{ fontWeight: 600, bgcolor: 'warning.dark', color: 'common.white' }} />
+    case 'OFFLINE':  return <Chip icon={<ErrorIcon />} label={t('anlagenList.statusOffline')} color="error" size="small" sx={{ fontWeight: 600 }} />
     case 'EMPTY':    return <Chip label="—" size="small" variant="outlined" />
   }
 }
@@ -340,7 +341,7 @@ export function AnlagenPage() {
         <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
           <TextField
             size="small"
-            placeholder="Suchen (Name, Projekt-Nr, Ort, Seriennummer …)"
+            placeholder={t('anlagenList.searchPlaceholder')}
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
             InputProps={{
@@ -372,10 +373,10 @@ export function AnlagenPage() {
             onChange={(e) => setSortKey(e.target.value as SortKey)}
             sx={{ minWidth: 180 }}
           >
-            <MenuItem value="name">Name (A-Z)</MenuItem>
-            <MenuItem value="projectNumber">Projekt-Nr.</MenuItem>
+            <MenuItem value="name">{t('anlagenList.sortName')}</MenuItem>
+            <MenuItem value="projectNumber">{t('anlagenList.sortProjectNumber')}</MenuItem>
             <MenuItem value="city">Ort</MenuItem>
-            <MenuItem value="updatedAt">Zuletzt aktualisiert</MenuItem>
+            <MenuItem value="updatedAt">{t('anlagenList.sortUpdatedAt')}</MenuItem>
           </Select>
           <Button
             startIcon={<ViewColumnIcon />}
@@ -390,7 +391,7 @@ export function AnlagenPage() {
             onClose={() => setColumnsMenuAnchor(null)}
           >
             <Box sx={{ px: 2, py: 1 }}>
-              <Typography variant="caption" color="text.secondary">Angezeigte Spalten</Typography>
+              <Typography variant="caption" color="text.secondary">{t('anlagenList.visibleColumns')}</Typography>
             </Box>
             <Divider />
             {COLUMNS.map((col) => (
@@ -557,7 +558,7 @@ export function AnlagenPage() {
                 <Chip key={c.key} size="small" label={c.label} onDelete={c.onDelete} />
               ))}
               {!isFiltersEmpty(filters) && (
-                <Chip size="small" label="Alle zurücksetzen" variant="outlined" color="primary"
+                <Chip size="small" label={t('anlagenList.resetAll')} variant="outlined" color="primary"
                   onClick={() => setFilters(EMPTY_FILTERS)} />
               )}
             </Box>

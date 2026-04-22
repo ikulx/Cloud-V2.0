@@ -43,6 +43,7 @@ import {
 } from '../../features/alarms/queries'
 import { useAnlage, useUpdateAnlage } from '../../features/anlagen/queries'
 import { useSession } from '../../context/SessionContext'
+import { useTranslation } from 'react-i18next'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import LockIcon from '@mui/icons-material/Lock'
 import { ScheduleEditor } from './ScheduleEditor'
@@ -109,6 +110,7 @@ interface Props {
 }
 
 export function AnlageAlarmsTab({ anlageId }: Props) {
+  const { t } = useTranslation()
   const { me } = useSession()
   const isAdmin = me?.roleName === 'admin' || me?.roleName === 'verwalter' || me?.isSystemRole === true
   const { data: anlage } = useAnlage(anlageId)
@@ -154,9 +156,9 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
               <CloudOffIcon sx={{ color: offlineMonitoring ? 'primary.main' : 'text.disabled' }} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="subtitle2" fontWeight={600}>Offline-Überwachung</Typography>
+                <Typography variant="subtitle2" fontWeight={600}>{t('anlageAlarms.offlineTitle')}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {offlineMonitoring ? 'aktiv' : 'deaktiviert'}
+                  {offlineMonitoring ? t('anlageAlarms.offlineActive') : t('anlageAlarms.offlineInactive')}
                 </Typography>
               </Box>
               <Button size="small" variant="outlined" onClick={() => setOfflinePopup(true)}>
@@ -167,9 +169,9 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
               <ScheduleIcon color="primary" />
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="subtitle2" fontWeight={600}>Versand-Limit</Typography>
+                <Typography variant="subtitle2" fontWeight={600}>{t('anlageAlarms.rateLimitTitle')}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {rateLimit === 0 ? 'unbegrenzt' : `max. 1 Meldung pro ${rateLimit} min`}
+                  {rateLimit === 0 ? t('anlageAlarms.rateLimitUnlimited') : t('anlageAlarms.rateLimitValue', { min: rateLimit })}
                 </Typography>
               </Box>
               <Button size="small" variant="outlined" onClick={() => setRateLimitPopup(true)}>
@@ -183,13 +185,13 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
           <Stack direction="row" spacing={1.5} alignItems="center">
             <LockIcon fontSize="small" color="action" />
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="subtitle2" fontWeight={600}>Interne Empfänger</Typography>
+              <Typography variant="subtitle2" fontWeight={600}>{t('anlageAlarms.internalTitle')}</Typography>
               <Typography variant="caption" color="text.secondary">
                 {(() => {
                   const active = internalRecipients.filter((r) => r.isActive).length
                   return internalRecipients.length === 0
-                    ? 'Keine Einträge'
-                    : `${active} von ${internalRecipients.length} aktiv`
+                    ? t('anlageAlarms.internalEmpty')
+                    : t('anlageAlarms.internalSummary', { active, total: internalRecipients.length })
                 })()}
               </Typography>
             </Box>
@@ -204,7 +206,7 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Box>
-            <Typography variant="h6">Alarm-Empfänger</Typography>
+            <Typography variant="h6">{t('anlageAlarms.externalTitle')}</Typography>
             <Typography variant="caption" color="text.secondary">
               Wer wird bei einem Alarm dieser Anlage benachrichtigt? Empfänger
               ohne aktiven Zeitplan-Eintrag zum Alarm­zeitpunkt bekommen keine
@@ -217,7 +219,7 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
             startIcon={<AddIcon />}
             onClick={() => { setEditing(null); setNewKind('external'); setDialogOpen(true) }}
           >
-            Empfänger hinzufügen
+            {t('anlageAlarms.addRecipient')}
           </Button>
         </Box>
 
@@ -231,19 +233,17 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
 
       {/* ── Aktive Alarme ──────────────────────────────── */}
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
-        <Typography variant="h6">Aktive Alarme</Typography>
+        <Typography variant="h6">{t('anlageAlarms.activeTitle')}</Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-          Aktuell ausstehende Alarme dieser Anlage. Alarme werden vom Gerät automatisch
-          gelöscht, sobald die Auslösebedingung wegfällt – ein manuelles Quittieren auf
-          der Cloud ist nicht nötig.
+          {t('anlageAlarms.activeNoneInfo')}
         </Typography>
         <Divider sx={{ mb: 2 }} />
 
         {eLoading ? (
-          <Typography variant="body2" color="text.secondary">Lädt …</Typography>
+          <Typography variant="body2" color="text.secondary">{t('common.loading')}</Typography>
         ) : events.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-            Keine aktiven Alarme – alles ruhig.
+            {t('anlageAlarms.activeNone')}
           </Typography>
         ) : (
           <ActiveAlarmList events={events} />
@@ -260,13 +260,10 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
 
       {/* ── Popup: Offline-Überwachung ────────────────────── */}
       <Dialog open={offlinePopup} onClose={() => setOfflinePopup(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Offline-Überwachung</DialogTitle>
+        <DialogTitle>{t('anlageAlarms.offlineTitle')}</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Bei längerer Nichterreichbarkeit eines Geräts dieser Anlage wird die
-            in den Systemeinstellungen konfigurierte Alarmadresse per E-Mail
-            informiert – und beim Wiederhochkommen ebenfalls. Die Schwelle
-            (Standard: 3 h) wird global gesetzt.
+            {t('anlageAlarms.offlineDesc')}
           </Typography>
           <FormControlLabel
             control={
@@ -276,26 +273,24 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
                 onChange={(e) => updateAnlage.mutate({ offlineMonitoringEnabled: e.target.checked })}
               />
             }
-            label={offlineMonitoring ? 'Aktiv' : 'Deaktiviert'}
+            label={offlineMonitoring ? t('anlageAlarms.offlineActive') : t('anlageAlarms.offlineInactive')}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOfflinePopup(false)}>Schliessen</Button>
+          <Button onClick={() => setOfflinePopup(false)}>{t('anlageAlarms.close')}</Button>
         </DialogActions>
       </Dialog>
 
       {/* ── Popup: Versand-Limit ────────────────────────── */}
       <Dialog open={rateLimitPopup} onClose={() => setRateLimitPopup(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Versand-Limit</DialogTitle>
+        <DialogTitle>{t('anlageAlarms.rateLimitTitle')}</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Minimaler Abstand zwischen ausgehenden Alarm-Meldungen dieser Anlage.
-            Zusätzliche Ereignisse im Fenster werden weiterhin als Alarm erkannt
-            und angezeigt, aber nicht erneut versendet. 0 = unbegrenzt.
+            {t('anlageAlarms.rateLimitDesc')}
           </Typography>
           <TextField
             type="number"
-            label="Minuten"
+            label={t('anlageAlarms.rateLimitMinutes')}
             size="small"
             value={rateLimitInput}
             onChange={(e) => setRateLimitInput(e.target.value)}
@@ -306,22 +301,16 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { saveRateLimit(); setRateLimitPopup(false) }}>Schliessen</Button>
+          <Button onClick={() => { saveRateLimit(); setRateLimitPopup(false) }}>{t('anlageAlarms.close')}</Button>
         </DialogActions>
       </Dialog>
 
       {/* ── Popup: Interne Empfänger ────────────────────── */}
       <Dialog open={internalPopup} onClose={() => setInternalPopup(false)} fullWidth maxWidth="lg">
-        <DialogTitle>Interne Empfänger</DialogTitle>
+        <DialogTitle>{t('anlageAlarms.internalTitle')}</DialogTitle>
         <DialogContent dividers>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-            Kunden sehen diese Empfänger nicht. <strong>Piketdienst</strong> und
-            {' '}<strong>Ygnis PM</strong> sind automatisch in jeder Anlage
-            hinterlegt und können hier nur aktiviert/deaktiviert werden –
-            Adresse, Zeitplan, Prioritäten und Verzögerung werden zentral
-            unter <strong>Einstellungen → Alarme</strong> gepflegt.
-            Zusätzlich können eigene interne Adressen nur für diese Anlage
-            angelegt werden.
+            {t('anlageAlarms.internalDesc')}
           </Typography>
           <Box sx={{ mb: 2 }}>
             <Button
@@ -330,7 +319,7 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
               startIcon={<AddIcon />}
               onClick={() => { setEditing(null); setNewKind('internal'); setDialogOpen(true) }}
             >
-              Eigenen intern. Empfänger
+              {t('anlageAlarms.addCustomInternal')}
             </Button>
           </Box>
           <RecipientTable
@@ -342,7 +331,7 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setInternalPopup(false)}>Schliessen</Button>
+          <Button onClick={() => setInternalPopup(false)}>{t('anlageAlarms.close')}</Button>
         </DialogActions>
       </Dialog>
     </Stack>
@@ -360,14 +349,13 @@ function RecipientTable({
   isInternal?: boolean
   anlageId?: string
 }) {
+  const { t } = useTranslation()
   const update = useUpdateAlarmRecipient(anlageId ?? '')
-  if (loading) return <Typography variant="body2" color="text.secondary">Lädt …</Typography>
+  if (loading) return <Typography variant="body2" color="text.secondary">{t('common.loading')}</Typography>
   if (recipients.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-        {isInternal
-          ? 'Keine internen Empfänger für diese Anlage aktiviert.'
-          : 'Noch keine Empfänger. Fügen Sie mindestens einen hinzu, damit Alarme zugestellt werden.'}
+        {isInternal ? t('anlageAlarms.emptyInternal') : t('anlageAlarms.emptyExternal')}
       </Typography>
     )
   }
@@ -376,13 +364,13 @@ function RecipientTable({
       <Table size="small">
         <TableHead>
           <TableRow>
-            <TableCell>{isInternal ? 'Empfänger' : 'Kanal'}</TableCell>
-            <TableCell>{isInternal ? 'E-Mail (aktuell)' : 'Ziel'}</TableCell>
-            <TableCell>Label</TableCell>
-            <TableCell>Prioritäten</TableCell>
-            <TableCell>Zeitplan</TableCell>
-            <TableCell>Verzög.</TableCell>
-            <TableCell align="center">Aktiv</TableCell>
+            <TableCell>{isInternal ? t('anlageAlarms.cols.recipient') : t('anlageAlarms.cols.channel')}</TableCell>
+            <TableCell>{isInternal ? t('anlageAlarms.cols.emailCurrent') : t('anlageAlarms.cols.target')}</TableCell>
+            <TableCell>{t('anlageAlarms.cols.label')}</TableCell>
+            <TableCell>{t('anlageAlarms.cols.priorities')}</TableCell>
+            <TableCell>{t('anlageAlarms.cols.schedule')}</TableCell>
+            <TableCell>{t('anlageAlarms.cols.delay')}</TableCell>
+            <TableCell align="center">{t('anlageAlarms.cols.active')}</TableCell>
             <TableCell align="right" />
           </TableRow>
         </TableHead>

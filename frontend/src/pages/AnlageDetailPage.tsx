@@ -360,7 +360,7 @@ export function AnlageDetailPage() {
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab icon={<InfoIcon fontSize="small" />} iconPosition="start" label={t('anlageDetail.tabs.info')} />
-        <Tab icon={<LinkIcon fontSize="small" />} iconPosition="start" label={`Fernzugriff (${anlageDevices.length})`} />
+        <Tab icon={<LinkIcon fontSize="small" />} iconPosition="start" label={t('anlageDetail.remoteTab', { count: anlageDevices.length })} />
         {canReadTodos && (
           <Tab
             icon={<AssignmentIcon fontSize="small" />}
@@ -817,7 +817,7 @@ export function AnlageDetailPage() {
                                   <iframe
                                     src={visuUrl ?? 'about:blank'}
                                     style={{ width: '100%', height: '100%', border: 'none' }}
-                                    title={`Visualisierung – ${device.name || defaultDeviceName}`}
+                                    title={t('anlageDetail.visuTitle', { name: device.name || defaultDeviceName })}
                                   />
                                 </Box>
                               ) : (
@@ -841,7 +841,7 @@ export function AnlageDetailPage() {
                         <TableCell sx={{ pl: 6 }}>
                           <Box display="flex" alignItems="center" gap={0.5}>
                             <SubdirectoryArrowRightIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                            <Typography variant="body2">{child.name || 'LAN-Gerät'}</Typography>
+                            <Typography variant="body2">{child.name || t('anlageDetail.lanDevice')}</Typography>
                           </Box>
                         </TableCell>
                         <TableCell>
@@ -860,7 +860,7 @@ export function AnlageDetailPage() {
                           />
                         </TableCell>
                         <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                          <Tooltip title="In neuem Tab öffnen">
+                          <Tooltip title={t('anlageDetail.openNewTab')}>
                             <span>
                               <IconButton
                                 size="small"
