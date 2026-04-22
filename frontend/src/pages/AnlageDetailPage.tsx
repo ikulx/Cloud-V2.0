@@ -80,11 +80,11 @@ const EMPTY_INFO_FORM = {
   contract: 'NONE' as 'NONE' | 'A' | 'B' | 'C',
 }
 
-const CONTRACT_LABEL: Record<'NONE' | 'A' | 'B' | 'C', string> = {
-  NONE: 'Kein Vertrag',
-  A: 'Vertrag A',
-  B: 'Vertrag B',
-  C: 'Vertrag C',
+const CONTRACT_KEY: Record<'NONE' | 'A' | 'B' | 'C', string> = {
+  NONE: 'anlageDetail.contract.none',
+  A:    'anlageDetail.contract.a',
+  B:    'anlageDetail.contract.b',
+  C:    'anlageDetail.contract.c',
 }
 
 // Device-Name-Wrapper mit Update-Mutation (Hook pro Row erforderlich)
@@ -359,7 +359,7 @@ export function AnlageDetailPage() {
       </Box>
 
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab icon={<InfoIcon fontSize="small" />} iconPosition="start" label="Infos" />
+        <Tab icon={<InfoIcon fontSize="small" />} iconPosition="start" label={t('anlageDetail.tabs.info')} />
         <Tab icon={<LinkIcon fontSize="small" />} iconPosition="start" label={`Fernzugriff (${anlageDevices.length})`} />
         {canReadTodos && (
           <Tab
@@ -378,12 +378,12 @@ export function AnlageDetailPage() {
         <Tab
           icon={<PhotoLibraryIcon fontSize="small" />}
           iconPosition="start"
-          label="Fotos"
+          label={t('anlageDetail.tabs.photos')}
         />
         <Tab
           icon={<NotificationsActiveIcon fontSize="small" />}
           iconPosition="start"
-          label="Alarme"
+          label={t('anlageDetail.tabs.alarms')}
         />
         {canReadActivityLog && (
           <Tab
@@ -426,11 +426,11 @@ export function AnlageDetailPage() {
             <Stack spacing={3}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom>Stammdaten</Typography>
+                  <Typography variant="h6" gutterBottom>{t('anlageDetail.sections.basics')}</Typography>
                   {editingInfo ? (
                     <Stack spacing={2}>
                       <TextField
-                        label="Projekt-Nr. *"
+                        label={`${t('anlageDetail.fields.projectNumber')} *`}
                         size="small"
                         value={infoForm.projectNumber}
                         onChange={(e) => setInfoForm({ ...infoForm, projectNumber: e.target.value })}
@@ -455,7 +455,7 @@ export function AnlageDetailPage() {
                           variant="caption"
                           color={showErrors && !erzeugerValid ? 'error' : 'text.secondary'}
                         >
-                          Erzeuger *
+                          {t('anlageDetail.fields.erzeuger')} *
                         </Typography>
                         <ErzeugerPicker
                           value={erzeugerDraft}
@@ -463,25 +463,24 @@ export function AnlageDetailPage() {
                           showErrors={showErrors}
                         />
                         {showErrors && erzeugerDraft.length === 0 && (
-                          <Typography variant="caption" color="error">Mindestens ein Erzeuger erforderlich</Typography>
+                          <Typography variant="caption" color="error">{t('anlageDetail.erzeugerRequired')}</Typography>
                         )}
                       </Box>
                       {isAdmin && (
                         <FormControl size="small" fullWidth>
-                          <InputLabel>Vertrag</InputLabel>
+                          <InputLabel>{t('anlageDetail.fields.contract')}</InputLabel>
                           <Select
-                            label="Vertrag"
+                            label={t('anlageDetail.fields.contract')}
                             value={infoForm.contract}
                             onChange={(e) => setInfoForm({ ...infoForm, contract: e.target.value as 'NONE' | 'A' | 'B' | 'C' })}
                           >
-                            <MenuItem value="NONE">Kein Vertrag</MenuItem>
-                            <MenuItem value="A">Vertrag A</MenuItem>
-                            <MenuItem value="B">Vertrag B</MenuItem>
-                            <MenuItem value="C">Vertrag C</MenuItem>
+                            <MenuItem value="NONE">{t('anlageDetail.contract.none')}</MenuItem>
+                            <MenuItem value="A">{t('anlageDetail.contract.a')}</MenuItem>
+                            <MenuItem value="B">{t('anlageDetail.contract.b')}</MenuItem>
+                            <MenuItem value="C">{t('anlageDetail.contract.c')}</MenuItem>
                           </Select>
                           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                            Kein Vertrag / A → Piketdienst + Ygnis PM deaktiviert.
-                            B / C → aktiv. In den Alarm-Einstellungen übersteuerbar.
+                            {t('anlageDetail.contract.helper')}
                           </Typography>
                         </FormControl>
                       )}
@@ -489,7 +488,7 @@ export function AnlageDetailPage() {
                   ) : (
                     <Stack spacing={1.5}>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Projekt-Nr.</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.projectNumber')}</Typography>
                         <Typography variant="body1">{anlage.projectNumber ?? '—'}</Typography>
                       </Box>
                       <Box>
@@ -501,7 +500,7 @@ export function AnlageDetailPage() {
                         <Typography variant="body1">{anlage.description ?? '—'}</Typography>
                       </Box>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Erzeuger</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.erzeuger')}</Typography>
                         {(anlage.erzeuger ?? []).length === 0 ? (
                           <Typography variant="body1">—</Typography>
                         ) : (
@@ -526,12 +525,12 @@ export function AnlageDetailPage() {
                         )}
                       </Box>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.deviceCount')}</Typography>
                         <Typography variant="body1">{anlageDevices.length}</Typography>
                       </Box>
                       {isAdmin && (
                         <Box>
-                          <Typography variant="caption" color="text.secondary">Vertrag</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.contract')}</Typography>
                           <ContractBadge
                             contract={anlage.contract ?? 'NONE'}
                             recipients={alarmRecipients}
@@ -545,11 +544,11 @@ export function AnlageDetailPage() {
 
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom>Adresse</Typography>
+                  <Typography variant="h6" gutterBottom>{t('anlageDetail.sections.address')}</Typography>
                   {editingInfo ? (
                     <Stack spacing={2}>
                       <TextField
-                        label="Strasse *"
+                        label={`${t('anlageDetail.fields.street')} *`}
                         size="small"
                         value={infoForm.street}
                         onChange={(e) => setInfoForm({ ...infoForm, street: e.target.value })}
@@ -560,7 +559,7 @@ export function AnlageDetailPage() {
                       />
                       <Box display="flex" gap={2}>
                         <TextField
-                          label="PLZ *"
+                          label={`${t('anlageDetail.fields.zip')} *`}
                           size="small"
                           value={infoForm.zip}
                           onChange={(e) => setInfoForm({ ...infoForm, zip: e.target.value })}
@@ -569,7 +568,7 @@ export function AnlageDetailPage() {
                           error={showErrors && !infoForm.zip.trim()}
                         />
                         <TextField
-                          label="Ort *"
+                          label={`${t('anlageDetail.fields.city')} *`}
                           size="small"
                           value={infoForm.city}
                           onChange={(e) => setInfoForm({ ...infoForm, city: e.target.value })}
@@ -578,7 +577,7 @@ export function AnlageDetailPage() {
                           error={showErrors && !infoForm.city.trim()}
                         />
                       </Box>
-                      <TextField label="Land" size="small" value={infoForm.country} onChange={(e) => setInfoForm({ ...infoForm, country: e.target.value })} fullWidth />
+                      <TextField label={t('anlageDetail.fields.country')} size="small" value={infoForm.country} onChange={(e) => setInfoForm({ ...infoForm, country: e.target.value })} fullWidth />
                       <Button
                         variant="outlined"
                         size="small"
@@ -590,14 +589,14 @@ export function AnlageDetailPage() {
                         {geocoding ? '…' : t('anlagen.geocode')}
                       </Button>
                       <Box display="flex" gap={2}>
-                        <TextField label="Breitengrad" size="small" value={infoForm.latitude} onChange={(e) => setInfoForm({ ...infoForm, latitude: e.target.value })} fullWidth placeholder="z.B. 47.3769" />
-                        <TextField label="Längengrad" size="small" value={infoForm.longitude} onChange={(e) => setInfoForm({ ...infoForm, longitude: e.target.value })} fullWidth placeholder="z.B. 8.5417" />
+                        <TextField label={t('anlageDetail.fields.latitude')} size="small" value={infoForm.latitude} onChange={(e) => setInfoForm({ ...infoForm, latitude: e.target.value })} fullWidth placeholder={t('anlageDetail.latitudePlaceholder')} />
+                        <TextField label={t('anlageDetail.fields.longitude')} size="small" value={infoForm.longitude} onChange={(e) => setInfoForm({ ...infoForm, longitude: e.target.value })} fullWidth placeholder={t('anlageDetail.longitudePlaceholder')} />
                       </Box>
                     </Stack>
                   ) : (
                     <Stack spacing={1.5}>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Strasse</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.street')}</Typography>
                         <Typography variant="body1">{anlage.street ?? '—'}</Typography>
                       </Box>
                       <Box display="flex" gap={4}>
@@ -611,7 +610,7 @@ export function AnlageDetailPage() {
                         </Box>
                       </Box>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Land</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.country')}</Typography>
                         <Typography variant="body1">{anlage.country ?? '—'}</Typography>
                       </Box>
                     </Stack>
@@ -622,7 +621,7 @@ export function AnlageDetailPage() {
               {(editingInfo || anlage.notes) && (
                 <Card>
                   <CardContent>
-                    <Typography variant="h6" gutterBottom>Bemerkungen</Typography>
+                    <Typography variant="h6" gutterBottom>{t('anlageDetail.sections.notes')}</Typography>
                     {editingInfo ? (
                       <TextField size="small" value={infoForm.notes} onChange={(e) => setInfoForm({ ...infoForm, notes: e.target.value })} fullWidth multiline rows={3} />
                     ) : (
@@ -637,25 +636,25 @@ export function AnlageDetailPage() {
             <Stack spacing={3}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom>Verantwortlicher</Typography>
+                  <Typography variant="h6" gutterBottom>{t('anlageDetail.sections.contact')}</Typography>
                   {editingInfo ? (
                     <Stack spacing={2}>
-                      <TextField label="Name" size="small" value={infoForm.contactName} onChange={(e) => setInfoForm({ ...infoForm, contactName: e.target.value })} fullWidth />
-                      <TextField label="Telefon" size="small" value={infoForm.contactPhone} onChange={(e) => setInfoForm({ ...infoForm, contactPhone: e.target.value })} fullWidth />
-                      <TextField label="Mobil" size="small" value={infoForm.contactMobile} onChange={(e) => setInfoForm({ ...infoForm, contactMobile: e.target.value })} fullWidth />
-                      <TextField label="E-Mail" size="small" value={infoForm.contactEmail} onChange={(e) => setInfoForm({ ...infoForm, contactEmail: e.target.value })} fullWidth />
+                      <TextField label={t('anlageDetail.fields.contactName')} size="small" value={infoForm.contactName} onChange={(e) => setInfoForm({ ...infoForm, contactName: e.target.value })} fullWidth />
+                      <TextField label={t('anlageDetail.fields.contactPhone')} size="small" value={infoForm.contactPhone} onChange={(e) => setInfoForm({ ...infoForm, contactPhone: e.target.value })} fullWidth />
+                      <TextField label={t('anlageDetail.fields.contactMobile')} size="small" value={infoForm.contactMobile} onChange={(e) => setInfoForm({ ...infoForm, contactMobile: e.target.value })} fullWidth />
+                      <TextField label={t('anlageDetail.fields.contactEmail')} size="small" value={infoForm.contactEmail} onChange={(e) => setInfoForm({ ...infoForm, contactEmail: e.target.value })} fullWidth />
                     </Stack>
                   ) : anlage.contactName ? (
                     <Stack spacing={1.5}>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Name</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.contactName')}</Typography>
                         <Typography variant="body1">{anlage.contactName}</Typography>
                       </Box>
                       {anlage.contactPhone && (
                         <Box display="flex" alignItems="center" gap={1}>
                           <PhoneIcon fontSize="small" color="action" />
                           <Box>
-                            <Typography variant="caption" color="text.secondary">Telefon</Typography>
+                            <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.contactPhone')}</Typography>
                             <Typography variant="body1">{anlage.contactPhone}</Typography>
                           </Box>
                         </Box>
@@ -664,7 +663,7 @@ export function AnlageDetailPage() {
                         <Box display="flex" alignItems="center" gap={1}>
                           <PhoneAndroidIcon fontSize="small" color="action" />
                           <Box>
-                            <Typography variant="caption" color="text.secondary">Mobil</Typography>
+                            <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.contactMobile')}</Typography>
                             <Typography variant="body1">{anlage.contactMobile}</Typography>
                           </Box>
                         </Box>
@@ -673,7 +672,7 @@ export function AnlageDetailPage() {
                         <Box display="flex" alignItems="center" gap={1}>
                           <EmailIcon fontSize="small" color="action" />
                           <Box>
-                            <Typography variant="caption" color="text.secondary">E-Mail</Typography>
+                            <Typography variant="caption" color="text.secondary">{t('anlageDetail.fields.contactEmail')}</Typography>
                             <Typography variant="body1">{anlage.contactEmail}</Typography>
                           </Box>
                         </Box>
@@ -1114,25 +1113,33 @@ function ContractBadge({
   contract: 'NONE' | 'A' | 'B' | 'C'
   recipients: Array<{ isActive: boolean; isInternal: boolean; template?: { isSystem?: boolean } | null }>
 }) {
+  const { t } = useTranslation()
   const defaultActive = contract === 'B' || contract === 'C'
   const systemRows = recipients.filter((r) => r.isInternal && r.template?.isSystem)
   const overridden = systemRows.length > 0 && systemRows.some((r) => r.isActive !== defaultActive)
   const color: 'default' | 'primary' | 'success' = contract === 'NONE' ? 'default' : contract === 'A' ? 'primary' : 'success'
-  const label = CONTRACT_LABEL[contract]
+  const label = t(CONTRACT_KEY[contract])
+
+  const tooltipText = overridden
+    ? t('anlageDetail.contract.tooltipOverridden')
+    : defaultActive
+      ? t('anlageDetail.contract.tooltipDefaultActive')
+      : t('anlageDetail.contract.tooltipDefaultInactive')
+  const chipLabel = overridden
+    ? t('anlageDetail.contract.overridden')
+    : defaultActive
+      ? t('anlageDetail.contract.piketActive')
+      : t('anlageDetail.contract.piketInactive')
 
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
       <Chip size="small" color={color} label={label} variant={contract === 'NONE' ? 'outlined' : 'filled'} />
-      <Tooltip title={
-        overridden
-          ? 'Piketdienst/Ygnis PM-Aktivierung wurde in den Alarm-Einstellungen manuell übersteuert.'
-          : `Standard: Piketdienst & Ygnis PM sind ${defaultActive ? 'aktiv' : 'deaktiviert'}.`
-      }>
+      <Tooltip title={tooltipText}>
         <Chip
           size="small"
           variant="outlined"
           color={overridden ? 'warning' : 'default'}
-          label={overridden ? 'übersteuert' : (defaultActive ? 'Piket/PM aktiv' : 'Piket/PM aus')}
+          label={chipLabel}
         />
       </Tooltip>
     </Box>
