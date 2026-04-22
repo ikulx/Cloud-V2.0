@@ -100,7 +100,12 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
         select: {
           id: true,
           alarmRateLimitMinutes: true,
-          alarmRecipients: { where: { isActive: true } },
+          alarmRecipients: {
+            where: { isActive: true },
+            // Template wird geladen, damit der Dispatcher bei internen
+            // Empfängern die aktuelle E-Mail-Adresse aus dem Template nutzt.
+            include: { template: { select: { email: true, label: true } } } as never,
+          },
         },
       },
     },
@@ -151,10 +156,32 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
   const immediateIds: string[] = []
 
   for (const r of matching) {
+    // Für interne Empfänger (templateId gesetzt) → E-Mail aus Template holen.
+    // Für externe Empfänger → target direkt nutzen.
+    const rAny = r as unknown as {
+      isInternal?: boolean
+      templateId?: string | null
+      template?: { email: string | null } | null
+    }
+    const effectiveTarget = rAny.isInternal
+      ? (rAny.template?.email ?? '').trim()
+      : r.target
+    // Interner Empfänger ohne gepflegte Template-Adresse → überspringen mit
+    // klarem Hinweis. So bleibt die Historie nachvollziehbar.
+    if (rAny.isInternal && !effectiveTarget) {
+      await prisma.alarmEventDelivery.create({
+        data: {
+          eventId: event.id, recipientId: r.id, type: r.type, target: '',
+          status: 'SKIPPED', errorMessage: 'template_email_missing', attemptedAt: now,
+        },
+      })
+      continue
+    }
+
     if (rateLimited) {
       await prisma.alarmEventDelivery.create({
         data: {
-          eventId: event.id, recipientId: r.id, type: r.type, target: r.target,
+          eventId: event.id, recipientId: r.id, type: r.type, target: effectiveTarget,
           status: 'SKIPPED', errorMessage: 'rate_limited', attemptedAt: now,
         },
       })
@@ -165,7 +192,7 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
     if (!isInSchedule(r.schedule, now)) {
       await prisma.alarmEventDelivery.create({
         data: {
-          eventId: event.id, recipientId: r.id, type: r.type, target: r.target,
+          eventId: event.id, recipientId: r.id, type: r.type, target: effectiveTarget,
           status: 'SKIPPED', errorMessage: 'out_of_schedule', attemptedAt: now,
         },
       })
@@ -175,11 +202,9 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
     // Zeitplan ok → Delivery für scheduledAt planen (= now + delayMinutes).
     const delay = Math.max(0, r.delayMinutes ?? 0)
     const scheduledAt = new Date(now.getTime() + delay * 60_000)
-    // Cast: scheduledAt ist in Prisma Schema neu; der lokal stale generierte
-    // Client kennt das Feld noch nicht. Build im Docker regeneriert sauber.
     const delivery = await prisma.alarmEventDelivery.create({
       data: {
-        eventId: event.id, recipientId: r.id, type: r.type, target: r.target,
+        eventId: event.id, recipientId: r.id, type: r.type, target: effectiveTarget,
         status: 'PENDING', scheduledAt,
       } as never,
     })

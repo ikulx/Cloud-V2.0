@@ -41,14 +41,36 @@ const scheduleSchema = z.object({
 }).nullable().optional()
 
 const recipientSchema = z.object({
+  // Externer Empfänger: type + target. Interner Empfänger: isInternal=true +
+  // templateId, target darf leer sein (wird aus Template aufgelöst).
   type: z.enum(TYPES),
-  target: z.string().min(1).max(200),
+  target: z.string().max(200).default(''),
   label: z.string().max(100).nullable().optional(),
   priorities: z.array(z.enum(PRIORITIES)).default([]),
   delayMinutes: z.number().int().min(0).max(1440).default(0),
   schedule: scheduleSchema,
+  isInternal: z.boolean().default(false),
+  templateId: z.string().uuid().nullable().optional(),
   isActive: z.boolean().default(true),
 })
+
+function isAdminRole(roleName: string | null | undefined): boolean {
+  return roleName === 'admin' || roleName === 'verwalter'
+}
+
+// Validiert Empfänger-Daten aus Benutzer-Sicht:
+//  - interner Empfänger → muss templateId haben, type=EMAIL
+//  - externer Empfänger → target muss gesetzt sein
+function validateRecipient(data: z.infer<typeof recipientSchema>): string | null {
+  if (data.isInternal) {
+    if (!data.templateId) return 'Interner Empfänger benötigt ein Template'
+    if (data.type !== 'EMAIL') return 'Interner Empfänger muss vom Typ EMAIL sein'
+    // target darf leer sein; wird aus Template aufgelöst
+  } else {
+    if (!data.target?.trim()) return 'Empfänger-Adresse (target) erforderlich'
+  }
+  return null
+}
 
 // GET /api/alarms/recipients?anlageId=...
 router.get('/recipients', authenticate, requirePermission('anlagen:read'), async (req, res) => {
@@ -56,9 +78,14 @@ router.get('/recipients', authenticate, requirePermission('anlagen:read'), async
   if (!anlageId) { res.status(400).json({ message: 'anlageId erforderlich' }); return }
   const recipients = await prisma.alarmRecipient.findMany({
     where: { anlageId },
-    orderBy: [{ type: 'asc' }, { createdAt: 'asc' }],
+    orderBy: [{ isInternal: 'asc' }, { type: 'asc' }, { createdAt: 'asc' }] as never,
+    include: { template: { select: { id: true, label: true, email: true, isSystem: true } } } as never,
   })
-  res.json(recipients)
+  // Kunden-Rollen sehen interne Empfänger nicht
+  const filtered = isAdminRole(req.user?.roleName)
+    ? recipients
+    : recipients.filter((r) => !(r as unknown as { isInternal: boolean }).isInternal)
+  res.json(filtered)
 })
 
 // POST /api/alarms/recipients – Body: recipientSchema + anlageId
@@ -70,17 +97,23 @@ router.post('/recipients', authenticate, requirePermission('anlagen:update'), as
     res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() })
     return
   }
+  // Interne Empfänger nur für Admins/Verwalter
+  if (parsed.data.isInternal && !isAdminRole(req.user?.roleName)) {
+    res.status(403).json({ message: 'Nicht berechtigt, interne Empfänger zu verwalten' })
+    return
+  }
+  const validateErr = validateRecipient(parsed.data)
+  if (validateErr) { res.status(400).json({ message: validateErr }); return }
+
   const anlage = await prisma.anlage.findUnique({ where: { id: anlageId }, select: { id: true } })
   if (!anlage) { res.status(404).json({ message: 'Anlage nicht gefunden' }); return }
-  // Prisma's Json-Felder akzeptieren kein nacktes `null`; entweder
-  // `Prisma.JsonNull` (=SQL NULL) oder Feld weglassen.
   const { schedule, ...rest } = parsed.data
   const created = await prisma.alarmRecipient.create({
     data: {
       ...rest,
       anlageId,
       ...(schedule === undefined ? {} : { schedule: schedule === null ? Prisma.JsonNull : schedule }),
-    },
+    } as never,
   })
   res.status(201).json(created)
 })
@@ -92,6 +125,15 @@ router.patch('/recipients/:id', authenticate, requirePermission('anlagen:update'
     res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() })
     return
   }
+  // Bestehenden Recipient laden, um Admin-Only-Regel auch für Updates zu prüfen
+  const existing = await prisma.alarmRecipient.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) { res.status(404).json({ message: 'Empfänger nicht gefunden' }); return }
+  const existingIsInternal = (existing as unknown as { isInternal: boolean }).isInternal
+  if ((existingIsInternal || parsed.data.isInternal) && !isAdminRole(req.user?.roleName)) {
+    res.status(403).json({ message: 'Nicht berechtigt, interne Empfänger zu verwalten' })
+    return
+  }
+
   const { schedule, ...rest } = parsed.data
   try {
     const updated = await prisma.alarmRecipient.update({
@@ -99,7 +141,7 @@ router.patch('/recipients/:id', authenticate, requirePermission('anlagen:update'
       data: {
         ...rest,
         ...(schedule === undefined ? {} : { schedule: schedule === null ? Prisma.JsonNull : schedule }),
-      },
+      } as never,
     })
     res.json(updated)
   } catch {
@@ -109,12 +151,15 @@ router.patch('/recipients/:id', authenticate, requirePermission('anlagen:update'
 
 // DELETE /api/alarms/recipients/:id
 router.delete('/recipients/:id', authenticate, requirePermission('anlagen:update'), async (req, res) => {
-  try {
-    await prisma.alarmRecipient.delete({ where: { id: req.params.id as string } })
-    res.status(204).send()
-  } catch {
-    res.status(404).json({ message: 'Empfänger nicht gefunden' })
+  const existing = await prisma.alarmRecipient.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) { res.status(404).json({ message: 'Empfänger nicht gefunden' }); return }
+  const existingIsInternal = (existing as unknown as { isInternal: boolean }).isInternal
+  if (existingIsInternal && !isAdminRole(req.user?.roleName)) {
+    res.status(403).json({ message: 'Nicht berechtigt, interne Empfänger zu löschen' })
+    return
   }
+  await prisma.alarmRecipient.delete({ where: { id: existing.id } })
+  res.status(204).send()
 })
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ import erzeugerTypesRouter from './erzeuger-types.router'
 import erzeugerCategoriesRouter from './erzeuger-categories.router'
 import uploadsRouter from './uploads.router'
 import alarmsRouter from './alarms.router'
+import internalAlarmTemplatesRouter from './internal-alarm-templates.router'
 
 const router = Router()
 
@@ -36,5 +37,6 @@ router.use('/erzeuger-types', erzeugerTypesRouter)
 router.use('/erzeuger-categories', erzeugerCategoriesRouter)
 router.use('/uploads', uploadsRouter)
 router.use('/alarms', alarmsRouter)
+router.use('/alarms/internal-templates', internalAlarmTemplatesRouter)
 
 export default router

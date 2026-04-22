@@ -269,6 +269,25 @@ async function main() {
   } else {
     console.log(`✓ ${existingDeviceCount} Geräte vorhanden – Demo-Daten übersprungen`)
   }
+
+  // ─── Interne Alarm-Empfänger-Templates (System-Einträge) ──────────────
+  // E-Mail bleibt beim Seed leer – sie wird vom Admin in der Cloud-UI
+  // (Einstellungen → Alarme → Interne Empfänger) gepflegt. Dadurch
+  // überschreibt der Seed bestehende Adressen nicht.
+  const internalTemplates = [
+    { key: 'piketdienst', label: 'Piketdienst', sortOrder: 10 },
+    { key: 'ygnis_pm',    label: 'Ygnis PM',    sortOrder: 20 },
+  ]
+  for (const t of internalTemplates) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (prisma as any).internalAlarmRecipientTemplate.upsert({
+      where: { key: t.key },
+      update: { label: t.label, sortOrder: t.sortOrder, isSystem: true },
+      create: { key: t.key, label: t.label, sortOrder: t.sortOrder, isSystem: true },
+    })
+  }
+  console.log('✓ Interne Alarm-Templates (Piketdienst, Ygnis PM) geseeded')
+
   console.log('\nSeeding complete!')
   console.log('Login credentials:')
   console.log('  admin@ycontrol.local     / Admin1234!')

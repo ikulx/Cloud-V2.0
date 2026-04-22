@@ -49,6 +49,17 @@ export function normalizeSchedule(raw: unknown): RecipientSchedule | null {
   return { mode: 'weekly', days }
 }
 
+export interface InternalAlarmTemplate {
+  id: string
+  key: string
+  label: string
+  email: string | null
+  isSystem: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AlarmRecipient {
   id: string
   anlageId: string
@@ -59,6 +70,13 @@ export interface AlarmRecipient {
   delayMinutes: number
   schedule: RecipientSchedule | null
   isActive: boolean
+  /** true = interner Empfänger (nur für Admin/Verwalter sichtbar) */
+  isInternal: boolean
+  /** Optional: FK auf ein InternalAlarmTemplate. Wenn gesetzt, kommt die
+   *  E-Mail aus dem Template (zentrale Pflege). */
+  templateId: string | null
+  /** Vom Backend mitgeliefertes Template-Objekt (Label + aktuelle E-Mail). */
+  template: Pick<InternalAlarmTemplate, 'id' | 'label' | 'email' | 'isSystem'> | null
   createdAt: string
   updatedAt: string
 }
@@ -94,6 +112,43 @@ export interface AlarmEvent {
 export const alarmKeys = {
   recipients: (anlageId: string) => ['alarms', 'recipients', anlageId] as const,
   events: (filters: Record<string, string | undefined>) => ['alarms', 'events', filters] as const,
+  internalTemplates: () => ['alarms', 'internal-templates'] as const,
+}
+
+// ── Interne Empfänger-Templates (admin only) ───────────────────────────────
+
+export function useInternalAlarmTemplates(enabled = true) {
+  return useQuery({
+    queryKey: alarmKeys.internalTemplates(),
+    queryFn: () => apiGet<InternalAlarmTemplate[]>('/alarms/internal-templates'),
+    enabled,
+  })
+}
+
+export function useCreateInternalAlarmTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { label: string; email?: string | null; sortOrder?: number }) =>
+      apiPost<InternalAlarmTemplate>('/alarms/internal-templates', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: alarmKeys.internalTemplates() }),
+  })
+}
+
+export function useUpdateInternalAlarmTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string; label?: string; email?: string | null; sortOrder?: number }) =>
+      apiPatch<InternalAlarmTemplate>(`/alarms/internal-templates/${id}`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: alarmKeys.internalTemplates() }),
+  })
+}
+
+export function useDeleteInternalAlarmTemplate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/alarms/internal-templates/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: alarmKeys.internalTemplates() }),
+  })
 }
 
 // ── Empfänger ────────────────────────────────────────────────────────────────

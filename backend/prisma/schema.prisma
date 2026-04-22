@@ -789,6 +789,32 @@ model WikiPageTranslation {
 
 // ─── Alarme ───────────────────────────────────────────────────────────────────
 
+/// Global definierte "Interne Alarm-Empfänger". Der Kunde (Rolle "benutzer")
+/// sieht sie nie – nur Admins/Verwalter können sie pro Anlage aktivieren.
+/// Zwei System-Einträge werden geseeded (Piketdienst, Ygnis PM) und können
+/// nicht gelöscht werden; weitere Einträge kann der Admin selber anlegen.
+/// Die E-Mail-Adresse wird hier zentral gepflegt und zur Versand-Zeit
+/// vom Dispatcher nachgeschlagen.
+model InternalAlarmRecipientTemplate {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Stabiler Key (z.B. "piketdienst", "ygnis_pm"). Für System-Einträge
+  /// einmalig geseedet, für Custom-Einträge generiert.
+  key       String   @unique
+  /// Anzeigename für Admins, z.B. "Piketdienst".
+  label     String
+  /// Zentral gepflegte E-Mail-Adresse. Leer = Dispatcher überspringt.
+  email     String?
+  /// true für Piketdienst + Ygnis PM – können nicht gelöscht werden.
+  isSystem  Boolean  @default(false) @map("is_system")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt  @map("updated_at")
+
+  recipients AlarmRecipient[]
+
+  @@map("internal_alarm_recipient_templates")
+}
+
 /// Alarm-Empfänger pro Anlage. Ein Empfänger beschreibt WOHIN bei einem
 /// Alarm benachrichtigt wird (E-Mail, SMS, Telegram) und optional WELCHE
 /// Prioritäten an ihn gehen.
@@ -798,6 +824,8 @@ model AlarmRecipient {
   anlage       Anlage             @relation(fields: [anlageId], references: [id], onDelete: Cascade)
   type         AlarmRecipientType
   /// E-Mail-Adresse, Telefonnummer (E.164) oder Telegram-Chat-ID.
+  /// Bei internen Empfängern (templateId gesetzt) leer – die Adresse kommt
+  /// dynamisch aus dem Template, damit zentrale Änderungen überall greifen.
   target       String
   /// Optionaler Anzeigename (z.B. "Bereitschaft Müller").
   label        String?
@@ -829,6 +857,13 @@ model AlarmRecipient {
   /// definitiv verworfen (Delivery=SKIPPED, Grund "out_of_schedule").
   /// null = wie "always".
   schedule     Json?
+  /// true = interner Empfänger (für Admins/Verwalter). Kunden (benutzer-Rolle)
+  /// bekommen ihn in der API nicht ausgeliefert und sehen ihn nicht im UI.
+  isInternal   Boolean            @default(false) @map("is_internal")
+  /// Optional: FK auf ein globales Template. Wenn gesetzt, wird `target` beim
+  /// Versand aus dem Template aufgelöst (zentrale Pflege der Adresse).
+  templateId   String?            @map("template_id") @db.Uuid
+  template     InternalAlarmRecipientTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   isActive     Boolean            @default(true) @map("is_active")
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt  @map("updated_at")
@@ -836,6 +871,7 @@ model AlarmRecipient {
   deliveries AlarmEventDelivery[]
 
   @@index([anlageId])
+  @@index([templateId])
   @@map("alarm_recipients")
 }
 

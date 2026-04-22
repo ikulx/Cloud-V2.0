@@ -5,6 +5,7 @@ import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
 import Link from '@mui/material/Link'
 import { ErzeugerSettingsTab } from '../components/settings/ErzeugerSettingsTab'
+import { InternalAlarmTemplatesSettings } from '../components/settings/InternalAlarmTemplatesSettings'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import TextField from '@mui/material/TextField'
@@ -610,6 +611,8 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {activeKey === 'alarm' && <InternalAlarmTemplatesSettings />}
 
       {activeKey === 'erzeuger' && <ErzeugerSettingsTab />}
 
