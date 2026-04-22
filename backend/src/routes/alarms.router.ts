@@ -59,16 +59,20 @@ function isAdminRole(roleName: string | null | undefined): boolean {
 }
 
 // Validiert Empfänger-Daten aus Benutzer-Sicht:
-//  - interner Empfänger → muss templateId haben, type=EMAIL
-//  - externer Empfänger → target muss gesetzt sein
+//  - interner Empfänger mit templateId → target darf leer sein (E-Mail kommt
+//    aus dem zentralen Template; Piketdienst / Ygnis PM)
+//  - interner Empfänger ohne templateId → eigene Adresse, target erforderlich
+//  - externer Empfänger → target erforderlich
 function validateRecipient(data: z.infer<typeof recipientSchema>): string | null {
-  if (data.isInternal) {
-    if (!data.templateId) return 'Interner Empfänger benötigt ein Template'
-    if (data.type !== 'EMAIL') return 'Interner Empfänger muss vom Typ EMAIL sein'
-    // target darf leer sein; wird aus Template aufgelöst
-  } else {
-    if (!data.target?.trim()) return 'Empfänger-Adresse (target) erforderlich'
+  if (data.isInternal && data.type !== 'EMAIL') {
+    return 'Interner Empfänger muss vom Typ EMAIL sein'
   }
+  if (data.templateId) {
+    // Template-basiert: target ist irrelevant (wird zur Versandzeit aus
+    // dem Template aufgelöst).
+    return null
+  }
+  if (!data.target?.trim()) return 'Empfänger-Adresse (target) erforderlich'
   return null
 }
 

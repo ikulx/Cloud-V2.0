@@ -156,23 +156,22 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
   const immediateIds: string[] = []
 
   for (const r of matching) {
-    // Für interne Empfänger (templateId gesetzt) → E-Mail aus Template holen.
-    // Für externe Empfänger → target direkt nutzen.
+    // Adresse auflösen: bei Template-basierten Empfängern (templateId gesetzt)
+    // aus dem zentralen Template, sonst direkt aus `target`. `isInternal` ist
+    // nur eine Sichtbarkeits-Markierung und beeinflusst die Adresse nicht.
     const rAny = r as unknown as {
-      isInternal?: boolean
       templateId?: string | null
       template?: { email: string | null } | null
     }
-    const effectiveTarget = rAny.isInternal
+    const effectiveTarget = rAny.templateId
       ? (rAny.template?.email ?? '').trim()
-      : r.target
-    // Interner Empfänger ohne gepflegte Template-Adresse → überspringen mit
-    // klarem Hinweis. So bleibt die Historie nachvollziehbar.
-    if (rAny.isInternal && !effectiveTarget) {
+      : (r.target ?? '').trim()
+    if (!effectiveTarget) {
+      const reason = rAny.templateId ? 'template_email_missing' : 'target_missing'
       await prisma.alarmEventDelivery.create({
         data: {
           eventId: event.id, recipientId: r.id, type: r.type, target: '',
-          status: 'SKIPPED', errorMessage: 'template_email_missing', attemptedAt: now,
+          status: 'SKIPPED', errorMessage: reason, attemptedAt: now,
         },
       })
       continue

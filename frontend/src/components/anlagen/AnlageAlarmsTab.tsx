@@ -114,8 +114,6 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
   const { data: anlage } = useAnlage(anlageId)
   const updateAnlage = useUpdateAnlage(anlageId)
   const { data: recipients = [], isLoading: rLoading } = useAlarmRecipients(anlageId)
-  // Templates nur laden wenn Admin (Backend gibt Nicht-Admins 403)
-  const { data: templates = [] } = useInternalAlarmTemplates(isAdmin)
   // Bewusst nur aktive Events – die Cloud zeigt nicht mehr die volle Historie.
   const { data: events = [], isLoading: eLoading } = useAlarmEvents({
     anlageId, status: 'ACTIVE', limit: 100,
@@ -246,7 +244,6 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
               variant="outlined"
               startIcon={<AddIcon />}
               onClick={() => { setEditing(null); setNewKind('internal'); setDialogOpen(true) }}
-              disabled={templates.length === 0}
               sx={{ whiteSpace: 'nowrap' }}
             >
               Intern hinzufügen
@@ -337,9 +334,10 @@ function RecipientTable({
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                     <LockIcon fontSize="small" color="action" />
                     <Typography variant="body2" fontWeight={500}>
-                      {r.template?.label ?? '— (Template fehlt)'}
+                      {r.template?.label ?? (r.templateId ? '— (Template entfernt)' : 'Eigene Adresse')}
                     </Typography>
                     {r.template?.isSystem && <Chip size="small" label="System" />}
+                    {!r.templateId && <Chip size="small" label="Custom" variant="outlined" />}
                   </Box>
                 ) : (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -349,7 +347,9 @@ function RecipientTable({
               </TableCell>
               <TableCell sx={{ fontFamily: 'monospace', fontSize: 13 }}>
                 {isInternal
-                  ? (r.template?.email || <em style={{ color: '#9e9e9e' }}>– keine E-Mail gepflegt –</em>)
+                  ? (r.templateId
+                      ? (r.template?.email || <em style={{ color: '#9e9e9e' }}>– keine E-Mail gepflegt –</em>)
+                      : (r.target || <em style={{ color: '#9e9e9e' }}>–</em>))
                   : r.target}
               </TableCell>
               <TableCell>{r.label ?? '—'}</TableCell>
@@ -458,28 +458,31 @@ function RecipientDialog({
     return norm ?? defaultSchedule()
   })
   const [templateId, setTemplateId] = useState<string>(editing?.templateId ?? '')
+  // Sub-Modus bei internen Empfängern: Template (Piketdienst/Ygnis PM) oder
+  // eigene E-Mail-Adresse, die nur zu dieser Anlage gehört.
+  const [internalKind, setInternalKind] = useState<'template' | 'custom'>(
+    editing?.templateId ? 'template' : (editing?.isInternal ? 'custom' : 'template'),
+  )
   const isInternal = kind === 'internal'
-
-  // Bei internen Empfängern nur aktive Templates anbieten; bereits von anderen
-  // Empfängern dieser Anlage belegte ausblenden (der Backend-Constraint ist
-  // weich, aber doppelte Einträge sind sinnlos).
-  const availableTemplates = templates // optional filtern falls gewünscht
+  const useTemplate = isInternal && internalKind === 'template'
 
   const save = async () => {
-    if (isInternal && !templateId) return
-    if (!isInternal && !target.trim()) return
+    if (isInternal && internalKind === 'template' && !templateId) return
+    if ((!isInternal || internalKind === 'custom') && !target.trim()) return
     const cleanSchedule: RecipientSchedule =
       schedule.mode === 'always' ? { mode: 'always' } : schedule
     const data = {
       type: isInternal ? ('EMAIL' as AlarmRecipientType) : type,
-      target: isInternal ? '' : target.trim(),
+      // Bei Template-Empfängern bleibt target leer, die Adresse kommt aus dem
+      // Template. Bei Custom-Internen und Externen direkt aus dem Eingabefeld.
+      target: useTemplate ? '' : target.trim(),
       label: label.trim() || null,
       priorities,
       delayMinutes,
       isActive,
       schedule: cleanSchedule,
       isInternal,
-      templateId: isInternal ? (templateId || null) : null,
+      templateId: useTemplate ? (templateId || null) : null,
     }
     if (editing) {
       await update.mutateAsync({ id: editing.id, ...data })
@@ -504,22 +507,63 @@ function RecipientDialog({
       <DialogContent>
         <Stack gap={2} sx={{ mt: 1 }}>
           {isInternal ? (
-            <FormControl fullWidth size="small">
-              <InputLabel>Template</InputLabel>
-              <Select
-                value={templateId}
-                label="Template"
-                onChange={(e) => setTemplateId(e.target.value as string)}
-              >
-                {availableTemplates.map((t) => (
-                  <MenuItem key={t.id} value={t.id}>
-                    {t.label}
-                    {t.email ? <span style={{ color: '#9e9e9e', marginLeft: 8, fontSize: 12 }}>{t.email}</span>
-                             : <span style={{ color: '#f44336', marginLeft: 8, fontSize: 12 }}>(keine E-Mail)</span>}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <>
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  Typ des internen Empfängers
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <Button
+                    size="small"
+                    variant={internalKind === 'template' ? 'contained' : 'outlined'}
+                    onClick={() => setInternalKind('template')}
+                  >
+                    Piketdienst / Ygnis PM
+                  </Button>
+                  <Button
+                    size="small"
+                    variant={internalKind === 'custom' ? 'contained' : 'outlined'}
+                    onClick={() => setInternalKind('custom')}
+                  >
+                    Eigene Adresse
+                  </Button>
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                  {internalKind === 'template'
+                    ? 'E-Mail-Adresse wird zentral unter „Einstellungen → Alarme" gepflegt und gilt für alle Anlagen.'
+                    : 'Eigene, nur zu dieser Anlage gehörende Adresse. Kunden bleiben weiterhin unsichtbar.'}
+                </Typography>
+              </Box>
+
+              {internalKind === 'template' ? (
+                <FormControl fullWidth size="small">
+                  <InputLabel>Template</InputLabel>
+                  <Select
+                    value={templateId}
+                    label="Template"
+                    onChange={(e) => setTemplateId(e.target.value as string)}
+                  >
+                    {templates.map((t) => (
+                      <MenuItem key={t.id} value={t.id}>
+                        {t.label}
+                        {t.email ? <span style={{ color: '#9e9e9e', marginLeft: 8, fontSize: 12 }}>{t.email}</span>
+                                 : <span style={{ color: '#f44336', marginLeft: 8, fontSize: 12 }}>(keine E-Mail gepflegt)</span>}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              ) : (
+                <TextField
+                  label="E-Mail-Adresse"
+                  type="email"
+                  fullWidth size="small"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  autoFocus
+                  placeholder="intern@example.com"
+                />
+              )}
+            </>
           ) : (
             <>
               <FormControl fullWidth size="small">
@@ -610,7 +654,10 @@ function RecipientDialog({
           <Button
             variant="contained"
             onClick={save}
-            disabled={(isInternal ? !templateId : !target.trim()) || create.isPending || update.isPending}
+            disabled={
+              (useTemplate ? !templateId : !target.trim()) ||
+              create.isPending || update.isPending
+            }
           >
             Speichern
           </Button>

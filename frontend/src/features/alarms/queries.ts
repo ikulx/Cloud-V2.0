@@ -125,28 +125,11 @@ export function useInternalAlarmTemplates(enabled = true) {
   })
 }
 
-export function useCreateInternalAlarmTemplate() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: { label: string; email?: string | null; sortOrder?: number }) =>
-      apiPost<InternalAlarmTemplate>('/alarms/internal-templates', data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: alarmKeys.internalTemplates() }),
-  })
-}
-
 export function useUpdateInternalAlarmTemplate() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; label?: string; email?: string | null; sortOrder?: number }) =>
-      apiPatch<InternalAlarmTemplate>(`/alarms/internal-templates/${id}`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: alarmKeys.internalTemplates() }),
-  })
-}
-
-export function useDeleteInternalAlarmTemplate() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => apiDelete(`/alarms/internal-templates/${id}`),
+    mutationFn: ({ id, email }: { id: string; email: string | null }) =>
+      apiPatch<InternalAlarmTemplate>(`/alarms/internal-templates/${id}`, { email }),
     onSuccess: () => qc.invalidateQueries({ queryKey: alarmKeys.internalTemplates() }),
   })
 }
