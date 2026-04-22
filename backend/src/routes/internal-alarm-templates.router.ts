@@ -32,9 +32,30 @@ router.get('/', authenticate, requirePermission(ADMIN_PERM), async (_req, res) =
   res.json(templates)
 })
 
-// PATCH /api/alarms/internal-templates/:id – E-Mail editieren
+// PATCH /api/alarms/internal-templates/:id – Adresse/Zeitplan/Prio/Delay
+const priorityEnum = z.enum(['PRIO1', 'PRIO2', 'PRIO3', 'WARNING', 'INFO'])
+const scheduleWindowSchema = z.object({
+  start: z.string().regex(/^\d{2}:\d{2}$/),
+  end:   z.string().regex(/^\d{2}:\d{2}$/),
+})
+const scheduleDaySchema = z.object({
+  enabled: z.boolean(),
+  windows: z.array(scheduleWindowSchema).max(8).optional(),
+  start: z.string().optional(), // legacy
+  end:   z.string().optional(),
+})
+const scheduleSchema = z.object({
+  mode: z.enum(['always', 'weekly']),
+  days: z.array(scheduleDaySchema).length(7).optional(),
+})
+
 const updateSchema = z.object({
-  email: z.string().email().max(200).nullable().optional(),
+  email:        z.string().email().max(200).nullable().optional(),
+  schedule:     scheduleSchema.nullable().optional(),
+  priorities:   z.array(priorityEnum).optional(),
+  delayMinutes: z.number().int().min(0).max(1440).optional(),
+  sendOnHoliday: z.boolean().optional(),
+  deliveryChannel: z.enum(['EMAIL', 'PIKET_MANAGER']).optional(),
 })
 
 router.patch('/:id', authenticate, requirePermission(ADMIN_PERM), async (req, res) => {
@@ -48,6 +69,16 @@ router.patch('/:id', authenticate, requirePermission(ADMIN_PERM), async (req, re
 
   const data: Record<string, unknown> = {}
   if (parsed.data.email !== undefined) data.email = parsed.data.email
+  if (parsed.data.schedule !== undefined) {
+    // Prisma.JsonNull für null
+    data.schedule = parsed.data.schedule === null
+      ? (await import('@prisma/client')).Prisma.JsonNull
+      : parsed.data.schedule
+  }
+  if (parsed.data.priorities !== undefined) data.priorities = parsed.data.priorities
+  if (parsed.data.delayMinutes !== undefined) data.delayMinutes = parsed.data.delayMinutes
+  if (parsed.data.sendOnHoliday !== undefined) data.sendOnHoliday = parsed.data.sendOnHoliday
+  if (parsed.data.deliveryChannel !== undefined) data.deliveryChannel = parsed.data.deliveryChannel
 
   const updated = await p.internalAlarmRecipientTemplate.update({
     where: { id: existing.id },

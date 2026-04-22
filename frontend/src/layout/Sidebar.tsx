@@ -16,6 +16,7 @@ import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import HistoryIcon from '@mui/icons-material/History'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import AssignmentIcon from '@mui/icons-material/Assignment'
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { NavLink } from 'react-router-dom'
 import { useSession } from '../context/SessionContext'
 import { useTranslation } from 'react-i18next'
@@ -40,7 +41,8 @@ export function Sidebar({ onNavClick }: SidebarProps) {
         { label: t('nav.devices'), icon: <DevicesIcon />, to: '/devices', permission: 'devices:read' },
         { label: t('nav.anlagen'), icon: <BusinessIcon />, to: '/anlagen', permission: 'anlagen:read' },
         { label: t('nav.wiki'), icon: <MenuBookIcon />, to: '/wiki', permission: 'wiki:read' },
-        { label: 'Meine Todos', icon: <AssignmentIcon />, to: '/my-todos', permission: null },
+        { label: t('nav.myTodos'), icon: <AssignmentIcon />, to: '/my-todos', permission: null },
+        { label: t('nav.piket'), icon: <NotificationsActiveIcon />, to: '/piket', permission: 'piket:alarms:read_own,piket:alarms:read_all,piket:planning:manage,piket:log:read' },
         { label: t('nav.groups'), icon: <GroupIcon />, to: '/groups', permission: 'groups:read' },
         { label: t('nav.users'), icon: <PersonIcon />, to: '/users', permission: 'users:read' },
         { label: t('nav.roles'), icon: <AdminPanelSettingsIcon />, to: '/roles', permission: 'roles:read' },
@@ -49,9 +51,12 @@ export function Sidebar({ onNavClick }: SidebarProps) {
         { label: t('nav.activityLog'), icon: <HistoryIcon />, to: '/activity-log', permission: 'activityLog:read' },
       ]
 
-  const visible = NAV_ITEMS.filter((item) =>
-    item.permission === null || hasPermission(item.permission)
-  )
+  const visible = NAV_ITEMS.filter((item) => {
+    if (item.permission === null) return true
+    // Mehrere mögliche Permissions via "a,b,c" – beliebige davon reicht.
+    const needed = item.permission.split(',').map((p) => p.trim()).filter(Boolean)
+    return needed.some((p) => hasPermission(p))
+  })
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

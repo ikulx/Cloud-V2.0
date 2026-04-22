@@ -37,6 +37,13 @@ enum WikiAccessTarget {
   USER
 }
 
+enum AnlageContract {
+  NONE
+  A
+  B
+  C
+}
+
 // ─── Alarme (Cloud-seitiger Alarmmanager) ─────────────────────────────────────
 // Der Pi (Visu/Agent) erkennt Alarme lokal (Bit/Comparison-Regeln) und sendet
 // fertige Alarm-Events via MQTT an die Cloud. Die Cloud verwaltet die
@@ -83,6 +90,8 @@ model User {
   firstName    String   @map("first_name")
   lastName     String   @map("last_name")
   address      String?
+  /// Mobilnummer (E.164, z.B. +41791234567). Pflicht für Piket-Techniker.
+  phone        String?
   isActive     Boolean  @default(true) @map("is_active")
   /// Zählt aufeinanderfolgende fehlgeschlagene Login-Versuche. Wird bei
   /// erfolgreichem Login auf 0 zurückgesetzt.
@@ -112,6 +121,12 @@ model User {
   createdWikiPages    WikiPage[]       @relation("WikiPageAuthor")
   updatedWikiPages    WikiPage[]       @relation("WikiPageEditor")
   acknowledgedAlarms  AlarmEvent[]     @relation("AlarmEventAck")
+  // Piket
+  piketRegionLeaderOf PiketRegion[]    @relation("PiketRegionLeader")
+  piketShifts         PiketShift[]     @relation("PiketShiftTech")
+  piketAlarmsAsTech   PiketAlarmEvent[] @relation("PiketAlarmTech")
+  piketAlarmsAsLeader PiketAlarmEvent[] @relation("PiketAlarmLeader")
+  piketAlarmsAckedBy  PiketAlarmEvent[] @relation("PiketAlarmAck")
 
   @@index([roleId])
   @@map("users")
@@ -301,6 +316,10 @@ model Anlage {
   /// aber NICHT versendet (Deliveries = SKIPPED, Grund "rate_limited").
   /// Default 60 = max. 1 Meldung pro Stunde.
   alarmRateLimitMinutes    Int     @default(60) @map("alarm_rate_limit_minutes")
+  /// Vertragsstufe. NONE + A: Piketdienst/Ygnis PM standardmässig deaktiviert.
+  /// B + C: Piketdienst/Ygnis PM standardmässig aktiv. In den Alarm-
+  /// einstellungen kann das pro Anlage manuell übersteuert werden.
+  contract        AnlageContract @default(NONE)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -804,6 +823,18 @@ model InternalAlarmRecipientTemplate {
   label     String
   /// Zentral gepflegte E-Mail-Adresse. Leer = Dispatcher überspringt.
   email     String?
+  /// Global gepflegter Wochenzeitplan. null/leer = "always".
+  schedule     Json?
+  /// Welche Prioritäten an dieses Template gehen. Leeres Array = alle.
+  priorities   AlarmPriority[] @default([])
+  /// Verzögerung in Minuten zwischen Alarm und Versand.
+  delayMinutes Int             @default(0) @map("delay_minutes")
+  /// Wenn true: an einem Feiertag (Holiday-Tabelle) werden Meldungen
+  /// unabhängig vom Wochenzeitplan versendet.
+  sendOnHoliday Boolean        @default(false) @map("send_on_holiday")
+  /// Nur für den Piketdienst-Template relevant: EMAIL = klassisch per Mail,
+  /// PIKET_MANAGER = über den Bereichs-/Schicht-Workflow mit Eskalation.
+  deliveryChannel PiketDeliveryChannel @default(EMAIL) @map("delivery_channel")
   /// true für Piketdienst + Ygnis PM – können nicht gelöscht werden.
   isSystem  Boolean  @default(false) @map("is_system")
   sortOrder Int      @default(0) @map("sort_order")
@@ -906,6 +937,7 @@ model AlarmEvent {
   acknowledgedBy   User?            @relation("AlarmEventAck", fields: [acknowledgedById], references: [id])
 
   deliveries AlarmEventDelivery[]
+  piketAlarm PiketAlarmEvent?
 
   @@index([deviceId, activatedAt])
   @@index([anlageId, activatedAt])
@@ -940,4 +972,163 @@ model AlarmEventDelivery {
   @@index([status])
   @@index([status, scheduledAt])
   @@map("alarm_event_deliveries")
+}
+
+
+/// Regel-basierte Feiertage (jahresunabhängig). Admin kann pro Regel
+/// aktiv/inaktiv setzen; Standard = alle Luzerner Feiertage. Der Dispatcher
+/// berechnet pro Jahr die konkreten Daten.
+enum HolidayRuleType {
+  FIXED
+  EASTER_OFFSET
+}
+
+model HolidayRule {
+  id           String          @id @default(uuid()) @db.Uuid
+  key          String          @unique
+  label        String
+  type         HolidayRuleType
+  fixedMonth   Int?            @map("fixed_month")
+  fixedDay     Int?            @map("fixed_day")
+  easterOffset Int?            @map("easter_offset")
+  region       String?
+  isActive     Boolean         @default(true) @map("is_active")
+  sortOrder    Int             @default(0) @map("sort_order")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt      @map("updated_at")
+
+  @@map("holiday_rules")
+}
+
+/// Firmen-spezifische Sondertage (Betriebsferien, einzelne Brückentage).
+/// Gelten nur für das eine konkrete Datum.
+model HolidayDate {
+  id        String   @id @default(uuid()) @db.Uuid
+  date      DateTime @db.Date
+  label     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  @@unique([date])
+  @@index([date])
+  @@map("holiday_dates")
+}
+
+// ── Piket-Manager ────────────────────────────────────────────────────────────
+// Erweitert den Piketdienst-Empfänger: statt Mail direkt an eine Adresse wird
+// anhand der PLZ/Land der Anlage ein Bereich (Region) + Tages-Techniker
+// (Schicht) ermittelt. Alarm wird per SMS an den Techniker gesendet, nach
+// einer Verzögerung angerufen, bei weiterem Ausbleiben an den Bereichsleiter
+// eskaliert. Bestätigung erfolgt durch Login + Ack-Klick auf der Cloud.
+
+enum PiketDeliveryChannel {
+  EMAIL
+  PIKET_MANAGER
+}
+
+enum PiketAlarmState {
+  PENDING_SMS
+  SMS_SENT
+  CALL_DUE
+  CALL_SENT
+  LEADER_DUE
+  LEADER_SENT
+  ACKNOWLEDGED
+  NO_TECH_FOUND
+}
+
+/// Bereich innerhalb des Piketdienstes. Kein Geo-Overlap mit anderen Bereichen
+/// vorausgesetzt (erste passende Region gewinnt).
+model PiketRegion {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  description     String?
+  /// Bereichsleiter: wird bei nicht-quittiertem Alarm zum Schluss alarmiert.
+  leaderId        String?  @map("leader_id") @db.Uuid
+  leader          User?    @relation("PiketRegionLeader", fields: [leaderId], references: [id], onDelete: SetNull)
+  /// Backup-Kontakt (E-Mail) falls Leader fehlt.
+  leaderFallbackEmail String? @map("leader_fallback_email")
+  /// Default-Werte überschreiben die globalen Template-Werte, wenn gesetzt.
+  smsToCallMinutes    Int?   @map("sms_to_call_minutes")
+  callToLeaderMinutes Int?   @map("call_to_leader_minutes")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt      @map("updated_at")
+
+  zipRanges       PiketRegionZipRange[]
+  foreignPrefixes PiketRegionForeignPrefix[]
+  shifts          PiketShift[]
+  piketAlarms     PiketAlarmEvent[]
+
+  @@map("piket_regions")
+}
+
+/// PLZ-Bereich (z.B. 6000–6999). Inklusive von und bis.
+model PiketRegionZipRange {
+  id       String      @id @default(uuid()) @db.Uuid
+  regionId String      @map("region_id") @db.Uuid
+  region   PiketRegion @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  fromZip  Int         @map("from_zip")
+  toZip    Int         @map("to_zip")
+
+  @@index([regionId])
+  @@map("piket_region_zip_ranges")
+}
+
+/// Ausland-Präfix; matcht, wenn die Anlagen-PLZ mit diesem Präfix beginnt
+/// (z.B. "DE-", "AT-", "FR-").
+model PiketRegionForeignPrefix {
+  id       String      @id @default(uuid()) @db.Uuid
+  regionId String      @map("region_id") @db.Uuid
+  region   PiketRegion @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  prefix   String
+
+  @@index([regionId])
+  @@map("piket_region_foreign_prefixes")
+}
+
+/// Tages-Schicht: welcher Techniker ist heute für diesen Bereich zuständig.
+model PiketShift {
+  id       String      @id @default(uuid()) @db.Uuid
+  regionId String      @map("region_id") @db.Uuid
+  region   PiketRegion @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  userId   String      @map("user_id") @db.Uuid
+  user     User        @relation("PiketShiftTech", fields: [userId], references: [id], onDelete: Cascade)
+  date     DateTime    @db.Date
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt      @map("updated_at")
+
+  @@unique([regionId, date])
+  @@index([date])
+  @@map("piket_shifts")
+}
+
+/// Zustand eines einzelnen Piket-Alarms. Ein PiketAlarmEvent wird vom
+/// Dispatcher erzeugt, sobald ein Alarm auf den Piket-Template-Empfänger
+/// trifft UND dessen deliveryChannel = PIKET_MANAGER ist.
+model PiketAlarmEvent {
+  id            String           @id @default(uuid()) @db.Uuid
+  alarmEventId  String           @unique @map("alarm_event_id") @db.Uuid
+  alarmEvent    AlarmEvent       @relation(fields: [alarmEventId], references: [id], onDelete: Cascade)
+  regionId      String?          @map("region_id") @db.Uuid
+  region        PiketRegion?     @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  techUserId    String?          @map("tech_user_id") @db.Uuid
+  techUser      User?            @relation("PiketAlarmTech", fields: [techUserId], references: [id], onDelete: SetNull)
+  leaderUserId  String?          @map("leader_user_id") @db.Uuid
+  leaderUser    User?            @relation("PiketAlarmLeader", fields: [leaderUserId], references: [id], onDelete: SetNull)
+  state         PiketAlarmState  @default(PENDING_SMS)
+  /// Nächster Aktions-Zeitpunkt (z.B. SMS jetzt senden, Anruf fällig, Leader fällig).
+  nextActionAt  DateTime?        @map("next_action_at")
+  smsAt         DateTime?        @map("sms_at")
+  callAt        DateTime?        @map("call_at")
+  leaderAt      DateTime?        @map("leader_at")
+  acknowledgedAt DateTime?       @map("acknowledged_at")
+  acknowledgedById String?       @map("acknowledged_by_id") @db.Uuid
+  acknowledgedBy User?           @relation("PiketAlarmAck", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  /// Log der Attempts (JSON mit Einträgen { at, kind, target, status, error? })
+  attempts      Json?
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt      @map("updated_at")
+
+  @@index([state, nextActionAt])
+  @@map("piket_alarm_events")
 }

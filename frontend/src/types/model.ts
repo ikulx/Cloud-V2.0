@@ -21,6 +21,7 @@ export interface UserSummary {
   firstName: string
   lastName: string
   address: string | null
+  phone: string | null
   isActive: boolean
   roleId: string | null
   role: { id: string; name: string } | null
@@ -81,6 +82,8 @@ export interface Device {
   updatedAt: string
 }
 
+export type AnlageContract = 'NONE' | 'A' | 'B' | 'C'
+
 export interface Anlage {
   id: string
   projectNumber: string | null
@@ -101,6 +104,7 @@ export interface Anlage {
   hasBoiler: boolean
   offlineMonitoringEnabled: boolean
   alarmRateLimitMinutes: number
+  contract: AnlageContract
   anlageDevices: { device: { id: string; name: string; status: DeviceStatus; isApproved: boolean } }[]
   directUsers: { user: { id: string; firstName: string; lastName: string } }[]
   groupAnlagen: { group: { id: string; name: string } }[]

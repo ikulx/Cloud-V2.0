@@ -49,11 +49,18 @@ export function normalizeSchedule(raw: unknown): RecipientSchedule | null {
   return { mode: 'weekly', days }
 }
 
+export type PiketDeliveryChannel = 'EMAIL' | 'PIKET_MANAGER'
+
 export interface InternalAlarmTemplate {
   id: string
   key: string
   label: string
   email: string | null
+  schedule: RecipientSchedule | null
+  priorities: AlarmPriority[]
+  delayMinutes: number
+  sendOnHoliday: boolean
+  deliveryChannel: PiketDeliveryChannel
   isSystem: boolean
   sortOrder: number
   createdAt: string
@@ -76,7 +83,8 @@ export interface AlarmRecipient {
    *  E-Mail aus dem Template (zentrale Pflege). */
   templateId: string | null
   /** Vom Backend mitgeliefertes Template-Objekt (Label + aktuelle E-Mail). */
-  template: Pick<InternalAlarmTemplate, 'id' | 'label' | 'email' | 'isSystem'> | null
+  template: Pick<InternalAlarmTemplate, 'id' | 'label' | 'email' | 'isSystem' | 'schedule' | 'priorities' | 'delayMinutes'> | null
+
   createdAt: string
   updatedAt: string
 }
@@ -125,11 +133,95 @@ export function useInternalAlarmTemplates(enabled = true) {
   })
 }
 
+export interface InternalAlarmTemplatePatch {
+  email?: string | null
+  schedule?: RecipientSchedule | null
+  priorities?: AlarmPriority[]
+  delayMinutes?: number
+  sendOnHoliday?: boolean
+  deliveryChannel?: PiketDeliveryChannel
+}
+
+// ── Feiertage ───────────────────────────────────────────────────────────────
+// Zwei getrennte Listen:
+//  - HolidayRule: jahresunabhängige Regel (aktiv/inaktiv togglen)
+//  - HolidayDate: firmen-spezifischer Einzeltag (Betriebsferien etc.)
+
+export type HolidayRuleType = 'FIXED' | 'EASTER_OFFSET'
+
+export interface HolidayRule {
+  id: string
+  key: string
+  label: string
+  type: HolidayRuleType
+  fixedMonth: number | null
+  fixedDay: number | null
+  easterOffset: number | null
+  region: string | null
+  isActive: boolean
+  sortOrder: number
+}
+
+export interface HolidayDate {
+  id: string
+  date: string
+  label: string
+  createdAt: string
+  updatedAt: string
+}
+
+export const holidayKeys = {
+  rules: () => ['alarms', 'holiday-rules'] as const,
+  dates: () => ['alarms', 'holiday-dates'] as const,
+}
+
+export function useHolidayRules(enabled = true) {
+  return useQuery({
+    queryKey: holidayKeys.rules(),
+    queryFn: () => apiGet<HolidayRule[]>('/alarms/holidays/rules'),
+    enabled,
+  })
+}
+
+export function useUpdateHolidayRule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...patch }: { id: string; isActive?: boolean; label?: string; region?: string | null }) =>
+      apiPatch<HolidayRule>(`/alarms/holidays/rules/${id}`, patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: holidayKeys.rules() }),
+  })
+}
+
+export function useHolidayDates(enabled = true) {
+  return useQuery({
+    queryKey: holidayKeys.dates(),
+    queryFn: () => apiGet<HolidayDate[]>('/alarms/holidays/dates'),
+    enabled,
+  })
+}
+
+export function useCreateHolidayDate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { date: string; label: string }) =>
+      apiPost<HolidayDate>('/alarms/holidays/dates', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: holidayKeys.dates() }),
+  })
+}
+
+export function useDeleteHolidayDate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/alarms/holidays/dates/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: holidayKeys.dates() }),
+  })
+}
+
 export function useUpdateInternalAlarmTemplate() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, email }: { id: string; email: string | null }) =>
-      apiPatch<InternalAlarmTemplate>(`/alarms/internal-templates/${id}`, { email }),
+    mutationFn: ({ id, ...patch }: { id: string } & InternalAlarmTemplatePatch) =>
+      apiPatch<InternalAlarmTemplate>(`/alarms/internal-templates/${id}`, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: alarmKeys.internalTemplates() }),
   })
 }

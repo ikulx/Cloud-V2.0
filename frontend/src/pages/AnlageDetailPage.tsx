@@ -21,6 +21,10 @@ import Tooltip from '@mui/material/Tooltip'
 import Collapse from '@mui/material/Collapse'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
+import FormControl from '@mui/material/FormControl'
+import InputLabel from '@mui/material/InputLabel'
+import Select from '@mui/material/Select'
+import MenuItem from '@mui/material/MenuItem'
 import Alert from '@mui/material/Alert'
 import Checkbox from '@mui/material/Checkbox'
 import Snackbar from '@mui/material/Snackbar'
@@ -62,6 +66,7 @@ import { TodoEditDialog } from '../components/anlagen/TodoEditDialog'
 import { PhotoUploadField } from '../components/anlagen/PhotoUploadField'
 import { AnlagePhotosTab } from '../components/anlagen/AnlagePhotosTab'
 import { AnlageAlarmsTab } from '../components/anlagen/AnlageAlarmsTab'
+import { useAlarmRecipients } from '../features/alarms/queries'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
 import { useErzeugerTypes, useErzeugerCategories } from '../features/erzeuger-types/queries'
 import { formatCategoryPath } from '../features/erzeuger-types/helpers'
@@ -72,6 +77,14 @@ const EMPTY_INFO_FORM = {
   latitude: '', longitude: '',
   contactName: '', contactPhone: '', contactMobile: '', contactEmail: '',
   notes: '',
+  contract: 'NONE' as 'NONE' | 'A' | 'B' | 'C',
+}
+
+const CONTRACT_LABEL: Record<'NONE' | 'A' | 'B' | 'C', string> = {
+  NONE: 'Kein Vertrag',
+  A: 'Vertrag A',
+  B: 'Vertrag B',
+  C: 'Vertrag C',
 }
 
 // Device-Name-Wrapper mit Update-Mutation (Hook pro Row erforderlich)
@@ -144,6 +157,7 @@ export function AnlageDetailPage() {
   const { data: anlage, isLoading } = useAnlage(id!)
   const { data: allDevices } = useDevices()
   const canUpdateAnlage = usePermission('anlagen:update')
+  const isAdmin = me?.roleName === 'admin' || me?.roleName === 'verwalter' || me?.isSystemRole === true
   const canUpdateDevice = usePermission('devices:update')
   const canReadTodos = usePermission('todos:read')
   const canCreateTodo = usePermission('todos:create')
@@ -152,6 +166,7 @@ export function AnlageDetailPage() {
   const canCreateLog = usePermission('logbook:create')
   const canReadActivityLog = usePermission('activityLog:read')
   const updateAnlage = useUpdateAnlage(id ?? '')
+  const { data: alarmRecipients = [] } = useAlarmRecipients(isAdmin ? (id ?? '') : '')
   const createTodo = useCreateAnlageTodo(id ?? '')
   const updateTodo = useUpdateAnlageTodo(id ?? '')
   const createLog = useCreateAnlageLog(id ?? '')
@@ -207,6 +222,7 @@ export function AnlageDetailPage() {
         contactMobile: anlage.contactMobile ?? '',
         contactEmail: anlage.contactEmail ?? '',
         notes: anlage.notes ?? '',
+        contract: anlage.contract ?? 'NONE',
       })
       setErzeugerDraft((anlage.erzeuger ?? []).map((e) => ({
         typeId: e.typeId,
@@ -309,6 +325,7 @@ export function AnlageDetailPage() {
         contactMobile: anlage.contactMobile ?? '',
         contactEmail: anlage.contactEmail ?? '',
         notes: anlage.notes ?? '',
+        contract: anlage.contract ?? 'NONE',
       })
       setErzeugerDraft((anlage.erzeuger ?? []).map((e) => ({
         typeId: e.typeId,
@@ -449,6 +466,25 @@ export function AnlageDetailPage() {
                           <Typography variant="caption" color="error">Mindestens ein Erzeuger erforderlich</Typography>
                         )}
                       </Box>
+                      {isAdmin && (
+                        <FormControl size="small" fullWidth>
+                          <InputLabel>Vertrag</InputLabel>
+                          <Select
+                            label="Vertrag"
+                            value={infoForm.contract}
+                            onChange={(e) => setInfoForm({ ...infoForm, contract: e.target.value as 'NONE' | 'A' | 'B' | 'C' })}
+                          >
+                            <MenuItem value="NONE">Kein Vertrag</MenuItem>
+                            <MenuItem value="A">Vertrag A</MenuItem>
+                            <MenuItem value="B">Vertrag B</MenuItem>
+                            <MenuItem value="C">Vertrag C</MenuItem>
+                          </Select>
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                            Kein Vertrag / A → Piketdienst + Ygnis PM deaktiviert.
+                            B / C → aktiv. In den Alarm-Einstellungen übersteuerbar.
+                          </Typography>
+                        </FormControl>
+                      )}
                     </Stack>
                   ) : (
                     <Stack spacing={1.5}>
@@ -493,6 +529,15 @@ export function AnlageDetailPage() {
                         <Typography variant="caption" color="text.secondary">Anzahl Geräte</Typography>
                         <Typography variant="body1">{anlageDevices.length}</Typography>
                       </Box>
+                      {isAdmin && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">Vertrag</Typography>
+                          <ContractBadge
+                            contract={anlage.contract ?? 'NONE'}
+                            recipients={alarmRecipients}
+                          />
+                        </Box>
+                      )}
                     </Stack>
                   )}
                 </CardContent>
@@ -1058,6 +1103,38 @@ export function AnlageDetailPage() {
           await updateTodo.mutateAsync({ todoId, ...payload })
         }}
       />
+    </Box>
+  )
+}
+
+// ── Contract Badge mit Übersteuerungs-Indikator ───────────────────────────
+function ContractBadge({
+  contract, recipients,
+}: {
+  contract: 'NONE' | 'A' | 'B' | 'C'
+  recipients: Array<{ isActive: boolean; isInternal: boolean; template?: { isSystem?: boolean } | null }>
+}) {
+  const defaultActive = contract === 'B' || contract === 'C'
+  const systemRows = recipients.filter((r) => r.isInternal && r.template?.isSystem)
+  const overridden = systemRows.length > 0 && systemRows.some((r) => r.isActive !== defaultActive)
+  const color: 'default' | 'primary' | 'success' = contract === 'NONE' ? 'default' : contract === 'A' ? 'primary' : 'success'
+  const label = CONTRACT_LABEL[contract]
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+      <Chip size="small" color={color} label={label} variant={contract === 'NONE' ? 'outlined' : 'filled'} />
+      <Tooltip title={
+        overridden
+          ? 'Piketdienst/Ygnis PM-Aktivierung wurde in den Alarm-Einstellungen manuell übersteuert.'
+          : `Standard: Piketdienst & Ygnis PM sind ${defaultActive ? 'aktiv' : 'deaktiviert'}.`
+      }>
+        <Chip
+          size="small"
+          variant="outlined"
+          color={overridden ? 'warning' : 'default'}
+          label={overridden ? 'übersteuert' : (defaultActive ? 'Piket/PM aktiv' : 'Piket/PM aus')}
+        />
+      </Tooltip>
     </Box>
   )
 }

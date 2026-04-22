@@ -104,7 +104,7 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
             where: { isActive: true },
             // Template wird geladen, damit der Dispatcher bei internen
             // Empfängern die aktuelle E-Mail-Adresse aus dem Template nutzt.
-            include: { template: { select: { email: true, label: true } } } as never,
+            include: { template: { select: { email: true, label: true, schedule: true, priorities: true, delayMinutes: true, isSystem: true, sendOnHoliday: true, deliveryChannel: true, key: true } } } as never,
           },
         },
       },
@@ -121,6 +121,45 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
 
   const anlage = event.anlage
   const now = new Date()
+
+  // ── Feiertags-Check (einmal pro Dispatch) ─────────────────────────────
+  // Zwei Quellen:
+  //  1) HolidayDate – firmen-spezifische Einzeltage (Betriebsferien etc.)
+  //  2) HolidayRule – aktivierte jahresunabhängige Regeln (Neujahr, Karfreitag …)
+  let isHolidayToday = false
+  let holidayLabel: string | null = null
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = prisma as any
+    const y = now.getFullYear()
+    const todayKey = `${y}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+    // 1. Einzeltag?
+    const dayStart = new Date(Date.UTC(y, now.getMonth(), now.getDate(), 0, 0, 0))
+    const dayEnd   = new Date(Date.UTC(y, now.getMonth(), now.getDate(), 23, 59, 59))
+    const oneOff = await p.holidayDate.findFirst({
+      where: { date: { gte: dayStart, lte: dayEnd } },
+      select: { id: true, label: true },
+    })
+    if (oneOff) { isHolidayToday = true; holidayLabel = oneOff.label }
+
+    // 2. Regel-Treffer?
+    if (!isHolidayToday) {
+      const { ruleToDate, dayKeyUTC } = await import('../lib/holidays')
+      const rules = await p.holidayRule.findMany({ where: { isActive: true } })
+      for (const r of rules) {
+        const d = ruleToDate(r, y)
+        if (d && dayKeyUTC(d) === todayKey) {
+          isHolidayToday = true
+          holidayLabel = r.label
+          break
+        }
+      }
+    }
+    if (isHolidayToday) console.log(`[AlarmDispatcher] Heute ist Feiertag: ${holidayLabel}`)
+  } catch (err) {
+    console.warn('[AlarmDispatcher] Feiertags-Check fehlgeschlagen:', err)
+  }
 
   // ── 1. Rate-Limit-Check pro Anlage ────────────────────────────────────
   const limitMin = Math.max(0, anlage.alarmRateLimitMinutes ?? 60)
@@ -143,9 +182,36 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
   }
 
   // ── 2. Empfänger durchgehen ──────────────────────────────────────────
+  // Bei Template-basierten Empfängern kommen priorities/schedule/delay
+  // zentral aus dem Template; die per-Anlage-Row ist nur ein isActive-Schalter.
+  const effective = (r: typeof anlage.alarmRecipients[number]) => {
+    const rAny = r as unknown as {
+      templateId?: string | null
+      template?: {
+        email: string | null
+        schedule: unknown
+        priorities: string[]
+        delayMinutes: number
+      } | null
+    }
+    if (rAny.templateId && rAny.template) {
+      return {
+        priorities: (rAny.template.priorities ?? []) as typeof r.priorities,
+        schedule:   rAny.template.schedule ?? null,
+        delayMinutes: rAny.template.delayMinutes ?? 0,
+      }
+    }
+    return {
+      priorities: r.priorities,
+      schedule: r.schedule,
+      delayMinutes: r.delayMinutes ?? 0,
+    }
+  }
+
   const matching = anlage.alarmRecipients.filter((r) => {
-    if (r.priorities.length === 0) return true
-    return r.priorities.includes(event.priority)
+    const eff = effective(r)
+    if (eff.priorities.length === 0) return true
+    return eff.priorities.includes(event.priority)
   })
 
   if (matching.length === 0) {
@@ -161,8 +227,58 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
     // nur eine Sichtbarkeits-Markierung und beeinflusst die Adresse nicht.
     const rAny = r as unknown as {
       templateId?: string | null
-      template?: { email: string | null } | null
+      template?: { email: string | null; key?: string; deliveryChannel?: string } | null
     }
+
+    // ── Spezialfall Piketdienst + PIKET_MANAGER ───────────────────────
+    // Statt einer Mail-Delivery starten wir den Piket-Workflow.
+    if (
+      rAny.templateId
+      && rAny.template?.key === 'piketdienst'
+      && rAny.template?.deliveryChannel === 'PIKET_MANAGER'
+    ) {
+      if (rateLimited) {
+        await prisma.alarmEventDelivery.create({
+          data: {
+            eventId: event.id, recipientId: r.id, type: r.type, target: '[piket-manager]',
+            status: 'SKIPPED', errorMessage: 'rate_limited', attemptedAt: now,
+          },
+        })
+        continue
+      }
+      const eff = effective(r)
+      const bypassScheduleForHoliday2 = isHolidayToday
+        && !!(r as unknown as { template?: { sendOnHoliday?: boolean } | null }).template?.sendOnHoliday
+      if (!bypassScheduleForHoliday2 && !isInSchedule(eff.schedule, now)) {
+        await prisma.alarmEventDelivery.create({
+          data: {
+            eventId: event.id, recipientId: r.id, type: r.type, target: '[piket-manager]',
+            status: 'SKIPPED', errorMessage: 'out_of_schedule', attemptedAt: now,
+          },
+        })
+        continue
+      }
+      // Erfolgs-Delivery als Marker anlegen (SENT), damit Rate-Limit greift
+      await prisma.alarmEventDelivery.create({
+        data: {
+          eventId: event.id, recipientId: r.id, type: r.type, target: '[piket-manager]',
+          status: 'SENT', sentAt: now, attemptedAt: now,
+        },
+      })
+      const { startPiketAlarm } = await import('./piket-manager.service')
+      const anlageMin = await prisma.anlage.findUnique({
+        where: { id: anlage.id },
+        select: { zip: true, country: true },
+      })
+      await startPiketAlarm({
+        alarmEventId: event.id,
+        anlage: { zip: anlageMin?.zip ?? null, country: anlageMin?.country ?? null },
+        smsToCallMinutes: 5,
+        callToLeaderMinutes: 5,
+      }).catch((err) => console.error('[AlarmDispatcher] startPiketAlarm failed:', err))
+      continue
+    }
+
     const effectiveTarget = rAny.templateId
       ? (rAny.template?.email ?? '').trim()
       : (r.target ?? '').trim()
@@ -187,8 +303,14 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
       continue
     }
 
+    const eff = effective(r)
+
+    // Feiertag + sendOnHoliday? → Wochenplan ignorieren.
+    const rAny2 = r as unknown as { templateId?: string | null; template?: { sendOnHoliday?: boolean } | null }
+    const bypassScheduleForHoliday = isHolidayToday && !!rAny2.template?.sendOnHoliday
+
     // Wochenplan jetzt prüfen – wenn ausserhalb, definitiv verwerfen.
-    if (!isInSchedule(r.schedule, now)) {
+    if (!bypassScheduleForHoliday && !isInSchedule(eff.schedule, now)) {
       await prisma.alarmEventDelivery.create({
         data: {
           eventId: event.id, recipientId: r.id, type: r.type, target: effectiveTarget,
@@ -199,7 +321,7 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
     }
 
     // Zeitplan ok → Delivery für scheduledAt planen (= now + delayMinutes).
-    const delay = Math.max(0, r.delayMinutes ?? 0)
+    const delay = Math.max(0, eff.delayMinutes ?? 0)
     const scheduledAt = new Date(now.getTime() + delay * 60_000)
     const delivery = await prisma.alarmEventDelivery.create({
       data: {

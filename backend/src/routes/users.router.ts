@@ -14,6 +14,7 @@ const createUserSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   address: z.string().optional(),
+  phone: z.string().max(40).optional().nullable(),
   roleId: z.string().uuid().nullable().optional(),
   groupIds: z.array(z.string().uuid()).optional(),
   anlageIds: z.array(z.string().uuid()).optional(),

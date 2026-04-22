@@ -36,6 +36,10 @@ const PERMISSION_CATALOG = [
   { key: 'wiki:create', description: 'Wiki-Seiten erstellen' },
   { key: 'wiki:update', description: 'Wiki-Seiten bearbeiten' },
   { key: 'wiki:delete', description: 'Wiki-Seiten löschen' },
+  { key: 'piket:alarms:read_own',  description: 'Piket: eigene aktive Alarme sehen' },
+  { key: 'piket:alarms:read_all',  description: 'Piket: alle aktiven Alarme sehen' },
+  { key: 'piket:planning:manage',  description: 'Piket: Bereiche & Schichten sehen und bearbeiten' },
+  { key: 'piket:log:read',         description: 'Piket: Log sehen' },
 ]
 
 async function main() {
@@ -287,6 +291,30 @@ async function main() {
     })
   }
   console.log('✓ Interne Alarm-Templates (Piketdienst, Ygnis PM) geseeded')
+
+  // Luzerner Feiertags-Regeln (jahresunabhängig). Per Key upsert – Admin-
+  // Änderungen (isActive/label) bleiben bei erneuten Seed-Läufen bestehen.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pAny = prisma as any
+  const { LUZERN_HOLIDAY_RULES } = await import('../src/lib/holidays')
+  for (const r of LUZERN_HOLIDAY_RULES) {
+    await pAny.holidayRule.upsert({
+      where: { key: r.key },
+      update: {
+        label: r.label, type: r.type,
+        fixedMonth: r.fixedMonth ?? null, fixedDay: r.fixedDay ?? null,
+        easterOffset: r.easterOffset ?? null,
+        region: r.region ?? null, sortOrder: r.sortOrder,
+      },
+      create: {
+        key: r.key, label: r.label, type: r.type,
+        fixedMonth: r.fixedMonth ?? null, fixedDay: r.fixedDay ?? null,
+        easterOffset: r.easterOffset ?? null,
+        region: r.region ?? null, isActive: true, sortOrder: r.sortOrder,
+      },
+    })
+  }
+  console.log(`✓ Feiertags-Regeln (Luzern) geseeded: ${LUZERN_HOLIDAY_RULES.length}`)
 
   console.log('\nSeeding complete!')
   console.log('Login credentials:')

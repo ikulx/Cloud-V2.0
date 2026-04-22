@@ -37,7 +37,7 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import {
   useAlarmRecipients, useCreateAlarmRecipient, useUpdateAlarmRecipient, useDeleteAlarmRecipient,
-  useAlarmEvents, normalizeSchedule, useInternalAlarmTemplates,
+  useAlarmEvents, normalizeSchedule,
   type AlarmRecipient, type AlarmPriority, type AlarmRecipientType, type AlarmEvent,
   type RecipientSchedule,
 } from '../../features/alarms/queries'
@@ -128,6 +128,11 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
   const [editing, setEditing] = useState<AlarmRecipient | null>(null)
   const [newKind, setNewKind] = useState<'external' | 'internal'>('external')
 
+  // Popups für die drei Einstellungs-/Empfänger-Bereiche
+  const [offlinePopup, setOfflinePopup] = useState(false)
+  const [rateLimitPopup, setRateLimitPopup] = useState(false)
+  const [internalPopup, setInternalPopup] = useState(false)
+
   const offlineMonitoring = anlage?.offlineMonitoringEnabled ?? true
   const rateLimit = anlage?.alarmRateLimitMinutes ?? 60
   const [rateLimitInput, setRateLimitInput] = useState<string>(String(rateLimit))
@@ -142,57 +147,58 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
 
   return (
     <Stack gap={3}>
-      {/* ── Offline-Überwachung ───────────────────────── */}
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <CloudOffIcon sx={{ color: offlineMonitoring ? 'primary.main' : 'text.disabled' }} />
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="subtitle1" fontWeight={600}>Offline-Überwachung</Typography>
-            <Typography variant="caption" color="text.secondary">
-              Bei längerer Nichterreichbarkeit eines Geräts dieser Anlage wird die in den
-              System­einstellungen konfigurierte Alarm­adresse per E-Mail informiert –
-              und beim Wiederhochkommen ebenfalls. Die Schwelle (Standard: 3 h) wird global gesetzt.
-            </Typography>
-          </Box>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={offlineMonitoring}
-                disabled={!anlage || updateAnlage.isPending}
-                onChange={(e) => updateAnlage.mutate({ offlineMonitoringEnabled: e.target.checked })}
-              />
-            }
-            label={offlineMonitoring ? 'aktiv' : 'aus'}
-            labelPlacement="start"
-          />
-        </Box>
-      </Paper>
+      {/* ── Kombinierte Admin-Karte: Offline + Versand-Limit (oben) + Interne Empfänger (unten) ── */}
+      {isAdmin && (
+        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+              <CloudOffIcon sx={{ color: offlineMonitoring ? 'primary.main' : 'text.disabled' }} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="subtitle2" fontWeight={600}>Offline-Überwachung</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {offlineMonitoring ? 'aktiv' : 'deaktiviert'}
+                </Typography>
+              </Box>
+              <Button size="small" variant="outlined" onClick={() => setOfflinePopup(true)}>
+                Verwalten
+              </Button>
+            </Stack>
+            <Divider flexItem orientation="vertical" sx={{ display: { xs: 'none', sm: 'block' } }} />
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+              <ScheduleIcon color="primary" />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="subtitle2" fontWeight={600}>Versand-Limit</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {rateLimit === 0 ? 'unbegrenzt' : `max. 1 Meldung pro ${rateLimit} min`}
+                </Typography>
+              </Box>
+              <Button size="small" variant="outlined" onClick={() => setRateLimitPopup(true)}>
+                Verwalten
+              </Button>
+            </Stack>
+          </Stack>
 
-      {/* ── Rate-Limit ───────────────────────────────── */}
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <ScheduleIcon color="primary" />
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="subtitle1" fontWeight={600}>Versand-Limit</Typography>
-            <Typography variant="caption" color="text.secondary">
-              Minimaler Abstand zwischen ausgehenden Alarm-Meldungen dieser Anlage.
-              Zusätzliche Ereignisse im Fenster werden weiterhin als Alarm erkannt
-              und angezeigt, aber nicht erneut versendet.
-            </Typography>
-          </Box>
-          <TextField
-            type="number"
-            label="Minuten"
-            size="small"
-            value={rateLimitInput}
-            onChange={(e) => setRateLimitInput(e.target.value)}
-            onBlur={saveRateLimit}
-            onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur() } }}
-            inputProps={{ min: 0, max: 10080, step: 5 }}
-            sx={{ width: 110 }}
-          />
-        </Box>
-      </Paper>
+          <Divider sx={{ my: 2 }} />
+
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <LockIcon fontSize="small" color="action" />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="subtitle2" fontWeight={600}>Interne Empfänger</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {(() => {
+                  const active = internalRecipients.filter((r) => r.isActive).length
+                  return internalRecipients.length === 0
+                    ? 'Keine Einträge'
+                    : `${active} von ${internalRecipients.length} aktiv`
+                })()}
+              </Typography>
+            </Box>
+            <Button size="small" variant="outlined" onClick={() => setInternalPopup(true)}>
+              Verwalten
+            </Button>
+          </Stack>
+        </Paper>
+      )}
 
       {/* ── Externe Empfänger ───────────────────────────── */}
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
@@ -222,42 +228,6 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
         />
       </Paper>
 
-      {/* ── Interne Empfänger (nur Admin/Verwalter) ─────── */}
-      {isAdmin && (
-        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2, bgcolor: 'action.hover' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 2 }}>
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <LockIcon fontSize="small" color="action" />
-                <Typography variant="h6">Interne Empfänger</Typography>
-                <Chip size="small" label="nur Admin" />
-              </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                Kunden sehen diese Empfänger nicht. Die E-Mail-Adressen werden
-                zentral unter <strong>Einstellungen → Alarme</strong> gepflegt;
-                hier legen Sie pro Anlage fest, welche Templates aktiv sind und
-                mit welchen Prioritäten / Zeitplänen / Verzögerungen.
-              </Typography>
-            </Box>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={() => { setEditing(null); setNewKind('internal'); setDialogOpen(true) }}
-              sx={{ whiteSpace: 'nowrap' }}
-            >
-              Intern hinzufügen
-            </Button>
-          </Box>
-
-          <RecipientTable
-            recipients={internalRecipients}
-            loading={rLoading}
-            onEdit={(r) => { setEditing(r); setNewKind('internal'); setDialogOpen(true) }}
-            isInternal
-          />
-        </Paper>
-      )}
 
       {/* ── Aktive Alarme ──────────────────────────────── */}
       <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
@@ -287,6 +257,94 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
         kind={editing ? (editing.isInternal ? 'internal' : 'external') : newKind}
         onClose={() => setDialogOpen(false)}
       />
+
+      {/* ── Popup: Offline-Überwachung ────────────────────── */}
+      <Dialog open={offlinePopup} onClose={() => setOfflinePopup(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Offline-Überwachung</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Bei längerer Nichterreichbarkeit eines Geräts dieser Anlage wird die
+            in den Systemeinstellungen konfigurierte Alarmadresse per E-Mail
+            informiert – und beim Wiederhochkommen ebenfalls. Die Schwelle
+            (Standard: 3 h) wird global gesetzt.
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={offlineMonitoring}
+                disabled={!anlage || updateAnlage.isPending}
+                onChange={(e) => updateAnlage.mutate({ offlineMonitoringEnabled: e.target.checked })}
+              />
+            }
+            label={offlineMonitoring ? 'Aktiv' : 'Deaktiviert'}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOfflinePopup(false)}>Schliessen</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Popup: Versand-Limit ────────────────────────── */}
+      <Dialog open={rateLimitPopup} onClose={() => setRateLimitPopup(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Versand-Limit</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Minimaler Abstand zwischen ausgehenden Alarm-Meldungen dieser Anlage.
+            Zusätzliche Ereignisse im Fenster werden weiterhin als Alarm erkannt
+            und angezeigt, aber nicht erneut versendet. 0 = unbegrenzt.
+          </Typography>
+          <TextField
+            type="number"
+            label="Minuten"
+            size="small"
+            value={rateLimitInput}
+            onChange={(e) => setRateLimitInput(e.target.value)}
+            onBlur={saveRateLimit}
+            onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur() } }}
+            inputProps={{ min: 0, max: 10080, step: 5 }}
+            sx={{ width: 140 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { saveRateLimit(); setRateLimitPopup(false) }}>Schliessen</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Popup: Interne Empfänger ────────────────────── */}
+      <Dialog open={internalPopup} onClose={() => setInternalPopup(false)} fullWidth maxWidth="lg">
+        <DialogTitle>Interne Empfänger</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            Kunden sehen diese Empfänger nicht. <strong>Piketdienst</strong> und
+            {' '}<strong>Ygnis PM</strong> sind automatisch in jeder Anlage
+            hinterlegt und können hier nur aktiviert/deaktiviert werden –
+            Adresse, Zeitplan, Prioritäten und Verzögerung werden zentral
+            unter <strong>Einstellungen → Alarme</strong> gepflegt.
+            Zusätzlich können eigene interne Adressen nur für diese Anlage
+            angelegt werden.
+          </Typography>
+          <Box sx={{ mb: 2 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={() => { setEditing(null); setNewKind('internal'); setDialogOpen(true) }}
+            >
+              Eigenen intern. Empfänger
+            </Button>
+          </Box>
+          <RecipientTable
+            recipients={internalRecipients}
+            loading={rLoading}
+            onEdit={(r) => { setEditing(r); setNewKind('internal'); setDialogOpen(true) }}
+            isInternal
+            anlageId={anlageId}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInternalPopup(false)}>Schliessen</Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   )
 }
@@ -294,13 +352,15 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
 // ─── Gemeinsame Tabelle für externe & interne Empfänger ────────────────────
 
 function RecipientTable({
-  recipients, loading, onEdit, isInternal,
+  recipients, loading, onEdit, isInternal, anlageId,
 }: {
   recipients: AlarmRecipient[]
   loading: boolean
   onEdit: (r: AlarmRecipient) => void
   isInternal?: boolean
+  anlageId?: string
 }) {
+  const update = useUpdateAlarmRecipient(anlageId ?? '')
   if (loading) return <Typography variant="body2" color="text.secondary">Lädt …</Typography>
   if (recipients.length === 0) {
     return (
@@ -327,7 +387,9 @@ function RecipientTable({
           </TableRow>
         </TableHead>
         <TableBody>
-          {recipients.map((r) => (
+          {recipients.map((r) => {
+            const isSystem = !!r.template?.isSystem
+            return (
             <TableRow key={r.id} hover>
               <TableCell>
                 {isInternal ? (
@@ -354,32 +416,57 @@ function RecipientTable({
               </TableCell>
               <TableCell>{r.label ?? '—'}</TableCell>
               <TableCell>
-                {r.priorities.length === 0 ? (
-                  <Chip size="small" label="Alle" variant="outlined" />
-                ) : (
-                  <Box sx={{ display: 'flex', gap: 0.3, flexWrap: 'wrap' }}>
-                    {r.priorities.map((p) => (
-                      <Chip key={p} size="small" label={PRIO_LABEL[p]} color={PRIO_COLOR[p]} variant="outlined" />
-                    ))}
-                  </Box>
-                )}
+                {(() => {
+                  const prios = isSystem ? (r.template?.priorities ?? []) : r.priorities
+                  if (prios.length === 0) return <Chip size="small" label="Alle" variant="outlined" />
+                  return (
+                    <Box sx={{ display: 'flex', gap: 0.3, flexWrap: 'wrap' }}>
+                      {prios.map((p) => (
+                        <Chip key={p} size="small" label={PRIO_LABEL[p]} color={PRIO_COLOR[p]} variant="outlined" />
+                      ))}
+                    </Box>
+                  )
+                })()}
               </TableCell>
-              <TableCell sx={{ fontSize: 13 }}>{formatScheduleSummary(r.schedule)}</TableCell>
-              <TableCell sx={{ fontSize: 13 }}>{r.delayMinutes === 0 ? 'sofort' : `+${r.delayMinutes} min`}</TableCell>
+              <TableCell sx={{ fontSize: 13 }}>
+                {formatScheduleSummary(isSystem ? (r.template?.schedule ?? null) : r.schedule)}
+              </TableCell>
+              <TableCell sx={{ fontSize: 13 }}>
+                {(isSystem ? (r.template?.delayMinutes ?? 0) : r.delayMinutes) === 0
+                  ? 'sofort'
+                  : `+${isSystem ? r.template?.delayMinutes : r.delayMinutes} min`}
+              </TableCell>
               <TableCell align="center">
-                {r.isActive
+                {isSystem && anlageId ? (
+                  <Switch
+                    size="small"
+                    checked={r.isActive}
+                    disabled={update.isPending}
+                    onChange={(e) => update.mutate({ id: r.id, isActive: e.target.checked })}
+                  />
+                ) : r.isActive
                   ? <CheckCircleIcon fontSize="small" color="success" />
                   : <CancelIcon fontSize="small" color="disabled" />}
               </TableCell>
               <TableCell align="right">
-                <Tooltip title="Bearbeiten">
-                  <IconButton size="small" onClick={() => onEdit(r)}>
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                {isSystem ? (
+                  <Tooltip title="Zentrale Einstellungen – bearbeitbar unter Einstellungen → Alarme">
+                    <span>
+                      <IconButton size="small" disabled>
+                        <LockIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title="Bearbeiten">
+                    <IconButton size="small" onClick={() => onEdit(r)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </TableCell>
             </TableRow>
-          ))}
+          )})}
         </TableBody>
       </Table>
     </TableContainer>
@@ -445,7 +532,6 @@ function RecipientDialog({
   const create = useCreateAlarmRecipient(anlageId)
   const update = useUpdateAlarmRecipient(anlageId)
   const del = useDeleteAlarmRecipient(anlageId)
-  const { data: templates = [] } = useInternalAlarmTemplates(kind === 'internal' || editing?.isInternal === true)
 
   const [type, setType] = useState<AlarmRecipientType>(editing?.type ?? 'EMAIL')
   const [target, setTarget] = useState(editing?.target ?? '')
@@ -457,32 +543,22 @@ function RecipientDialog({
     const norm = normalizeSchedule(editing?.schedule)
     return norm ?? defaultSchedule()
   })
-  const [templateId, setTemplateId] = useState<string>(editing?.templateId ?? '')
-  // Sub-Modus bei internen Empfängern: Template (Piketdienst/Ygnis PM) oder
-  // eigene E-Mail-Adresse, die nur zu dieser Anlage gehört.
-  const [internalKind, setInternalKind] = useState<'template' | 'custom'>(
-    editing?.templateId ? 'template' : (editing?.isInternal ? 'custom' : 'template'),
-  )
   const isInternal = kind === 'internal'
-  const useTemplate = isInternal && internalKind === 'template'
 
   const save = async () => {
-    if (isInternal && internalKind === 'template' && !templateId) return
-    if ((!isInternal || internalKind === 'custom') && !target.trim()) return
+    if (!target.trim()) return
     const cleanSchedule: RecipientSchedule =
       schedule.mode === 'always' ? { mode: 'always' } : schedule
     const data = {
       type: isInternal ? ('EMAIL' as AlarmRecipientType) : type,
-      // Bei Template-Empfängern bleibt target leer, die Adresse kommt aus dem
-      // Template. Bei Custom-Internen und Externen direkt aus dem Eingabefeld.
-      target: useTemplate ? '' : target.trim(),
+      target: target.trim(),
       label: label.trim() || null,
       priorities,
       delayMinutes,
       isActive,
       schedule: cleanSchedule,
       isInternal,
-      templateId: useTemplate ? (templateId || null) : null,
+      templateId: null,
     }
     if (editing) {
       await update.mutateAsync({ id: editing.id, ...data })
@@ -502,67 +578,26 @@ function RecipientDialog({
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" key={editing?.id ?? `new-${kind}`}>
       <DialogTitle>
-        {editing ? 'Empfänger bearbeiten' : (isInternal ? 'Internen Empfänger hinzufügen' : 'Empfänger hinzufügen')}
+        {editing ? 'Empfänger bearbeiten' : (isInternal ? 'Eigenen internen Empfänger hinzufügen' : 'Empfänger hinzufügen')}
       </DialogTitle>
       <DialogContent>
         <Stack gap={2} sx={{ mt: 1 }}>
           {isInternal ? (
             <>
-              <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                  Typ des internen Empfängers
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                  <Button
-                    size="small"
-                    variant={internalKind === 'template' ? 'contained' : 'outlined'}
-                    onClick={() => setInternalKind('template')}
-                  >
-                    Piketdienst / Ygnis PM
-                  </Button>
-                  <Button
-                    size="small"
-                    variant={internalKind === 'custom' ? 'contained' : 'outlined'}
-                    onClick={() => setInternalKind('custom')}
-                  >
-                    Eigene Adresse
-                  </Button>
-                </Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
-                  {internalKind === 'template'
-                    ? 'E-Mail-Adresse wird zentral unter „Einstellungen → Alarme" gepflegt und gilt für alle Anlagen.'
-                    : 'Eigene, nur zu dieser Anlage gehörende Adresse. Kunden bleiben weiterhin unsichtbar.'}
-                </Typography>
-              </Box>
-
-              {internalKind === 'template' ? (
-                <FormControl fullWidth size="small">
-                  <InputLabel>Template</InputLabel>
-                  <Select
-                    value={templateId}
-                    label="Template"
-                    onChange={(e) => setTemplateId(e.target.value as string)}
-                  >
-                    {templates.map((t) => (
-                      <MenuItem key={t.id} value={t.id}>
-                        {t.label}
-                        {t.email ? <span style={{ color: '#9e9e9e', marginLeft: 8, fontSize: 12 }}>{t.email}</span>
-                                 : <span style={{ color: '#f44336', marginLeft: 8, fontSize: 12 }}>(keine E-Mail gepflegt)</span>}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              ) : (
-                <TextField
-                  label="E-Mail-Adresse"
-                  type="email"
-                  fullWidth size="small"
-                  value={target}
-                  onChange={(e) => setTarget(e.target.value)}
-                  autoFocus
-                  placeholder="intern@example.com"
-                />
-              )}
+              <Typography variant="caption" color="text.secondary">
+                Eigene interne E-Mail-Adresse, die nur zu dieser Anlage gehört
+                und für Kunden unsichtbar bleibt. Piketdienst und Ygnis PM
+                werden separat in den globalen Einstellungen gepflegt.
+              </Typography>
+              <TextField
+                label="E-Mail-Adresse"
+                type="email"
+                fullWidth size="small"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                autoFocus
+                placeholder="intern@example.com"
+              />
             </>
           ) : (
             <>
@@ -655,8 +690,7 @@ function RecipientDialog({
             variant="contained"
             onClick={save}
             disabled={
-              (useTemplate ? !templateId : !target.trim()) ||
-              create.isPending || update.isPending
+              !target.trim() || create.isPending || update.isPending
             }
           >
             Speichern

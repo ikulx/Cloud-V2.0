@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
 import { buildVisibleAnlagenWhere } from '../lib/access-filter'
 import { publishCommand } from '../services/mqtt.service'
+import { ensureSystemTemplateRecipientsForAnlage, applyContractDefaultsToSystemRecipients } from '../services/internal-alarm-templates.service'
 
 const CONTACT_TODO_TITLE = 'Verantwortlichen vervollständigen'
 
@@ -117,6 +118,7 @@ const anlageSchema = z.object({
   hasBoiler: z.boolean().optional(),
   offlineMonitoringEnabled: z.boolean().optional(),
   alarmRateLimitMinutes: z.number().int().min(0).max(10080).optional(),
+  contract: z.enum(['NONE', 'A', 'B', 'C']).optional(),
   deviceIds: z.array(z.string().uuid()).optional(),
   userIds: z.array(z.string().uuid()).optional(),
   groupIds: z.array(z.string().uuid()).optional(),
@@ -289,6 +291,11 @@ router.post('/', authenticate, requirePermission('anlagen:create'), async (req, 
     include: anlageInclude,
   })
 
+  // System-Templates (Piketdienst + Ygnis PM) direkt als Recipient verknüpfen.
+  await ensureSystemTemplateRecipientsForAnlage(anlage.id).catch((err) => {
+    console.error('[AnlageCreate] ensureSystemTemplateRecipients failed:', err)
+  })
+
   // Projektnummer an alle zugewiesenen Pi's schreiben (SYS01_DB_Projektnummer)
   if (deviceIds && deviceIds.length > 0) {
     pushProjectNumberToDevices(anlage.id, anlage.projectNumber).catch(() => {})
@@ -320,10 +327,11 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
 
   const anlageId = req.params.id as string
 
-  // Vorher speichern um Änderungen an projectNumber / deviceIds zu erkennen
-  const before = await prisma.anlage.findUnique({
+  // Vorher speichern um Änderungen an projectNumber / deviceIds / contract zu erkennen
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const before: any = await (prisma as any).anlage.findUnique({
     where: { id: anlageId },
-    select: { projectNumber: true },
+    select: { projectNumber: true, contract: true },
   })
 
   const { deviceIds, userIds, groupIds, erzeuger, ...data } = parsed.data
@@ -363,6 +371,14 @@ router.patch('/:id', authenticate, requirePermission('anlagen:update'), async (r
   // alte Erzeuger-ID, die existiert nicht mehr – User kann sie abhaken).
   if (erzeuger !== undefined && req.user) {
     await ensureSerialNumberTodos(anlage.id, req.user.userId, anlage.erzeuger ?? [])
+  }
+
+  // Vertrag geändert → Piketdienst/Ygnis PM auf neuen Default setzen
+  // (kann vom Admin nachher in den Alarm-Einstellungen wieder übersteuert werden)
+  if (parsed.data.contract !== undefined && parsed.data.contract !== before?.contract) {
+    await applyContractDefaultsToSystemRecipients(anlage.id).catch((err) => {
+      console.error('[AnlagePATCH] applyContractDefaultsToSystemRecipients failed:', err)
+    })
   }
 
   // Projektnummer geändert ODER Device-Zuweisung geändert → an alle Geräte pushen

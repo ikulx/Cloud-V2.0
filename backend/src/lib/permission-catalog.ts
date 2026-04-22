@@ -8,6 +8,8 @@ export const PERMISSION_CATALOG = [
   'logbook:read', 'logbook:create',
   'vpn:manage',
   'activityLog:read',
+  'wiki:read', 'wiki:create', 'wiki:update', 'wiki:delete',
+  'piket:alarms:read_own', 'piket:alarms:read_all', 'piket:planning:manage', 'piket:log:read',
 ] as const
 
 export const PRIVILEGED_ROLE_NAMES = ['admin', 'verwalter'] as const

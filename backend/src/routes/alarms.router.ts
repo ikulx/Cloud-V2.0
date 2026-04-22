@@ -83,7 +83,7 @@ router.get('/recipients', authenticate, requirePermission('anlagen:read'), async
   const recipients = await prisma.alarmRecipient.findMany({
     where: { anlageId },
     orderBy: [{ isInternal: 'asc' }, { type: 'asc' }, { createdAt: 'asc' }] as never,
-    include: { template: { select: { id: true, label: true, email: true, isSystem: true } } } as never,
+    include: { template: { select: { id: true, label: true, email: true, isSystem: true, schedule: true, priorities: true, delayMinutes: true } } } as never,
   })
   // Kunden-Rollen sehen interne Empfänger nicht
   const filtered = isAdminRole(req.user?.roleName)
@@ -130,11 +130,28 @@ router.patch('/recipients/:id', authenticate, requirePermission('anlagen:update'
     return
   }
   // Bestehenden Recipient laden, um Admin-Only-Regel auch für Updates zu prüfen
-  const existing = await prisma.alarmRecipient.findUnique({ where: { id: req.params.id as string } })
+  const existing = await prisma.alarmRecipient.findUnique({
+    where: { id: req.params.id as string },
+    include: { template: { select: { isSystem: true } } } as never,
+  })
   if (!existing) { res.status(404).json({ message: 'Empfänger nicht gefunden' }); return }
   const existingIsInternal = (existing as unknown as { isInternal: boolean }).isInternal
   if ((existingIsInternal || parsed.data.isInternal) && !isAdminRole(req.user?.roleName)) {
     res.status(403).json({ message: 'Nicht berechtigt, interne Empfänger zu verwalten' })
+    return
+  }
+
+  // System-Template-Rows (Piketdienst, Ygnis PM): nur isActive darf editiert
+  // werden. Alles andere kommt global aus dem Template.
+  const existingTemplateIsSystem = !!(existing as unknown as { template?: { isSystem?: boolean } | null }).template?.isSystem
+  if (existingTemplateIsSystem) {
+    const allowed: Record<string, unknown> = {}
+    if (parsed.data.isActive !== undefined) allowed.isActive = parsed.data.isActive
+    const updated = await prisma.alarmRecipient.update({
+      where: { id: req.params.id as string },
+      data: allowed as never,
+    })
+    res.json(updated)
     return
   }
 
@@ -155,11 +172,19 @@ router.patch('/recipients/:id', authenticate, requirePermission('anlagen:update'
 
 // DELETE /api/alarms/recipients/:id
 router.delete('/recipients/:id', authenticate, requirePermission('anlagen:update'), async (req, res) => {
-  const existing = await prisma.alarmRecipient.findUnique({ where: { id: req.params.id as string } })
+  const existing = await prisma.alarmRecipient.findUnique({
+    where: { id: req.params.id as string },
+    include: { template: { select: { isSystem: true } } } as never,
+  })
   if (!existing) { res.status(404).json({ message: 'Empfänger nicht gefunden' }); return }
   const existingIsInternal = (existing as unknown as { isInternal: boolean }).isInternal
   if (existingIsInternal && !isAdminRole(req.user?.roleName)) {
     res.status(403).json({ message: 'Nicht berechtigt, interne Empfänger zu löschen' })
+    return
+  }
+  const existingTemplateIsSystem = !!(existing as unknown as { template?: { isSystem?: boolean } | null }).template?.isSystem
+  if (existingTemplateIsSystem) {
+    res.status(400).json({ message: 'System-Empfänger (Piketdienst / Ygnis PM) können nicht gelöscht werden.' })
     return
   }
   await prisma.alarmRecipient.delete({ where: { id: existing.id } })

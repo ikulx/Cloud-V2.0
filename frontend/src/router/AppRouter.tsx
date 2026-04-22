@@ -21,6 +21,7 @@ import { ResetPasswordPage } from '../pages/ResetPasswordPage'
 import { ActivityLogPage } from '../pages/ActivityLogPage'
 import { WikiPage } from '../pages/WikiPage'
 import { MyTodosPage } from '../pages/MyTodosPage'
+import { PiketAlarmsPage } from '../pages/PiketAlarmsPage'
 
 function PrivateRoutes() {
   const { me, isLoading } = useSession()
@@ -81,6 +82,7 @@ export function AppRouter() {
             <RequirePermission permission="wiki:read"><WikiPage /></RequirePermission>
           } />
           <Route path="/my-todos" element={<MyTodosPage />} />
+          <Route path="/piket" element={<PiketAlarmsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

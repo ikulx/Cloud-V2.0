@@ -17,10 +17,12 @@ import { useMyTodos, type MyTodoScope, type MyTodoStatus } from '../features/my-
 import { useUpdateAnlageTodo } from '../features/anlagen/queries'
 import { TodoEditDialog } from '../components/anlagen/TodoEditDialog'
 import { useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { apiPatch } from '../lib/api'
 import type { MyTodo } from '../types/model'
 
 export function MyTodosPage() {
+  const { t } = useTranslation()
   const [scope, setScope] = useState<MyTodoScope>('all')
   const [status, setStatus] = useState<MyTodoStatus>('OPEN')
   const [editTodo, setEditTodo] = useState<MyTodo | null>(null)
@@ -35,20 +37,20 @@ export function MyTodosPage() {
 
   return (
     <Box>
-      <Typography variant="h5" mb={2}>Meine Todos</Typography>
+      <Typography variant="h5" mb={2}>{t('myTodos.title')}</Typography>
 
       <Paper sx={{ mb: 2 }}>
         <Tabs value={scope} onChange={(_, v) => setScope(v as MyTodoScope)}>
-          <Tab value="all" label="Alle" />
-          <Tab value="mine" label="Mir direkt zugewiesen" />
-          <Tab value="groups" label="Über Gruppen" />
+          <Tab value="all" label={t('myTodos.scopeAll')} />
+          <Tab value="mine" label={t('myTodos.scopeMine')} />
+          <Tab value="groups" label={t('myTodos.scopeGroups')} />
         </Tabs>
       </Paper>
 
       <Box sx={{ mb: 2 }}>
         <Tabs value={status} onChange={(_, v) => setStatus(v as MyTodoStatus)} variant="standard">
-          <Tab value="OPEN" label="Offen" />
-          <Tab value="DONE" label="Erledigt" />
+          <Tab value="OPEN" label={t('myTodos.statusOpen')} />
+          <Tab value="DONE" label={t('myTodos.statusDone')} />
         </Tabs>
       </Box>
 
@@ -56,7 +58,7 @@ export function MyTodosPage() {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>
       ) : todos.length === 0 ? (
         <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-          {status === 'OPEN' ? 'Keine offenen Todos.' : 'Keine erledigten Todos.'}
+          {status === 'OPEN' ? t('myTodos.emptyOpen') : t('myTodos.emptyDone')}
         </Typography>
       ) : (
         <List disablePadding>
@@ -78,6 +80,8 @@ export function MyTodosPage() {
 }
 
 function TodoRow({ todo, onEdit }: { todo: MyTodo; onEdit: () => void }) {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language || 'de-CH'
   const updateMut = useUpdateAnlageTodo(todo.anlage.id)
   const overdue = todo.status === 'OPEN' && todo.dueDate && new Date(todo.dueDate) < new Date()
 
@@ -117,12 +121,12 @@ function TodoRow({ todo, onEdit }: { todo: MyTodo; onEdit: () => void }) {
               <Chip
                 size="small"
                 color={overdue ? 'error' : 'default'}
-                label={`Fällig: ${new Date(todo.dueDate).toLocaleDateString('de-CH')}`}
+                label={t('myTodos.dueLabel', { date: new Date(todo.dueDate).toLocaleDateString(locale) })}
               />
             )}
-            {todo.assignmentMine && <Chip size="small" color="primary" label="Mir zugewiesen" />}
+            {todo.assignmentMine && <Chip size="small" color="primary" label={t('myTodos.assignedToMe')} />}
             {todo.assignmentViaGroup && todo.assignedGroups.map((ag) => (
-              <Chip key={ag.group.id} size="small" color="info" label={`Gruppe: ${ag.group.name}`} />
+              <Chip key={ag.group.id} size="small" color="info" label={t('myTodos.assignedViaGroup', { name: ag.group.name })} />
             ))}
           </Box>
         }
@@ -130,13 +134,16 @@ function TodoRow({ todo, onEdit }: { todo: MyTodo; onEdit: () => void }) {
           <Box>
             {todo.details && <Typography variant="body2" sx={{ color: 'text.primary', mb: 0.5 }}>{todo.details}</Typography>}
             <Typography variant="caption" color="text.secondary">
-              Anlage:{' '}
+              {t('myTodos.anlageLabel')}:{' '}
               <RouterLink to={`/anlagen/${todo.anlage.id}`} style={{ color: 'inherit' }}>
                 <strong>{todo.anlage.name}</strong>
                 {todo.anlage.projectNumber ? ` (${todo.anlage.projectNumber})` : ''}
               </RouterLink>
-              {' · '}erstellt von {todo.createdBy.firstName} {todo.createdBy.lastName}{' '}
-              am {new Date(todo.createdAt).toLocaleDateString('de-CH')}
+              {' · '}
+              {t('myTodos.createdBy', {
+                name: `${todo.createdBy.firstName} ${todo.createdBy.lastName}`,
+                date: new Date(todo.createdAt).toLocaleDateString(locale),
+              })}
             </Typography>
           </Box>
         }

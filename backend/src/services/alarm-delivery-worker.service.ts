@@ -1,4 +1,5 @@
 import { processDueDeliveries } from './alarm-dispatcher.service'
+import { processDuePiketActions } from './piket-manager.service'
 
 /**
  * Delivery-Worker
@@ -32,4 +33,6 @@ export function stopAlarmDeliveryWorker(): void {
 function tick(): void {
   processDueDeliveries()
     .catch((err) => console.error('[AlarmDeliveryWorker] Tick-Fehler:', err))
+  processDuePiketActions()
+    .catch((err) => console.error('[PiketWorker] Tick-Fehler:', err))
 }

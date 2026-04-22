@@ -42,7 +42,7 @@ import { usePermission } from '../hooks/usePermission'
 import { useTranslation } from 'react-i18next'
 import type { UserSummary } from '../types/model'
 
-const EMPTY_FORM = { email: '', password: '', firstName: '', lastName: '', address: '', roleId: '', isActive: true }
+const EMPTY_FORM = { email: '', password: '', firstName: '', lastName: '', address: '', phone: '', roleId: '', isActive: true }
 const EMPTY_ASSIGN = { groupIds: [] as string[], anlageIds: [] as string[], deviceIds: [] as string[] }
 
 export function UsersPage() {
@@ -121,7 +121,7 @@ export function UsersPage() {
 
   const openEdit = (u: UserSummary) => {
     setEditUser(u)
-    setForm({ email: u.email, password: '', firstName: u.firstName, lastName: u.lastName, address: u.address ?? '', roleId: u.roleId ?? '', isActive: u.isActive })
+    setForm({ email: u.email, password: '', firstName: u.firstName, lastName: u.lastName, address: u.address ?? '', phone: u.phone ?? '', roleId: u.roleId ?? '', isActive: u.isActive })
     setAssign({
       groupIds: u.groupMemberships.map((gm) => gm.group.id),
       anlageIds: u.directAnlagen.map((da) => da.anlage.id),
@@ -221,6 +221,13 @@ export function UsersPage() {
                 <TextField label={t('common.email')} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} fullWidth required />
                 <TextField label={editUser ? t('users.passwordEdit') : t('users.password')} type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} fullWidth required={!editUser} />
                 <TextField label={t('users.address')} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} fullWidth />
+                <TextField
+                  label="Mobilnummer (E.164, z.B. +41791234567)"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  fullWidth
+                  helperText="Pflicht für Piket-Techniker (SMS + Anruf)"
+                />
                 <TextField select label={t('common.role')} value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })} fullWidth>
                   <MenuItem value="">{t('common.noRole')}</MenuItem>
                   {roles?.map((r) => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}

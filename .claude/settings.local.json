@@ -65,7 +65,15 @@
       "Bash(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" --version)",
       "Bash(npm audit *)",
       "Bash(curl -s -o /tmp/ghsec.json -w \"HTTP_CODE:%{http_code}\" \"https://api.github.com/repos/ikulx/Cloud-V2.0/code-scanning/alerts?state=open&per_page=30\")",
-      "Bash(PGPASSWORD=password psql -h localhost -U postgres -d ycontrol_cloud -c \"\\\\\\\\d anlage_todos\")"
+      "Bash(PGPASSWORD=password psql -h localhost -U postgres -d ycontrol_cloud -c \"\\\\\\\\d anlage_todos\")",
+      "Bash(sqlite3 ycontroldata_settings.sqlite \".schema\")",
+      "Bash(awk '{print $2}')",
+      "Bash(grep -n \"io\\\\\\\\.\" \"D:/Entwicklung/React-Visu/Visu-v3 - Kopie/node-backend/server.js\")",
+      "Bash(docker --version)",
+      "Bash(docker build *)",
+      "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Select-Object -Property Id,StartTime | Sort-Object StartTime | Format-Table\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000/api/me)",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"ping\",\"password\":\"ping\"}')"
     ]
   }
 }
