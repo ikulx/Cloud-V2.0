@@ -17,6 +17,10 @@ import TableRow from '@mui/material/TableRow'
 import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
 import Paper from '@mui/material/Paper'
+import Collapse from '@mui/material/Collapse'
+import IconButton from '@mui/material/IconButton'
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
   usePiketRegions, usePiketShifts, useBulkPiketShifts,
@@ -237,15 +241,28 @@ function YearTable({
     for (const u of users) m.set(u.id, u)
     return m
   }, [users])
+  // Letztes Jahr standardmässig eingeklappt – wird selten gebraucht.
+  const [open, setOpen] = useState(yearIdx !== 0)
 
   return (
     <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', mb: 3 }}>
-      <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box
+        onClick={() => setOpen((o) => !o)}
+        sx={{
+          p: 1.5, borderBottom: open ? '1px solid' : 'none', borderColor: 'divider',
+          display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', userSelect: 'none',
+          '&:hover': { bgcolor: 'action.hover' },
+        }}
+      >
+        <IconButton size="small" sx={{ p: 0.25 }}>
+          {open ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
+        </IconButton>
         <Typography variant="subtitle1" fontWeight={600}>{label} · {year}</Typography>
         <Typography variant="caption" color="text.secondary">
           {days.length} Tage × {regions.length} Bereich{regions.length === 1 ? '' : 'e'}
         </Typography>
       </Box>
+      <Collapse in={open} unmountOnExit>
       <TableContainer sx={{ maxHeight: 560 }}>
         <Table size="small" stickyHeader>
           <TableHead>
@@ -310,6 +327,7 @@ function YearTable({
           </TableBody>
         </Table>
       </TableContainer>
+      </Collapse>
     </Paper>
   )
 }
