@@ -23,7 +23,8 @@ import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import DownloadIcon from '@mui/icons-material/FileDownload'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
+import { saveAs } from 'file-saver'
 import {
   usePiketRegions, usePiketShifts, useBulkPiketShifts,
   type PiketRegion, type PiketShift,
@@ -75,39 +76,90 @@ function formatPhoneForExcel(phone: string | null | undefined): string {
 }
 
 /** Erzeugt & lädt eine Excel-Datei mit Datum/KW + pro Bereich zwei Spalten
- *  (Name + Telefon) für das gegebene Jahr. */
-function exportYearToExcel(
+ *  (Name + Telefon) für das gegebene Jahr. Formatiert:
+ *    - Header rot mit weisser Fettschrift
+ *    - Datum/KW hellorange hinterlegt
+ *    - Alle Zellen mit dünnen Rahmen
+ *    - Zeilen-Filter aktiv, oberste Zeile eingefroren
+ */
+async function exportYearToExcel(
   year: number,
   days: Date[],
   regions: PiketRegion[],
   shiftIndex: Map<string, PiketShift>,
   userMap: Map<string, UserSummary>,
 ) {
-  const header: string[] = ['Datum', 'KW']
-  for (const r of regions) { header.push(r.name, 'Telefon') }
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'YControl Cloud'
+  wb.created = new Date()
+  const ws = wb.addWorksheet(`Piket ${year}`, {
+    views: [{ state: 'frozen', ySplit: 1, xSplit: 2 }],
+  })
 
-  const rows: (string | number)[][] = [header]
+  // ── Header ────────────────────────────────────────────────────────────
+  const headerRow: string[] = ['Datum', 'KW']
+  for (const r of regions) { headerRow.push(r.name, 'Telefon') }
+  const hr = ws.addRow(headerRow)
+  hr.height = 22
+  hr.eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC00000' } }
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center' }
+    cell.border = {
+      top:    { style: 'thin', color: { argb: 'FF808080' } },
+      bottom: { style: 'thin', color: { argb: 'FF808080' } },
+      left:   { style: 'thin', color: { argb: 'FF808080' } },
+      right:  { style: 'thin', color: { argb: 'FF808080' } },
+    }
+  })
+
+  // ── Datenzeilen ───────────────────────────────────────────────────────
+  const peachFill: ExcelJS.FillPattern = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } }
+  const border: Partial<ExcelJS.Borders> = {
+    top:      { style: 'thin', color: { argb: 'FFBFBFBF' } },
+    bottom:   { style: 'thin', color: { argb: 'FFBFBFBF' } },
+    left:     { style: 'thin', color: { argb: 'FFBFBFBF' } },
+    right:    { style: 'thin', color: { argb: 'FFBFBFBF' } },
+  }
+
   for (const d of days) {
     const dk = dayKey(d)
-    const row: (string | number)[] = [fmtDate(d), isoWeek(d)]
+    const rowValues: (string | number)[] = [fmtDate(d), isoWeek(d)]
     for (const r of regions) {
       const s = shiftIndex.get(`${r.id}|${dk}`)
       const u = s ? userMap.get(s.userId) : null
-      row.push(u ? `${u.lastName} - ${u.firstName}` : '')
-      row.push(u ? formatPhoneForExcel(u.phone) : '')
+      rowValues.push(u ? `${u.lastName} - ${u.firstName}` : '')
+      rowValues.push(u ? formatPhoneForExcel(u.phone) : '')
     }
-    rows.push(row)
+    const row = ws.addRow(rowValues)
+    row.eachCell((cell, colNumber) => {
+      cell.border = border
+      cell.alignment = { vertical: 'middle', horizontal: 'center' }
+      if (colNumber <= 2) {
+        cell.fill = peachFill
+        cell.font = { bold: colNumber === 1 }
+      } else {
+        // Name-Spalten (ungerade ab 3) vs. Telefon-Spalten (gerade ab 4)
+        const isName = (colNumber - 3) % 2 === 0
+        cell.font = { bold: isName }
+      }
+    })
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(rows)
-  // Spaltenbreiten: Datum=12, KW=5, Name=24, Telefon=16
-  ws['!cols'] = [
-    { wch: 12 }, { wch: 5 },
-    ...regions.flatMap(() => [{ wch: 24 }, { wch: 16 }]),
+  // ── Spaltenbreiten ────────────────────────────────────────────────────
+  ws.columns = [
+    { width: 12 }, { width: 5 },
+    ...regions.flatMap(() => [{ width: 24 }, { width: 16 }]),
   ]
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, `Piket ${year}`)
-  XLSX.writeFile(wb, `piket-schicht-${year}.xlsx`)
+
+  // ── Autofilter auf Header ─────────────────────────────────────────────
+  ws.autoFilter = {
+    from: { row: 1, column: 1 },
+    to:   { row: 1, column: 2 + regions.length * 2 },
+  }
+
+  const buf = await wb.xlsx.writeBuffer()
+  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `piket-schicht-${year}.xlsx`)
 }
 
 export function ShiftsPlanner() {
@@ -349,7 +401,7 @@ function YearTable({
           startIcon={<DownloadIcon fontSize="small" />}
           onClick={(e) => {
             e.stopPropagation()
-            exportYearToExcel(year, days, regions, shiftIndex, userMap)
+            void exportYearToExcel(year, days, regions, shiftIndex, userMap)
           }}
         >
           Excel

@@ -38,6 +38,8 @@
     "@tiptap/suggestion": "^3.22.4",
     "browser-image-compression": "^2.0.2",
     "emoji-picker-react": "^4.18.0",
+    "exceljs": "^4.4.0",
+    "file-saver": "^2.0.5",
     "i18next": "^26.0.3",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
@@ -49,11 +51,11 @@
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.14.0",
     "socket.io-client": "^4.8.3",
-    "tippy.js": "^6.3.7",
-    "xlsx": "^0.18.5"
+    "tippy.js": "^6.3.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@types/file-saver": "^2.0.7",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^24.12.2",
     "@types/react": "^19.2.14",
