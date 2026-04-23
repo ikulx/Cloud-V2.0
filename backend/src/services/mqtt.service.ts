@@ -223,6 +223,29 @@ function handleResp(serial: string, payload: string, io: SocketServer) {
     const data = JSON.parse(payload)
     // Forward to any frontend clients subscribed to this device
     io.to(`device:${serial}:cmnd`).emit('device:cmdresp', { serial, ...data })
+    // Restore-Status persistieren, damit das UI den Erfolg/Fehler dauerhaft
+    // anzeigen kann (auch nach Reload).
+    if (data && data.action === 'restore' && typeof data.jobId === 'string') {
+      const ok = data.status === 'ok'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pAny = prisma as any
+      void pAny.deviceBackup.update({
+        where: { id: data.jobId },
+        data: {
+          lastRestoreStatus: data.status === 'running' ? 'RUNNING' : (ok ? 'OK' : 'FAILED'),
+          lastRestoreError: ok ? null : (typeof data.error === 'string' ? data.error : null),
+          lastRestoreAt: new Date(),
+        },
+      }).catch(() => {})
+    }
+    if (data && data.action === 'backup' && typeof data.jobId === 'string' && data.status === 'error') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pAny = prisma as any
+      void pAny.deviceBackup.update({
+        where: { id: data.jobId },
+        data: { status: 'FAILED', errorMessage: typeof data.error === 'string' ? data.error : 'Agent meldete Fehler' },
+      }).catch(() => {})
+    }
   } catch {
     io.to(`device:${serial}:cmnd`).emit('device:cmdresp', { serial, raw: payload })
   }

@@ -7,6 +7,7 @@ import permissionsRouter from './permissions.router'
 import groupsRouter from './groups.router'
 import anlagenRouter from './anlagen.router'
 import devicesRouter from './devices.router'
+import backupsRouter from './backups.router'
 import settingsRouter from './settings.router'
 import vpnRouter from './vpn.router'
 import invitationsRouter from './invitations.router'
@@ -29,6 +30,10 @@ router.use('/roles', rolesRouter)
 router.use('/permissions', permissionsRouter)
 router.use('/groups', groupsRouter)
 router.use('/anlagen', anlagenRouter)
+// Backup-Routen liegen unter /api/devices/:id/backups bzw. /backup-stream/* –
+// werden vor devicesRouter gemountet, damit der Stream-Pfad nicht von
+// generischen devicesRouter-Patterns gefangen wird.
+router.use('/devices', backupsRouter)
 router.use('/devices', devicesRouter)
 router.use('/settings', settingsRouter)
 router.use('/vpn', vpnRouter)

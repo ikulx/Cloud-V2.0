@@ -24,6 +24,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import InfoIcon from '@mui/icons-material/Info'
 import HistoryIcon from '@mui/icons-material/History'
 import { EntityActivityLog } from '../components/EntityActivityLog'
+import { DeviceBackupCard } from '../components/devices/DeviceBackupCard'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
@@ -715,6 +716,10 @@ export function DeviceDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        <Box mt={3}>
+          <DeviceBackupCard deviceId={id!} deviceOnline={device.status === 'ONLINE'} />
+        </Box>
 
         <Snackbar
           open={!!vpnMsg}

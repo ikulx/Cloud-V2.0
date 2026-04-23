@@ -6,6 +6,7 @@ import Tabs from '@mui/material/Tabs'
 import Link from '@mui/material/Link'
 import { ErzeugerSettingsTab } from '../components/settings/ErzeugerSettingsTab'
 import { InternalAlarmTemplatesSettings } from '../components/settings/InternalAlarmTemplatesSettings'
+import { BackupTargetsSettings } from '../components/settings/BackupTargetsSettings'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import TextField from '@mui/material/TextField'
@@ -341,6 +342,7 @@ export function SettingsPage() {
   if (isAdmin) tabs.push({ label: 'Alarme', key: 'alarm' })
   if (isAdmin) tabs.push({ label: 'Übersetzung', key: 'deepl' })
   if (isAdmin) tabs.push({ label: 'Erzeuger', key: 'erzeuger' })
+  if (isAdmin) tabs.push({ label: t('settings.tabBackup', 'Backup'), key: 'backup' })
   if (isAdmin) tabs.push({ label: 'System', key: 'system' })
   const activeKey = tabs[tab]?.key ?? 'account'
 
@@ -770,6 +772,8 @@ export function SettingsPage() {
       {activeKey === 'alarm' && <InternalAlarmTemplatesSettings />}
 
       {activeKey === 'erzeuger' && <ErzeugerSettingsTab />}
+
+      {activeKey === 'backup' && <BackupTargetsSettings />}
 
       {activeKey === 'system' && (
         <SystemTab

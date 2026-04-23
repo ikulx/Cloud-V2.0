@@ -469,6 +469,7 @@ model Device {
   logEntries    DeviceLogEntry[]
   vpnDevice     VpnDevice?
   alarmEvents   AlarmEvent[]
+  backups       DeviceBackup[]
 
   @@index([piSerial])
   @@map("devices")
@@ -639,6 +640,76 @@ model Invitation {
   @@index([token])
   @@index([email])
   @@map("invitations")
+}
+
+// ─── Device Backups ───────────────────────────────────────────────────────────
+//
+// Manuell ausgelöste Backups der Pi-Daten (`/home/pi/ycontrol-data/external` +
+// `/assets`). Der Cloud-Backend triggert via MQTT, der Pi-Agent streamt einen
+// tar.gz-Stream per HTTP zurück. Die Cloud verteilt parallel an alle aktiven
+// Backup-Targets (Syno WebDAV / Infomaniak S3) und schreibt hier den Status.
+// Pro Gerät bleiben max. 5 Backups erhalten – ältere werden auf den Targets
+// und in der DB gelöscht.
+
+enum DeviceBackupStatus {
+  /// Cloud hat Job angelegt, Agent benachrichtigt, wartet auf Upload.
+  PENDING
+  /// Agent streamt gerade die tar.gz-Datei in die Cloud.
+  UPLOADING
+  /// Cloud verteilt an die Backup-Targets.
+  DISTRIBUTING
+  /// Mindestens ein Target hat das Backup gespeichert.
+  OK
+  /// Vor Ablauf der Frist abgebrochen oder Fehler.
+  FAILED
+}
+
+enum DeviceBackupTargetStatus {
+  /// Target war zum Zeitpunkt des Backups deaktiviert.
+  SKIPPED
+  /// Upload an dieses Target läuft.
+  PENDING
+  /// Auf dem Target gespeichert.
+  OK
+  /// Auf diesem Target fehlgeschlagen.
+  FAILED
+}
+
+enum DeviceRestoreStatus {
+  PENDING
+  RUNNING
+  OK
+  FAILED
+}
+
+model DeviceBackup {
+  id             String              @id @default(uuid()) @db.Uuid
+  deviceId       String              @map("device_id") @db.Uuid
+  device         Device              @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  /// Einmal-Token, mit dem der Agent den Upload autorisiert. Wird nach
+  /// erfolgreichem Upload geleert.
+  uploadToken    String?             @map("upload_token")
+  /// Schlüssel auf dem Target (Format `<deviceSerial>/<ISO>.tar.gz`).
+  objectKey      String              @map("object_key")
+  sizeBytes      BigInt?             @map("size_bytes")
+  status         DeviceBackupStatus  @default(PENDING)
+  errorMessage   String?             @map("error_message")
+  synoStatus         DeviceBackupTargetStatus @default(SKIPPED) @map("syno_status")
+  synoError          String?                  @map("syno_error")
+  infomaniakStatus   DeviceBackupTargetStatus @default(SKIPPED) @map("infomaniak_status")
+  infomaniakError    String?                  @map("infomaniak_error")
+  /// Letzter Restore-Versuch dieses Backups (für UI-Status).
+  lastRestoreStatus  DeviceRestoreStatus?  @map("last_restore_status")
+  lastRestoreError   String?               @map("last_restore_error")
+  lastRestoreAt      DateTime?             @map("last_restore_at")
+  /// Optional: Welcher Benutzer hat das Backup ausgelöst.
+  createdById    String?  @map("created_by_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  @@index([deviceId, createdAt])
+  @@index([status])
+  @@map("device_backups")
 }
 
 // ─── System Settings ──────────────────────────────────────────────────────────

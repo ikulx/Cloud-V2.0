@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC21"  # + Alarm-Suppression-Bridge an Cloud
+AGENT_VERSION = "1.0.0-RC22"  # + Backup/Restore von /home/pi/ycontrol-data
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -614,6 +614,123 @@ def run_agent():
                 except Exception as ex:
                     print("[YControl] Update fehlgeschlagen: " + str(ex), file=sys.stderr)
                     c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": str(ex)}), qos=1)
+        elif action == "backup":
+            # Cloud will ein Backup von /home/pi/ycontrol-data/external + /assets.
+            # Wir tarren die Pfade und streamen sie per HTTPS POST an uploadUrl.
+            job_id     = cmd.get("jobId", "")
+            upload_url = cmd.get("uploadUrl", "")
+            paths      = cmd.get("paths") or ["/home/pi/ycontrol-data/external", "/home/pi/ycontrol-data/assets"]
+            if not upload_url or not job_id:
+                c.publish(topic_resp, json.dumps({"action": "backup", "jobId": job_id, "status": "error", "error": "uploadUrl/jobId fehlen"}), qos=1)
+            else:
+                def do_backup(c, job_id, upload_url, paths):
+                    try:
+                        c.publish(topic_resp, json.dumps({"action": "backup", "jobId": job_id, "status": "running"}), qos=1)
+                        # Nur existierende Pfade einpacken (wenn z.B. assets/ leer ist).
+                        existing = [p for p in paths if os.path.exists(p)]
+                        if not existing:
+                            raise Exception("Keine zu sichernden Pfade vorhanden")
+                        tar_cmd = ["tar", "-czf", "-"] + existing
+                        print("[YControl] Backup -> " + upload_url + " (" + ", ".join(existing) + ")")
+                        proc = subprocess.Popen(tar_cmd, stdout=subprocess.PIPE)
+                        # Streaming-Upload via urllib (Chunked-Encoding).
+                        from urllib.parse import urlparse
+                        u = urlparse(upload_url)
+                        host = u.hostname
+                        port = u.port or (443 if u.scheme == "https" else 80)
+                        if u.scheme == "https":
+                            import ssl
+                            conn = httplib.HTTPSConnection(host, port, timeout=3600, context=ssl.create_default_context())
+                        else:
+                            conn = httplib.HTTPConnection(host, port, timeout=3600)
+                        path_q = u.path + ("?" + u.query if u.query else "")
+                        conn.putrequest("POST", path_q)
+                        conn.putheader("Content-Type", "application/gzip")
+                        conn.putheader("Transfer-Encoding", "chunked")
+                        conn.endheaders()
+                        try:
+                            while True:
+                                chunk = proc.stdout.read(64 * 1024)
+                                if not chunk:
+                                    break
+                                conn.send(("%X\\r\\n" % len(chunk)).encode("ascii") + chunk + b"\\r\\n")
+                            conn.send(b"0\\r\\n\\r\\n")
+                        finally:
+                            proc.stdout.close()
+                            proc.wait()
+                        resp = conn.getresponse()
+                        body = resp.read().decode("utf-8", errors="replace")
+                        conn.close()
+                        if resp.status >= 200 and resp.status < 300 and proc.returncode == 0:
+                            print("[YControl] Backup OK – HTTP " + str(resp.status))
+                            c.publish(topic_resp, json.dumps({"action": "backup", "jobId": job_id, "status": "ok"}), qos=1)
+                        else:
+                            err = "tar=" + str(proc.returncode) + " HTTP " + str(resp.status) + " " + body[:300]
+                            print("[YControl] Backup Fehler: " + err, file=sys.stderr)
+                            c.publish(topic_resp, json.dumps({"action": "backup", "jobId": job_id, "status": "error", "error": err}), qos=1)
+                    except Exception as ex:
+                        print("[YControl] Backup fehlgeschlagen: " + str(ex), file=sys.stderr)
+                        c.publish(topic_resp, json.dumps({"action": "backup", "jobId": job_id, "status": "error", "error": str(ex)}), qos=1)
+                threading.Thread(target=do_backup, args=(c, job_id, upload_url, paths), daemon=True).start()
+        elif action == "restore":
+            # Cloud schickt ein Backup zurück. Wir stoppen den Visu-Container,
+            # entpacken nach extractTo (Default /home/pi/ycontrol-data) und starten
+            # den Container wieder.
+            job_id        = cmd.get("jobId", "")
+            download_url  = cmd.get("downloadUrl", "")
+            extract_to    = cmd.get("extractTo", "/home/pi/ycontrol-data")
+            docker_service = cmd.get("dockerService", "ycontrol-rt")
+            if not download_url or not job_id:
+                c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "error", "error": "downloadUrl/jobId fehlen"}), qos=1)
+            else:
+                def do_restore(c, job_id, download_url, extract_to, docker_service):
+                    try:
+                        c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "running"}), qos=1)
+                        print("[YControl] Restore von " + download_url + " nach " + extract_to)
+                        # 1. Container stoppen (best-effort).
+                        subprocess.run(["docker", "stop", docker_service], capture_output=True, timeout=120)
+                        # 2. Stream → tar -xzf - -C extract_to. urllib + Pipe in tar.
+                        from urllib.parse import urlparse
+                        u = urlparse(download_url)
+                        if u.scheme == "https":
+                            import ssl
+                            conn = httplib.HTTPSConnection(u.hostname, u.port or 443, timeout=3600, context=ssl.create_default_context())
+                        else:
+                            conn = httplib.HTTPConnection(u.hostname, u.port or 80, timeout=3600)
+                        path_q = u.path + ("?" + u.query if u.query else "")
+                        conn.request("GET", path_q)
+                        resp = conn.getresponse()
+                        if resp.status < 200 or resp.status >= 300:
+                            err = "HTTP " + str(resp.status) + " " + resp.read().decode("utf-8", errors="replace")[:300]
+                            conn.close()
+                            raise Exception(err)
+                        os.makedirs(extract_to, exist_ok=True)
+                        proc = subprocess.Popen(["tar", "-xzf", "-", "-C", extract_to], stdin=subprocess.PIPE)
+                        try:
+                            while True:
+                                chunk = resp.read(64 * 1024)
+                                if not chunk:
+                                    break
+                                proc.stdin.write(chunk)
+                        finally:
+                            proc.stdin.close()
+                            proc.wait()
+                            conn.close()
+                        if proc.returncode != 0:
+                            raise Exception("tar exit=" + str(proc.returncode))
+                        # 3. Container wieder starten.
+                        subprocess.run(["docker", "start", docker_service], capture_output=True, timeout=120)
+                        print("[YControl] Restore OK")
+                        c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "ok"}), qos=1)
+                    except Exception as ex:
+                        print("[YControl] Restore fehlgeschlagen: " + str(ex), file=sys.stderr)
+                        # Container im Fehlerfall wieder hochziehen, damit Visu nicht offline bleibt.
+                        try:
+                            subprocess.run(["docker", "start", docker_service], capture_output=True, timeout=120)
+                        except Exception:
+                            pass
+                        c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "error", "error": str(ex)}), qos=1)
+                threading.Thread(target=do_restore, args=(c, job_id, download_url, extract_to, docker_service), daemon=True).start()
         elif action == "vpn_install":
             # WireGuard-Config wird direkt im MQTT-Befehl mitgeliefert (kein HTTP nötig)
             vpn_config = cmd.get("config", "")

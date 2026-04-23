@@ -33,6 +33,18 @@ export const SETTING_KEYS = [
   'twilio.smsSenderId',
   'twilio.callFromNumber',
   'twilio.enabled',
+  // Backup-Targets (siehe services/backup-targets/*)
+  'backup.syno.enabled',
+  'backup.syno.url',
+  'backup.syno.user',
+  'backup.syno.password',
+  'backup.syno.basePath',
+  'backup.infomaniak.enabled',
+  'backup.infomaniak.endpoint',
+  'backup.infomaniak.region',
+  'backup.infomaniak.bucket',
+  'backup.infomaniak.accessKey',
+  'backup.infomaniak.secretKey',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -66,6 +78,21 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   // Voice: E.164-Absender-Nummer für ausgehende Anrufe.
   'twilio.callFromNumber': '',
   'twilio.enabled': 'false',
+  // Syno NAS – WebDAV
+  'backup.syno.enabled': 'false',
+  'backup.syno.url': '',
+  'backup.syno.user': '',
+  'backup.syno.password': '',
+  // Pfad-Präfix (z.B. "/ycontrol-backups"). Pro Gerät wird darunter ein
+  // Unterordner `<deviceSerial>/` angelegt.
+  'backup.syno.basePath': '/ycontrol-backups',
+  // Infomaniak Swiss Backup – S3
+  'backup.infomaniak.enabled': 'false',
+  'backup.infomaniak.endpoint': 'https://s3.swiss-backup.infomaniak.com',
+  'backup.infomaniak.region': 'rma',
+  'backup.infomaniak.bucket': '',
+  'backup.infomaniak.accessKey': '',
+  'backup.infomaniak.secretKey': '',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {
@@ -286,6 +313,22 @@ router.delete('/activity-log/all', authenticate, requirePermission('roles:read')
   } catch (e) {
     console.error('[settings/activity-log/all]', e)
     res.status(500).json({ message: 'Löschen fehlgeschlagen' })
+  }
+})
+
+// POST /api/settings/test-backup-target – prüft Erreichbarkeit eines Backup-Ziels
+const testBackupSchema = z.object({ target: z.enum(['syno', 'infomaniak']) })
+router.post('/test-backup-target', authenticate, requirePermission('roles:read'), async (req, res) => {
+  const parsed = testBackupSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ ok: false, message: 'target fehlt' }); return }
+  const { resolveBackupTarget } = await import('../services/backup-targets')
+  try {
+    const t = await resolveBackupTarget(parsed.data.target)
+    if (!t) { res.status(400).json({ ok: false, message: 'Ziel nicht aktiv oder unvollständig konfiguriert' }); return }
+    await t.test()
+    res.json({ ok: true, message: 'Verbindung erfolgreich' })
+  } catch (e) {
+    res.status(400).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
   }
 })
 
