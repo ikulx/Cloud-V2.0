@@ -383,7 +383,7 @@ router.post('/:id/backups/:backupId/restore', authenticate, requirePermission('d
     pullPort,
     pullToken,
     extractTo: '/home/pi/ycontrol-data',
-    dockerService: 'ycontrol-rt',
+    composeFile: '/home/pi/docker/docker-compose.yml',
   })
   if (!ok) { res.status(503).json({ message: 'MQTT nicht verfügbar' }); return }
 

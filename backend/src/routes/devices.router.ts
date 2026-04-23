@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC23"  # Backup/Restore via WireGuard-Tunnel (Cloud pullt vom Pi)
+AGENT_VERSION = "1.0.0-RC24"  # Restore: docker compose down/up statt docker stop/start
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -161,10 +161,15 @@ def serve_backup_once(port, token, paths):
         try: conn.close()
         except Exception: pass
 
-def serve_restore_once(port, token, extract_to, docker_service, mqtt_client, job_id):
-    """Bindet :port, wartet auf einen POST /restore?token=…, stoppt den
-    Visu-Container, entpackt den Body nach extract_to, startet den Container
-    wieder. Behandelt chunked und Content-Length."""
+def _compose_cmd(compose_file, *args):
+    """Wählt automatisch den richtigen Compose-Aufruf (V2 vs. V1)."""
+    base = ["docker", "compose"] if shutil.which("docker") else ["docker-compose"]
+    return base + ["-f", compose_file] + list(args)
+
+def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_id):
+    """Bindet :port, wartet auf einen POST /restore?token=…, stoppt das
+    Compose-Projekt (docker compose -f compose_file down), entpackt den Body
+    nach extract_to und startet das Compose-Projekt wieder (up -d)."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", port))
@@ -185,8 +190,9 @@ def serve_restore_once(port, token, extract_to, docker_service, mqtt_client, job
             return "Token ungültig"
         chunked = headers.get("transfer-encoding", "").lower() == "chunked"
         content_length = int(headers.get("content-length", "0") or 0) if not chunked else None
-        # Container vor dem Entpacken stoppen.
-        subprocess.run(["docker", "stop", docker_service], capture_output=True, timeout=120)
+        # Compose-Stack stoppen (down = Container + Netze entfernen, Volumes
+        # bleiben, weil wir sie ja gerade per Restore befüllen).
+        subprocess.run(_compose_cmd(compose_file, "down"), capture_output=True, timeout=180)
         os.makedirs(extract_to, exist_ok=True)
         proc = subprocess.Popen(["tar", "-xzf", "-", "-C", extract_to], stdin=subprocess.PIPE)
 
@@ -223,10 +229,12 @@ def serve_restore_once(port, token, extract_to, docker_service, mqtt_client, job
             proc.stdin.close()
             proc.wait()
         if proc.returncode != 0:
+            # Compose trotzdem wieder hochziehen, damit Visu nicht offline bleibt.
+            subprocess.run(_compose_cmd(compose_file, "up", "-d"), capture_output=True, timeout=300)
             conn.sendall(b"HTTP/1.1 500 Internal Server Error\\r\\nContent-Length: 0\\r\\n\\r\\n")
             return "tar exit=" + str(proc.returncode)
-        # Container wieder starten.
-        subprocess.run(["docker", "start", docker_service], capture_output=True, timeout=120)
+        # Compose-Stack wieder starten.
+        subprocess.run(_compose_cmd(compose_file, "up", "-d"), capture_output=True, timeout=300)
         conn.sendall(b"HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\n\\r\\nok")
         return "ok"
     finally:
@@ -799,25 +807,25 @@ def run_agent():
             pull_port     = int(cmd.get("pullPort") or 0)
             pull_token    = cmd.get("pullToken", "")
             extract_to    = cmd.get("extractTo", "/home/pi/ycontrol-data")
-            docker_service = cmd.get("dockerService", "ycontrol-rt")
+            compose_file  = cmd.get("composeFile", "/home/pi/docker/docker-compose.yml")
             if not pull_port or not pull_token or not job_id:
                 c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "error", "error": "pullPort/pullToken/jobId fehlen"}), qos=1)
             else:
-                def do_restore(c, job_id, port, token, extract_to, docker_service):
+                def do_restore(c, job_id, port, token, extract_to, compose_file):
                     try:
                         c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "listening", "port": port}), qos=1)
-                        print("[YControl] Restore-Listener :" + str(port) + " -> " + extract_to)
-                        srv = serve_restore_once(port, token, extract_to, docker_service, c, job_id)
+                        print("[YControl] Restore-Listener :" + str(port) + " -> " + extract_to + " (compose: " + compose_file + ")")
+                        srv = serve_restore_once(port, token, extract_to, compose_file, c, job_id)
                         if srv == "ok":
                             c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "ok"}), qos=1)
                         else:
                             raise Exception(str(srv))
                     except Exception as ex:
                         print("[YControl] Restore fehlgeschlagen: " + str(ex), file=sys.stderr)
-                        try: subprocess.run(["docker", "start", docker_service], capture_output=True, timeout=120)
+                        try: subprocess.run(_compose_cmd(compose_file, "up", "-d"), capture_output=True, timeout=300)
                         except Exception: pass
                         c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "error", "error": str(ex)}), qos=1)
-                threading.Thread(target=do_restore, args=(c, job_id, pull_port, pull_token, extract_to, docker_service), daemon=True).start()
+                threading.Thread(target=do_restore, args=(c, job_id, pull_port, pull_token, extract_to, compose_file), daemon=True).start()
         elif action == "vpn_install":
             # WireGuard-Config wird direkt im MQTT-Befehl mitgeliefert (kein HTTP nötig)
             vpn_config = cmd.get("config", "")
