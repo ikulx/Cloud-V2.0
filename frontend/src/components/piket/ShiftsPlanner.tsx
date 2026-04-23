@@ -21,7 +21,9 @@ import Collapse from '@mui/material/Collapse'
 import IconButton from '@mui/material/IconButton'
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
+import DownloadIcon from '@mui/icons-material/FileDownload'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import * as XLSX from 'xlsx'
 import {
   usePiketRegions, usePiketShifts, useBulkPiketShifts,
   type PiketRegion, type PiketShift,
@@ -58,6 +60,54 @@ function dayKey(d: Date): string {
 
 function fmtDate(d: Date): string {
   return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+/** Formatiert E.164 (+41…) zu lesbarer Schweizer Nummer "079 638 69 96".
+ *  Andere Landesvorwahlen werden unverändert zurückgegeben. */
+function formatPhoneForExcel(phone: string | null | undefined): string {
+  if (!phone) return ''
+  const p = phone.trim()
+  if (/^\+41\d{9}$/.test(p)) {
+    const d = p.slice(3)
+    return `0${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5, 7)} ${d.slice(7, 9)}`
+  }
+  return p
+}
+
+/** Erzeugt & lädt eine Excel-Datei mit Datum/KW + pro Bereich zwei Spalten
+ *  (Name + Telefon) für das gegebene Jahr. */
+function exportYearToExcel(
+  year: number,
+  days: Date[],
+  regions: PiketRegion[],
+  shiftIndex: Map<string, PiketShift>,
+  userMap: Map<string, UserSummary>,
+) {
+  const header: string[] = ['Datum', 'KW']
+  for (const r of regions) { header.push(r.name, 'Telefon') }
+
+  const rows: (string | number)[][] = [header]
+  for (const d of days) {
+    const dk = dayKey(d)
+    const row: (string | number)[] = [fmtDate(d), isoWeek(d)]
+    for (const r of regions) {
+      const s = shiftIndex.get(`${r.id}|${dk}`)
+      const u = s ? userMap.get(s.userId) : null
+      row.push(u ? `${u.lastName} - ${u.firstName}` : '')
+      row.push(u ? formatPhoneForExcel(u.phone) : '')
+    }
+    rows.push(row)
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  // Spaltenbreiten: Datum=12, KW=5, Name=24, Telefon=16
+  ws['!cols'] = [
+    { wch: 12 }, { wch: 5 },
+    ...regions.flatMap(() => [{ wch: 24 }, { wch: 16 }]),
+  ]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, `Piket ${year}`)
+  XLSX.writeFile(wb, `piket-schicht-${year}.xlsx`)
 }
 
 export function ShiftsPlanner() {
@@ -261,6 +311,18 @@ function YearTable({
         <Typography variant="caption" color="text.secondary">
           {days.length} Tage × {regions.length} Bereich{regions.length === 1 ? '' : 'e'}
         </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<DownloadIcon fontSize="small" />}
+          onClick={(e) => {
+            e.stopPropagation()
+            exportYearToExcel(year, days, regions, shiftIndex, userMap)
+          }}
+        >
+          Excel
+        </Button>
       </Box>
       <Collapse in={open} unmountOnExit>
       <TableContainer sx={{ maxHeight: 560 }}>
