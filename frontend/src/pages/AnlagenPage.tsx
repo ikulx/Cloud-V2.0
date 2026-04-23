@@ -55,15 +55,17 @@ type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'SUPPRESSED' | 'EMPTY'
 
 function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
   if (devices.length === 0) return 'EMPTY'
+  // Reihenfolge: OFFLINE > SUPPRESSED > ERROR (Störung) > TODO > OK.
+  // Suppression hat Vorrang vor der Störung, weil bei Unterdrückung sowieso
+  // keine Benachrichtigung rausgeht – Disponent muss als erstes wissen,
+  // dass die Cloud "blind" ist.
   const hasOffline = devices.some((d) => d.status !== 'ONLINE')
   if (hasOffline) return 'OFFLINE'
-  // Aktive Alarme = Störung an einem Gerät der Anlage. Vorrang vor
-  // suppressed/TODO, weil ein laufender Alarm das wichtigste Signal ist.
+  const anySuppressed = anlage.anlageDevices.some((ad) => ad.device.alarmsSuppressed === true)
+  if (anySuppressed) return 'SUPPRESSED'
   const activeAlarms = anlage._count?.alarmEvents ?? 0
   const hasError = activeAlarms > 0 || devices.some((d) => d.hasError === true)
   if (hasError) return 'ERROR'
-  const anySuppressed = anlage.anlageDevices.some((ad) => ad.device.alarmsSuppressed === true)
-  if (anySuppressed) return 'SUPPRESSED'
   const openTodos = anlage.todos
     ? anlage.todos.filter((t) => t.status === 'OPEN').length
     : (anlage._count?.todos ?? 0)
