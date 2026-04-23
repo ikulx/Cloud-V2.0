@@ -8,6 +8,10 @@ import { handleAlarmMessage } from './alarm-ingest.service'
 
 let client: mqtt.MqttClient | null = null
 
+// Per-device throttle für Projektnummer-Auto-Sync.
+const lastProjectNumberSync = new Map<string, number>()
+const PROJECT_NUMBER_THROTTLE_MS = 60_000
+
 export function initMqttService(io: SocketServer) {
   client = mqtt.connect(env.mqttUrl, {
     clientId: env.mqttBackendUser,
@@ -165,6 +169,14 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
       const expected = assignments[0].anlage.projectNumber ?? ''
       const actual = typeof data.projectNumber === 'string' ? data.projectNumber : ''
       if (expected !== actual) {
+        // Throttle: max 1 setProjectNumber pro Gerät pro Minute. Verhindert
+        // Endlos-Loops, falls der Pi den Wert nicht persistieren kann (z.B.
+        // direkt nach einem Restore wenn die SQLite-Zeile fehlt) und das Tele
+        // weiterhin ohne projectNumber zurückkommt.
+        const now = Date.now()
+        const last = lastProjectNumberSync.get(device.id) ?? 0
+        if (now - last < PROJECT_NUMBER_THROTTLE_MS) return
+        lastProjectNumberSync.set(device.id, now)
         console.log(`[MQTT] ${serial}: Projektnummer-Mismatch ('${actual}' → '${expected}'), sende setProjectNumber`)
         publishCommand(serial, { action: 'setProjectNumber', value: expected })
 

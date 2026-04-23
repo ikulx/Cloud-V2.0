@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC24"  # Restore: docker compose down/up statt docker stop/start
+AGENT_VERSION = "1.0.0-RC25"  # SQLite-Write mit INSERT-Fallback (verhindert PN-Loop nach Restore)
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -280,13 +280,18 @@ def _sqlite_read(var_name):
         return None
 
 def _sqlite_write(var_name, value):
-    """Schreibt einen Wert in QHMI_VARIABLES."""
+    """Schreibt einen Wert in QHMI_VARIABLES. Falls die Zeile nicht existiert
+    (z.B. nach einem frischen Restore), wird sie eingefügt."""
     try:
         import sqlite3
         with sqlite3.connect(SQLITE_DB) as conn:
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE QHMI_VARIABLES SET VAR_VALUE = ? WHERE NAME = ?", (value, var_name)
             )
+            if cur.rowcount == 0:
+                conn.execute(
+                    "INSERT INTO QHMI_VARIABLES (NAME, VAR_VALUE) VALUES (?, ?)", (var_name, value)
+                )
             conn.commit()
         return True
     except Exception as e:
