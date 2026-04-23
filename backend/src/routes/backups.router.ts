@@ -84,30 +84,33 @@ async function getDeviceWithVpn(deviceId: string) {
 }
 
 /**
- * Pollt die Pi-VPN-IP an `port` bis sich der Agent-Listener öffnet,
- * dann führt `runOnce(socket)` aus. Wirft, wenn der Listener nicht
- * rechtzeitig kommt.
+ * Versucht `attempt(signal)` so lange, bis es entweder erfolgreich ist oder
+ * `totalMs` abgelaufen sind. Zwischen Versuchen wird `PI_LISTENER_RETRY_MS`
+ * gewartet. Nur Connection-Errors (ECONNREFUSED, EHOSTUNREACH, …) werden
+ * geretried; andere Fehler bubbeln direkt hoch.
+ *
+ * Wichtig: wir machen KEINE separate „Ping"-Verbindung – der Pi-Listener ist
+ * one-shot und würde durch eine Ping-Connection seinen einen Accept verbrauchen.
+ * Stattdessen retryt jeder Versuch direkt den echten HTTP-Request.
  */
-async function waitForListener(host: string, port: number, totalMs: number): Promise<void> {
+async function retryUntilConnected<T>(
+  totalMs: number,
+  attempt: () => Promise<T>,
+): Promise<T> {
   const deadline = Date.now() + totalMs
   let lastErr: Error | null = null
   while (Date.now() < deadline) {
     try {
-      await new Promise<void>((resolve, reject) => {
-        const sock = new (require('net').Socket)()
-        sock.setTimeout(2000)
-        sock.once('connect', () => { sock.destroy(); resolve() })
-        sock.once('timeout', () => { sock.destroy(); reject(new Error('connect timeout')) })
-        sock.once('error', (e: Error) => { sock.destroy(); reject(e) })
-        sock.connect(port, host)
-      })
-      return
+      return await attempt()
     } catch (e) {
-      lastErr = e as Error
+      const err = e as NodeJS.ErrnoException
+      const transient = err.code === 'ECONNREFUSED' || err.code === 'EHOSTUNREACH' || err.code === 'ENETUNREACH' || err.code === 'ETIMEDOUT'
+      if (!transient) throw err
+      lastErr = err
       await new Promise((r) => setTimeout(r, PI_LISTENER_RETRY_MS))
     }
   }
-  throw new Error(`Pi-Listener ${host}:${port} nicht erreichbar (${lastErr?.message ?? 'timeout'})`)
+  throw new Error(`Pi-Listener nicht erreichbar (${lastErr?.message ?? 'timeout'})`)
 }
 
 // ─── GET /api/devices/:id/backups ────────────────────────────────────────────
@@ -220,11 +223,12 @@ async function runBackupPull(
   const tmpFile = path.join(os.tmpdir(), `ycbk-${backupId}.tar.gz`)
 
   try {
-    await waitForListener(piIp, port, PI_LISTENER_TIMEOUT_MS)
     await pAny.deviceBackup.update({ where: { id: backupId }, data: { status: 'UPLOADING' } })
 
+    // Wir retrien direkt mit dem echten GET, weil der one-shot-Pi-Listener
+    // nur einen Accept hat – ein separater Ping würde diesen verbrauchen.
     let received = 0n
-    await new Promise<void>((resolve, reject) => {
+    await retryUntilConnected(PI_LISTENER_TIMEOUT_MS, () => new Promise<void>((resolve, reject) => {
       const req = http.request({
         host: piIp, port, method: 'GET',
         path: `/backup?token=${encodeURIComponent(token)}`,
@@ -251,7 +255,7 @@ async function runBackupPull(
       req.on('timeout', () => { req.destroy(new Error('Pi-Transfer-Timeout')) })
       req.on('error', reject)
       req.end()
-    })
+    }))
 
     const size = statSync(tmpFile).size
     if (size === 0) throw new Error('Leerer Stream vom Pi erhalten')
@@ -409,26 +413,27 @@ async function runRestorePush(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pAny = prisma as any
   try {
-    await waitForListener(piIp, port, PI_LISTENER_TIMEOUT_MS)
-    const stream = await target.get(objectKey)
-    await new Promise<void>((resolve, reject) => {
-      const req = http.request({
-        host: piIp, port, method: 'POST',
-        path: `/restore?token=${encodeURIComponent(token)}`,
-        headers: { 'Content-Type': 'application/gzip', 'Transfer-Encoding': 'chunked' },
-        timeout: PI_TRANSFER_TIMEOUT_MS,
-      }, (response) => {
-        let body = ''
-        response.on('data', (c) => { body += c.toString() })
-        response.on('end', () => {
-          if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) resolve()
-          else reject(new Error(`Pi antwortete HTTP ${response.statusCode}: ${body.slice(0, 300)}`))
+    await retryUntilConnected(PI_LISTENER_TIMEOUT_MS, async () => {
+      const stream = await target.get(objectKey)
+      await new Promise<void>((resolve, reject) => {
+        const req = http.request({
+          host: piIp, port, method: 'POST',
+          path: `/restore?token=${encodeURIComponent(token)}`,
+          headers: { 'Content-Type': 'application/gzip', 'Transfer-Encoding': 'chunked' },
+          timeout: PI_TRANSFER_TIMEOUT_MS,
+        }, (response) => {
+          let body = ''
+          response.on('data', (c) => { body += c.toString() })
+          response.on('end', () => {
+            if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) resolve()
+            else reject(new Error(`Pi antwortete HTTP ${response.statusCode}: ${body.slice(0, 300)}`))
+          })
         })
+        req.on('timeout', () => { req.destroy(new Error('Pi-Restore-Timeout')) })
+        req.on('error', reject)
+        stream.on('error', reject)
+        stream.pipe(req)
       })
-      req.on('timeout', () => { req.destroy(new Error('Pi-Restore-Timeout')) })
-      req.on('error', reject)
-      stream.on('error', reject)
-      stream.pipe(req)
     })
     // Erfolg/Fehler bestätigt der Agent zusätzlich auf dem MQTT-resp-Topic;
     // dort wird `lastRestoreStatus` final auf OK/FAILED gesetzt.
