@@ -3,7 +3,6 @@ import {
   ListObjectsV2Command,
   GetObjectCommand,
   DeleteObjectCommand,
-  HeadBucketCommand,
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import { Readable } from 'stream'
@@ -75,7 +74,21 @@ export function createS3Target(cfg: S3Config): BackupTarget {
     },
 
     async test(): Promise<void> {
-      await client.send(new HeadBucketCommand({ Bucket: cfg.bucket }))
+      // ListObjectsV2 mit MaxKeys=1 statt HeadBucket – Swiss Backup antwortet
+      // auf HEAD nicht immer sauber, und wir bekommen bei fehlenden Rechten
+      // einen aussagekräftigeren Fehler (AccessDenied/NoSuchBucket/…) statt
+      // eines generischen UnknownError.
+      try {
+        await client.send(new ListObjectsV2Command({ Bucket: cfg.bucket, MaxKeys: 1 }))
+      } catch (e) {
+        const err = e as { name?: string; Code?: string; message?: string; $metadata?: { httpStatusCode?: number } }
+        const parts = [
+          err.name || err.Code || 'S3-Fehler',
+          err.message,
+          err.$metadata?.httpStatusCode ? `HTTP ${err.$metadata.httpStatusCode}` : '',
+        ].filter(Boolean)
+        throw new Error(parts.join(' – '))
+      }
     },
   }
 }
