@@ -13,7 +13,6 @@ import Chip from '@mui/material/Chip'
 import Tooltip from '@mui/material/Tooltip'
 import Table from '@mui/material/Table'
 import TableHead from '@mui/material/TableHead'
-import TableBody from '@mui/material/TableBody'
 import TableRow from '@mui/material/TableRow'
 import TableCell from '@mui/material/TableCell'
 import TableContainer from '@mui/material/TableContainer'
@@ -32,6 +31,37 @@ import {
 } from '../../features/piket/queries'
 import { useUsers } from '../../features/users/queries'
 import type { UserSummary } from '../../types/model'
+
+// Einmalig injizierte CSS-Regeln für die Planer-Tabelle. Deutlich schneller
+// als MUI sx-Props auf ~2'000 Zellen, weil keine Emotion-Klassen pro Zelle
+// erzeugt werden.
+const PLANNER_CSS = `
+.pp-row { transition: background-color 80ms linear; }
+.pp-row > td { padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 13px; white-space: nowrap; }
+.pp-past { opacity: 0.45; }
+.pp-weekend > td { background-color: rgba(255,255,255,0.06); }
+.pp-today  > td { background-color: #05B1A4; color: #fff; }
+.pp-today .pp-date, .pp-today .pp-kw { color: #fff; font-weight: 600; }
+.pp-date { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+           position: sticky; left: 0; z-index: 1; background: inherit; }
+.pp-kw   { font-size: 12px; color: rgba(255,255,255,0.65); }
+.pp-cell { cursor: pointer; user-select: none; }
+.pp-cell-past { cursor: not-allowed; }
+.pp-cell:hover:not(.pp-cell-past) { background-color: rgba(255,255,255,0.08); }
+.pp-selected { background-color: #6d1b7b !important; color: #fff !important;
+               border-left: 2px solid #ab47bc; }
+.pp-selected:hover { background-color: #8e24aa !important; }
+.pp-empty { opacity: 0.4; }
+`
+let _pp_css_injected = false
+function injectPlannerCss() {
+  if (_pp_css_injected || typeof document === 'undefined') return
+  const el = document.createElement('style')
+  el.setAttribute('data-piket-planner', '1')
+  el.textContent = PLANNER_CSS
+  document.head.appendChild(el)
+  _pp_css_injected = true
+}
 
 /** ISO-Wochennummer (Mo = erster Tag, KW1 enthält 4. Januar). */
 function isoWeek(d: Date): number {
@@ -174,11 +204,14 @@ async function exportYearToExcel(
 }
 
 export function ShiftsPlanner() {
+  injectPlannerCss()
   const { data: regions = [] } = usePiketRegions()
   const { data: users = [] } = useUsers()
 
   const currentYear = new Date().getFullYear()
-  const years = [currentYear - 1, currentYear, currentYear + 1]
+  // Stabile Referenz – sonst wird toggle useCallback bei jedem Render neu
+  // erzeugt und reißt alle memoisierten Cell-Props mit.
+  const years = useMemo(() => [currentYear - 1, currentYear, currentYear + 1], [currentYear])
 
   // Alle Shifts in einem Rutsch laden (3 Jahre = max ~1100 Tage × Regionen).
   const from = `${currentYear - 1}-01-01`
@@ -410,8 +443,9 @@ function YearTable({
     for (const u of users) m.set(u.id, u)
     return m
   }, [users])
-  // Letztes Jahr standardmässig eingeklappt – wird selten gebraucht.
-  const [open, setOpen] = useState(yearIdx !== 0)
+  // Nur das aktuelle Jahr ist initial offen – die anderen werden bei Bedarf
+  // aufgeklappt. Spart ~350 Tage × N Zellen Rendering beim Öffnen.
+  const [open, setOpen] = useState(yearIdx === 1)
   // Auto-Scroll zur heutigen Zeile, wenn das aktuelle Jahr geöffnet wird.
   // Direktes scrollTop auf den TableContainer, damit die Collapse-Animation
   // nicht im Weg ist.
@@ -474,32 +508,30 @@ function YearTable({
               ))}
             </TableRow>
           </TableHead>
-          <TableBody>
+          {/* Body bewusst native <tbody>/<tr>/<td>: MUI's sx-Prop erzeugt pro
+              Zelle eine Emotion-Klasse – bei ~2'000 Zellen kostet das spürbar.
+              Statische CSS-Klassen (siehe <style> unten) sind ~10x schneller. */}
+          <tbody>
             {days.map((d) => {
               const dk = dayKey(d)
               const kw = isoWeek(d)
               const past = isPast(d)
               const weekend = d.getDay() === 0 || d.getDay() === 6
               const isToday = dk === todayKey
+              const rowCls = [
+                'pp-row',
+                past ? 'pp-past' : '',
+                weekend && !isToday ? 'pp-weekend' : '',
+                isToday ? 'pp-today' : '',
+              ].filter(Boolean).join(' ')
               return (
-                <TableRow
+                <tr
                   key={dk}
                   ref={isToday ? todayRowRef : undefined}
-                  sx={{
-                    bgcolor: isToday ? 'primary.dark' : weekend ? 'action.hover' : undefined,
-                    opacity: past ? 0.45 : 1,
-                  }}
+                  className={rowCls}
                 >
-                  <TableCell sx={{
-                    position: 'sticky', left: 0, zIndex: 1,
-                    bgcolor: isToday ? 'primary.dark' : weekend ? 'action.hover' : 'background.paper',
-                    color: isToday ? '#fff' : undefined,
-                    fontFamily: 'monospace', fontSize: 12,
-                    fontWeight: isToday ? 600 : undefined,
-                  }}>
-                    {fmtDate(d)}
-                  </TableCell>
-                  <TableCell sx={{ fontSize: 12, color: isToday ? '#fff' : 'text.secondary' }}>{kw}</TableCell>
+                  <td className="pp-date">{fmtDate(d)}</td>
+                  <td className="pp-kw">{kw}</td>
                   {regions.map((r) => {
                     const key = `${r.id}|${dk}`
                     const s = shiftIndex.get(key)
@@ -518,10 +550,10 @@ function YearTable({
                       />
                     )
                   })}
-                </TableRow>
+                </tr>
               )
             })}
-          </TableBody>
+          </tbody>
         </Table>
       </TableContainer>
       </Collapse>
@@ -543,25 +575,16 @@ interface CellProps {
   onClick: (regionId: string, dateKey: string, yearIdx: number, shiftKey: boolean) => void
 }
 const Cell = memo(function Cell({ regionId, dateKey, yearIdx, isSelected, isPast, label, onClick }: CellProps) {
+  const cls = ['pp-cell', isSelected ? 'pp-selected' : '', isPast ? 'pp-cell-past' : ''].filter(Boolean).join(' ')
   return (
-    <TableCell
+    <td
+      className={cls}
       onClick={(e) => {
         if (isPast) return
         onClick(regionId, dateKey, yearIdx, e.shiftKey)
       }}
-      sx={{
-        cursor: isPast ? 'not-allowed' : 'pointer',
-        userSelect: 'none',
-        bgcolor: isSelected ? 'primary.dark' : undefined,
-        color: isSelected ? '#fff' : undefined,
-        fontSize: 13,
-        whiteSpace: 'nowrap',
-        borderLeft: isSelected ? '2px solid' : undefined,
-        borderLeftColor: isSelected ? 'primary.main' : undefined,
-        '&:hover': isPast ? undefined : { bgcolor: isSelected ? 'primary.main' : 'action.selected' },
-      }}
     >
-      {label || <span style={{ opacity: 0.4 }}>—</span>}
-    </TableCell>
+      {label || <span className="pp-empty">—</span>}
+    </td>
   )
 })
