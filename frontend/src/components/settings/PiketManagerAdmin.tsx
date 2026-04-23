@@ -25,7 +25,6 @@ import TableCell from '@mui/material/TableCell'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
 import Alert from '@mui/material/Alert'
-import Tooltip from '@mui/material/Tooltip'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
 import EditIcon from '@mui/icons-material/Edit'
@@ -33,14 +32,14 @@ import GroupIcon from '@mui/icons-material/Group'
 import MapIcon from '@mui/icons-material/Map'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import HistoryIcon from '@mui/icons-material/History'
-import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
   usePiketRegions, useCreatePiketRegion, useUpdatePiketRegion, useDeletePiketRegion,
-  usePiketShifts, useUpsertPiketShift, useDeletePiketShift,
+  usePiketShifts,
   usePiketLog,
   type PiketRegion,
 } from '../../features/piket/queries'
 import { useUsers } from '../../features/users/queries'
+import { ShiftsPlanner } from '../piket/ShiftsPlanner'
 
 export function PiketManagerAdmin() {
   const [open, setOpen] = useState(false)
@@ -103,7 +102,7 @@ function PiketTabs() {
       </Tabs>
       <Box sx={{ p: 2 }}>
         {tab === 0 && <RegionsPanel />}
-        {tab === 1 && <ShiftsPanel />}
+        {tab === 1 && <ShiftsPlanner />}
         {tab === 2 && <LogPanel />}
       </Box>
     </>
@@ -313,133 +312,9 @@ function RegionDialog({
   )
 }
 
-// ── Schichten-Panel ────────────────────────────────────────────────────────
+// ── Schichten-Panel (nutzt den neuen Planner) ─────────────────────────────
 export function ShiftsPanel() {
-  const { data: regions = [] } = usePiketRegions()
-  const { data: users = [] } = useUsers()
-  const [from, setFrom] = useState(() => new Date().toISOString().slice(0, 10))
-  const [to,   setTo]   = useState(() => new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10))
-  const [regionId, setRegionId] = useState('')
-  const { data: shifts = [] } = usePiketShifts({ from, to, regionId: regionId || undefined }, regions.length > 0)
-  const upsert = useUpsertPiketShift()
-  const del = useDeletePiketShift()
-
-  const [newDate, setNewDate] = useState('')
-  const [newRegion, setNewRegion] = useState('')
-  const [newUser, setNewUser] = useState('')
-  const [error, setError] = useState<string | null>(null)
-
-  const add = async () => {
-    setError(null)
-    if (!newDate || !newRegion || !newUser) return
-    try {
-      await upsert.mutateAsync({ regionId: newRegion, userId: newUser, date: newDate })
-      setNewDate(''); setNewUser('')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Fehler beim Speichern')
-    }
-  }
-
-  return (
-    <Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Pro Bereich und Tag kann genau ein Techniker eingetragen werden.
-        Techniker <strong>ohne Mobilnummer</strong> sind grau und können nicht
-        zugewiesen werden – zuerst in der Benutzerverwaltung die Nummer eintragen.
-      </Typography>
-
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
-
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }} alignItems={{ md: 'flex-end' }}>
-        <TextField size="small" type="date" label="Datum" InputLabelProps={{ shrink: true }} value={newDate} onChange={(e) => setNewDate(e.target.value)} sx={{ width: 160 }} />
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Bereich</InputLabel>
-          <Select label="Bereich" value={newRegion} onChange={(e) => setNewRegion(e.target.value as string)}>
-            {regions.map((r) => (<MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>))}
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 260 }}>
-          <InputLabel>Techniker</InputLabel>
-          <Select label="Techniker" value={newUser} onChange={(e) => setNewUser(e.target.value as string)}
-            renderValue={(id) => {
-              const u = users.find((x) => x.id === id)
-              return u ? `${u.firstName} ${u.lastName}` : ''
-            }}
-          >
-            {users.map((u) => {
-              const hasPhone = !!u.phone && u.phone.trim().length > 0
-              return (
-                <MenuItem key={u.id} value={u.id} disabled={!hasPhone}>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1 }}>
-                    <span>{u.firstName} {u.lastName}</span>
-                    {hasPhone
-                      ? <Chip size="small" variant="outlined" label={u.phone} sx={{ ml: 'auto' }} />
-                      : (
-                        <Tooltip title="Keine Mobilnummer hinterlegt – in Benutzerverwaltung eintragen">
-                          <Chip size="small" color="warning" icon={<WarningAmberIcon />} label="keine Nummer" sx={{ ml: 'auto' }} />
-                        </Tooltip>
-                      )}
-                  </Stack>
-                </MenuItem>
-              )
-            })}
-          </Select>
-        </FormControl>
-        <Button size="small" variant="contained" startIcon={<AddIcon />}
-          disabled={!newDate || !newRegion || !newUser || upsert.isPending}
-          onClick={() => void add()}>
-          Schicht anlegen
-        </Button>
-      </Stack>
-
-      <Divider sx={{ my: 2 }}>Geplant</Divider>
-
-      <Stack direction="row" gap={1} sx={{ mb: 2 }}>
-        <TextField size="small" type="date" label="von" InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} sx={{ width: 150 }} />
-        <TextField size="small" type="date" label="bis" InputLabelProps={{ shrink: true }} value={to}   onChange={(e) => setTo(e.target.value)}   sx={{ width: 150 }} />
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Bereich</InputLabel>
-          <Select label="Bereich" value={regionId} onChange={(e) => setRegionId(e.target.value as string)}>
-            <MenuItem value=""><em>alle</em></MenuItem>
-            {regions.map((r) => (<MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>))}
-          </Select>
-        </FormControl>
-      </Stack>
-
-      {shifts.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">Keine Schichten im Zeitraum.</Typography>
-      ) : (
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ width: 160 }}>Datum</TableCell>
-              <TableCell>Bereich</TableCell>
-              <TableCell>Techniker</TableCell>
-              <TableCell sx={{ width: 60 }} />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {shifts.map((s) => {
-              const d = new Date(s.date)
-              const fmt = d.toLocaleDateString('de-CH', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
-              return (
-                <TableRow key={s.id} hover>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 13 }}>{fmt}</TableCell>
-                  <TableCell>{s.region.name}</TableCell>
-                  <TableCell>{s.user.firstName} {s.user.lastName}</TableCell>
-                  <TableCell align="right">
-                    <IconButton size="small" onClick={() => { if (window.confirm('Schicht löschen?')) void del.mutate(s.id) }}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
-          </TableBody>
-        </Table>
-      )}
-    </Box>
-  )
+  return <ShiftsPlanner />
 }
 
 // ── Log-Panel ──────────────────────────────────────────────────────────────

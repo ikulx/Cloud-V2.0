@@ -9,6 +9,7 @@ import { initMqttService } from './services/mqtt.service'
 import { startOfflineMonitor } from './services/offline-monitor.service'
 import { startAlarmDeliveryWorker } from './services/alarm-delivery-worker.service'
 import { ensureSystemTemplateRecipientsForAllAnlagen } from './services/internal-alarm-templates.service'
+import { startPiketShiftsCleanup } from './services/piket-shifts-cleanup.service'
 import { startActivityLogCleanupScheduler } from './services/activity-log-cleanup.service'
 import { env } from './config/env'
 import { prisma } from './db/prisma'
@@ -169,6 +170,7 @@ async function main() {
     ensureSystemTemplateRecipientsForAllAnlagen().catch((err) => {
       console.error('[Startup] ensureSystemTemplateRecipientsForAllAnlagen failed:', err)
     })
+    startPiketShiftsCleanup()
   })
 
   process.on('SIGTERM', async () => {

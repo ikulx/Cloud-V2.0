@@ -149,6 +149,59 @@ router.post('/shifts', authenticate, requirePermission(PERM_PLANNING), async (re
   res.status(201).json(saved)
 })
 
+// POST /api/piket/shifts/bulk – mehrere Schichten auf einmal zuweisen/löschen
+const bulkShiftSchema = z.object({
+  // userId null → Schicht löschen; sonst upsert.
+  userId: z.string().uuid().nullable(),
+  assignments: z.array(z.object({
+    regionId: z.string().uuid(),
+    date:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  })).min(1).max(1000),
+})
+router.post('/shifts/bulk', authenticate, requirePermission(PERM_PLANNING), async (req, res) => {
+  const parsed = bulkShiftSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
+  const { userId, assignments } = parsed.data
+
+  if (userId) {
+    const user = await p.user.findUnique({ where: { id: userId }, select: { phone: true, firstName: true, lastName: true } })
+    if (!user) { res.status(404).json({ message: 'Techniker nicht gefunden' }); return }
+    if (!user.phone || !/^\+[1-9]\d{7,14}$/.test(user.phone.trim())) {
+      res.status(400).json({
+        message: `${user.firstName} ${user.lastName} hat keine gültige E.164-Mobilnummer – bitte zuerst in der Benutzerverwaltung eintragen.`,
+        code: 'invalid_phone',
+      })
+      return
+    }
+  }
+
+  // Vergangene Tage dürfen nicht mehr bearbeitet werden.
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const results: Array<{ regionId: string; date: string; action: 'upsert' | 'delete' | 'skipped_past' }> = []
+
+  for (const a of assignments) {
+    const dt = new Date(a.date + 'T00:00:00.000Z')
+    const localDay = new Date(a.date)
+    if (localDay < today) {
+      results.push({ ...a, action: 'skipped_past' })
+      continue
+    }
+    if (userId) {
+      await p.piketShift.upsert({
+        where: { regionId_date: { regionId: a.regionId, date: dt } },
+        update: { userId },
+        create: { regionId: a.regionId, userId, date: dt },
+      })
+      results.push({ ...a, action: 'upsert' })
+    } else {
+      await p.piketShift.deleteMany({ where: { regionId: a.regionId, date: dt } })
+      results.push({ ...a, action: 'delete' })
+    }
+  }
+  res.json({ results })
+})
+
 router.delete('/shifts/:id', authenticate, requirePermission(PERM_PLANNING), async (req, res) => {
   try { await p.piketShift.delete({ where: { id: req.params.id as string } }); res.status(204).send() }
   catch { res.status(404).json({ message: 'Schicht nicht gefunden' }) }

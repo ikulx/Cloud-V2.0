@@ -131,6 +131,19 @@ export function useDeletePiketShift() {
   })
 }
 
+export interface PiketShiftBulkAssignment { regionId: string; date: string }
+export interface PiketShiftBulkResult {
+  results: Array<PiketShiftBulkAssignment & { action: 'upsert' | 'delete' | 'skipped_past' }>
+}
+export function useBulkPiketShifts() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { userId: string | null; assignments: PiketShiftBulkAssignment[] }) =>
+      apiPost<PiketShiftBulkResult>('/piket/shifts/bulk', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['piket', 'shifts'] }),
+  })
+}
+
 // ── Aktive Alarme + Ack ──
 export function usePiketAlarms(mine = false, enabled = true) {
   return useQuery({
