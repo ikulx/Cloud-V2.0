@@ -72,7 +72,7 @@ function StatusChip({ status }: { status: AnlageStatus }) {
   const { t } = useTranslation()
   const map = {
     OK:         { icon: <CheckCircleIcon fontSize="small" />,    color: '#2e7d32', label: t('anlagenList.statusOK') },
-    ERROR:      { icon: <WarningIcon fontSize="small" />,        color: '#c62828', label: t('anlagenList.statusError') },
+    ERROR:      { icon: <WarningIcon fontSize="small" />,        color: '#ed6c02', label: t('anlagenList.statusError') },
     OFFLINE:    { icon: <ErrorIcon fontSize="small" />,          color: '#d32f2f', label: t('anlagenList.statusOffline') },
     SUPPRESSED: { icon: <NotificationsOffIcon fontSize="small" />, color: '#0288d1', label: t('anlagenList.statusSuppressed') },
     EMPTY:      { icon: <Box sx={{ width: 18, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'text.disabled' }}>—</Box>, color: 'text.disabled', label: t('anlagenList.statusEmpty') ?? '—' },
@@ -85,19 +85,6 @@ function StatusChip({ status }: { status: AnlageStatus }) {
   )
 }
 
-/** Eigener Todo-Indikator (Icon + Anzahl), nur wenn > 0. */
-function TodoIndicator({ count }: { count: number }) {
-  const { t } = useTranslation()
-  if (count <= 0) return null
-  return (
-    <Tooltip title={t('anlagenList.statusTodo') + ` (${count})`}>
-      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, color: '#ed6c02' }}>
-        <AssignmentLateIcon fontSize="small" />
-        <Typography component="span" variant="caption" sx={{ fontWeight: 600, lineHeight: 1 }}>{count}</Typography>
-      </Box>
-    </Tooltip>
-  )
-}
 
 type SortKey = 'name' | 'projectNumber' | 'city' | 'updatedAt'
 
@@ -119,7 +106,8 @@ interface ColumnDef {
 }
 
 const COLUMNS: ColumnDef[] = [
-  { key: 'status',         label: 'Status',               defaultOn: true,  width: 140 },
+  { key: 'status',         label: 'Status',               defaultOn: true,  width: 60 },
+  { key: 'openTodos',      label: 'Offene Todos',         defaultOn: true,  width: 90 },
   { key: 'projectNumber',  label: 'Projekt-Nr.',          defaultOn: true },
   { key: 'name',           label: 'Name',                 defaultOn: true, alwaysOn: true },
   { key: 'city',           label: 'Ort',                  defaultOn: true },
@@ -132,11 +120,12 @@ const COLUMNS: ColumnDef[] = [
   { key: 'deviceCount',    label: 'Geräte',               defaultOn: false },
   { key: 'assignedUsers',  label: 'Benutzer-Zuweisungen', defaultOn: false },
   { key: 'assignedGroups', label: 'Gruppen-Zuweisungen',  defaultOn: false },
-  { key: 'openTodos',      label: 'Offene Todos',         defaultOn: false },
   { key: 'updatedAt',      label: 'Aktualisiert',         defaultOn: false },
 ]
 
-const COLUMNS_STORAGE_KEY = 'anlagen.columns'
+// v2: openTodos ist jetzt eine eigene Default-Spalte. Storage-Key bumpen,
+// damit bestehende Benutzer den neuen Default sehen.
+const COLUMNS_STORAGE_KEY = 'anlagen.columns.v2'
 function loadColumnsFromStorage(): Set<ColumnKey> {
   try {
     const raw = localStorage.getItem(COLUMNS_STORAGE_KEY)
@@ -625,12 +614,7 @@ export function AnlagenPage() {
                     >
                       {orderedColumns.map((col) => (
                         <TableCell key={col.key}>
-                          {col.key === 'status' && (
-                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                              <StatusChip status={status} />
-                              <TodoIndicator count={openTodos} />
-                            </Box>
-                          )}
+                          {col.key === 'status' && <StatusChip status={status} />}
                           {col.key === 'projectNumber' && (anlage.projectNumber ?? '—')}
                           {col.key === 'name' && anlage.name}
                           {col.key === 'city' && (anlage.city ?? '—')}
@@ -673,8 +657,15 @@ export function AnlagenPage() {
                           )}
                           {col.key === 'openTodos' && (
                             openTodos > 0
-                              ? <Chip size="small" color="warning" label={openTodos} />
-                              : '—'
+                              ? (
+                                <Tooltip title={t('anlagenList.statusTodo') + ` (${openTodos})`}>
+                                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, color: '#ed6c02' }}>
+                                    <AssignmentLateIcon fontSize="small" />
+                                    <Typography component="span" variant="caption" sx={{ fontWeight: 600, lineHeight: 1 }}>{openTodos}</Typography>
+                                  </Box>
+                                </Tooltip>
+                              )
+                              : <Box sx={{ color: 'text.disabled' }}>—</Box>
                           )}
                           {col.key === 'updatedAt' && new Date(anlage.updatedAt).toLocaleDateString('de-CH')}
                         </TableCell>
