@@ -288,6 +288,9 @@ export function useAlarmEvents(filters: {
   if (filters.priority) params.set('priority', filters.priority)
   if (filters.limit) params.set('limit', String(filters.limit))
   const qs = params.toString()
+  // Aktive Alarme alle 10 s neu holen, damit Cleared-Events ohne Reload
+  // sichtbar werden. Verlauf (status=ALL/CLEARED) etwas seltener.
+  const refetchInterval = (filters.status === undefined || filters.status === 'ACTIVE') ? 10_000 : 30_000
   return useQuery({
     queryKey: alarmKeys.events({
       anlageId: filters.anlageId,
@@ -297,6 +300,8 @@ export function useAlarmEvents(filters: {
       limit: filters.limit ? String(filters.limit) : undefined,
     }),
     queryFn: () => apiGet<AlarmEvent[]>(`/alarms/events${qs ? '?' + qs : ''}`),
+    refetchInterval,
+    refetchOnWindowFocus: true,
   })
 }
 
