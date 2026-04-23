@@ -6,6 +6,7 @@ import Button from '@mui/material/Button'
 import FormControl from '@mui/material/FormControl'
 import InputLabel from '@mui/material/InputLabel'
 import Select from '@mui/material/Select'
+import Checkbox from '@mui/material/Checkbox'
 import MenuItem from '@mui/material/MenuItem'
 import Alert from '@mui/material/Alert'
 import Chip from '@mui/material/Chip'
@@ -159,7 +160,17 @@ async function exportYearToExcel(
   }
 
   const buf = await wb.xlsx.writeBuffer()
-  saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `piket-schicht-${year}.xlsx`)
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mm = String(now.getMinutes()).padStart(2, '0')
+  const stamp = `${y}-${m}-${d}_${hh}${mm}`
+  saveAs(
+    new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    `piket-schicht-${year}_${stamp}.xlsx`,
+  )
 }
 
 export function ShiftsPlanner() {
@@ -216,6 +227,19 @@ export function ShiftsPlanner() {
 
   const clearSelection = useCallback(() => setSelected(new Set()), [])
 
+  // Regions-Filter: welche Bereiche werden in den Tabellen angezeigt.
+  // Initial alle – wird gesetzt, sobald regions geladen sind.
+  const [visibleRegionIds, setVisibleRegionIds] = useState<string[]>([])
+  useEffect(() => {
+    if (regions.length > 0 && visibleRegionIds.length === 0) {
+      setVisibleRegionIds(regions.map((r) => r.id))
+    }
+  }, [regions, visibleRegionIds.length])
+  const filteredRegions = useMemo(
+    () => regions.filter((r) => visibleRegionIds.includes(r.id)),
+    [regions, visibleRegionIds],
+  )
+
   const bulk = useBulkPiketShifts()
   const [targetUserId, setTargetUserId] = useState<string>('')
   const [err, setErr] = useState<string | null>(null)
@@ -246,7 +270,8 @@ export function ShiftsPlanner() {
       year={years[yearIdx]}
       label={yearIdx === 0 ? 'Letztes Jahr' : yearIdx === 1 ? 'Dieses Jahr' : 'Nächstes Jahr'}
       yearIdx={yearIdx}
-      regions={regions}
+      regions={filteredRegions}
+      allRegions={regions}
       shiftIndex={shiftIndex}
       users={users}
       selected={selected}
@@ -267,6 +292,32 @@ export function ShiftsPlanner() {
             <strong>{selected.size}</strong> Zelle{selected.size === 1 ? '' : 'n'} ausgewählt.
             Klick zum Umschalten, Shift-Klick für Bereiche in derselben Spalte.
           </Typography>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel>Bereiche anzeigen</InputLabel>
+            <Select
+              multiple
+              label="Bereiche anzeigen"
+              value={visibleRegionIds}
+              onChange={(e) => {
+                const v = e.target.value
+                setVisibleRegionIds(typeof v === 'string' ? v.split(',') : v)
+              }}
+              renderValue={(ids) => {
+                const arr = ids as string[]
+                if (arr.length === regions.length) return 'Alle Bereiche'
+                if (arr.length === 0) return <em>Keine</em>
+                if (arr.length <= 2) return regions.filter((r) => arr.includes(r.id)).map((r) => r.name).join(', ')
+                return `${arr.length} von ${regions.length}`
+              }}
+            >
+              {regions.map((r) => (
+                <MenuItem key={r.id} value={r.id}>
+                  <Checkbox checked={visibleRegionIds.includes(r.id)} size="small" />
+                  {r.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <FormControl size="small" sx={{ minWidth: 240 }}>
             <InputLabel>Techniker zuweisen</InputLabel>
             <Select
@@ -338,12 +389,16 @@ function isPast(d: Date): boolean {
 }
 
 function YearTable({
-  year, label, yearIdx, regions, shiftIndex, users, selected, onToggle,
+  year, label, yearIdx, regions, allRegions, shiftIndex, users, selected, onToggle,
 }: {
   year: number
   label: string
   yearIdx: number
+  /** Aktuell angezeigte (gefilterte) Regionen – nur diese erscheinen in der Tabelle. */
   regions: PiketRegion[]
+  /** Alle Regionen – wird für den Excel-Export verwendet, damit der Export
+   *  immer vollständig ist, unabhängig vom UI-Filter. */
+  allRegions: PiketRegion[]
   shiftIndex: Map<string, PiketShift>
   users: UserSummary[]
   selected: Set<string>
@@ -401,15 +456,15 @@ function YearTable({
           startIcon={<DownloadIcon fontSize="small" />}
           onClick={(e) => {
             e.stopPropagation()
-            void exportYearToExcel(year, days, regions, shiftIndex, userMap)
+            void exportYearToExcel(year, days, allRegions, shiftIndex, userMap)
           }}
         >
           Excel
         </Button>
       </Box>
       <Collapse in={open} unmountOnExit>
-      <TableContainer sx={{ maxHeight: 560 }}>
-        <Table size="small" stickyHeader>
+      <TableContainer sx={{ maxHeight: 560, overflowX: 'auto' }}>
+        <Table size="small" stickyHeader sx={{ minWidth: 170 + regions.length * 180 }}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: 120, position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 2 }}>Datum</TableCell>
