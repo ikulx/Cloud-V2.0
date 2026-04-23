@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
@@ -185,8 +185,26 @@ export function ShiftsPlanner() {
     return <Alert severity="info">Zuerst mindestens einen Bereich anlegen, dann kann die Schichtplanung genutzt werden.</Alert>
   }
 
+  const renderYear = (yearIdx: number) => (
+    <YearTable
+      key={years[yearIdx]}
+      year={years[yearIdx]}
+      label={yearIdx === 0 ? 'Letztes Jahr' : yearIdx === 1 ? 'Dieses Jahr' : 'Nächstes Jahr'}
+      yearIdx={yearIdx}
+      regions={regions}
+      shiftIndex={shiftIndex}
+      users={users}
+      selected={selected}
+      onToggle={toggle}
+    />
+  )
+
   return (
     <Box>
+      {/* Letztes Jahr ZUERST (eingeklappt, selten gebraucht) – über der
+          sticky Aktionsleiste, damit sie beim Scrollen nicht stört. */}
+      {!isLoading && renderYear(0)}
+
       {/* ── Aktionsleiste ─────────────────────────────────────── */}
       <Paper sx={{ p: 2, mb: 2, position: 'sticky', top: 0, zIndex: 10 }} elevation={1}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
@@ -249,19 +267,10 @@ export function ShiftsPlanner() {
       {isLoading ? (
         <Typography variant="body2" color="text.secondary">Lädt …</Typography>
       ) : (
-        years.map((year, yearIdx) => (
-          <YearTable
-            key={year}
-            year={year}
-            label={yearIdx === 0 ? 'Letztes Jahr' : yearIdx === 1 ? 'Dieses Jahr' : 'Nächstes Jahr'}
-            yearIdx={yearIdx}
-            regions={regions}
-            shiftIndex={shiftIndex}
-            users={users}
-            selected={selected}
-            onToggle={toggle}
-          />
-        ))
+        <>
+          {renderYear(1)}
+          {renderYear(2)}
+        </>
       )}
     </Box>
   )
@@ -293,6 +302,25 @@ function YearTable({
   }, [users])
   // Letztes Jahr standardmässig eingeklappt – wird selten gebraucht.
   const [open, setOpen] = useState(yearIdx !== 0)
+  // Auto-Scroll zur heutigen Zeile, wenn das aktuelle Jahr geöffnet wird.
+  // Direktes scrollTop auf den TableContainer, damit die Collapse-Animation
+  // nicht im Weg ist.
+  const todayKey = useMemo(() => dayKey(new Date()), [])
+  const todayRowRef = useRef<HTMLTableRowElement | null>(null)
+  useEffect(() => {
+    if (yearIdx !== 1 || !open) return
+    const t = setTimeout(() => {
+      const row = todayRowRef.current
+      if (!row) return
+      const container = row.closest('.MuiTableContainer-root') as HTMLDivElement | null
+      if (!container) { row.scrollIntoView({ block: 'center', behavior: 'auto' }); return }
+      const rowRect = row.getBoundingClientRect()
+      const cRect   = container.getBoundingClientRect()
+      const offset  = rowRect.top - cRect.top + container.scrollTop - container.clientHeight / 2 + row.clientHeight / 2
+      container.scrollTop = Math.max(0, offset)
+    }, 500)
+    return () => clearTimeout(t)
+  }, [yearIdx, open])
 
   return (
     <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', mb: 3 }}>
@@ -342,15 +370,22 @@ function YearTable({
               const kw = isoWeek(d)
               const past = isPast(d)
               const weekend = d.getDay() === 0 || d.getDay() === 6
+              const isToday = dk === todayKey
               return (
-                <TableRow key={dk} sx={{
-                  bgcolor: weekend ? 'action.hover' : undefined,
-                  opacity: past ? 0.45 : 1,
-                }}>
+                <TableRow
+                  key={dk}
+                  ref={isToday ? todayRowRef : undefined}
+                  sx={{
+                    bgcolor: isToday ? 'primary.dark' : weekend ? 'action.hover' : undefined,
+                    opacity: past ? 0.45 : 1,
+                  }}
+                >
                   <TableCell sx={{
                     position: 'sticky', left: 0, zIndex: 1,
-                    bgcolor: weekend ? 'action.hover' : 'background.paper',
+                    bgcolor: isToday ? 'primary.dark' : weekend ? 'action.hover' : 'background.paper',
+                    color: isToday ? 'primary.contrastText' : undefined,
                     fontFamily: 'monospace', fontSize: 12,
+                    fontWeight: isToday ? 600 : undefined,
                   }}>
                     {fmtDate(d)}
                   </TableCell>
