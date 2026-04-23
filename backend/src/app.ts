@@ -32,8 +32,6 @@ export function createApp() {
   // (Socket.IO Polling POST braucht den rohen Body-Stream für req.pipe())
   app.use((req, res, next) => {
     if (req.path.match(/\/api\/vpn\/devices\/[^/]+\/(visu|lan)\//)) return next()
-    // Backup-Upload/Download: roher tar.gz-Stream, KEIN JSON-Parsing.
-    if (req.path.match(/\/api\/devices\/[^/]+\/backup-stream\/(upload|download)$/)) return next()
     express.json()(req, res, next)
   })
 
