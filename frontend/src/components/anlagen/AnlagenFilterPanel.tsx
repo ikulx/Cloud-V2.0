@@ -74,6 +74,15 @@ export function useAnlagenFacets(
     const group = new Map<string, number>()
     const typeToCategory = new Map<string, string | null>()
     for (const cat of categories) for (const t of cat.types) typeToCategory.set(t.id, cat.id)
+    // Lookup für Parent-Chain
+    const catById = new Map<string, ErzeugerCategoryWithTypes>()
+    for (const c of categories) catById.set(c.id, c)
+    const ancestorsOf = (catId: string): string[] => {
+      const out: string[] = []
+      let cur: string | null | undefined = catId
+      while (cur) { out.push(cur); cur = catById.get(cur)?.parentId ?? null }
+      return out
+    }
 
     for (const a of anlagen) {
       status.set(statusOf(a), (status.get(statusOf(a)) ?? 0) + 1)
@@ -82,9 +91,15 @@ export function useAnlagenFacets(
       for (const e of a.erzeuger ?? []) {
         type.set(e.typeId, (type.get(e.typeId) ?? 0) + 1)
         const c = typeToCategory.get(e.typeId)
-        if (c && !seenCats.has(c)) {
-          category.set(c, (category.get(c) ?? 0) + 1)
-          seenCats.add(c)
+        if (c) {
+          // Anlage zählt für jede Ancestor-Kategorie 1× (auch Unterordner sind
+          // selbst Treffer, ihre Eltern bekommen ebenfalls einen Treffer).
+          for (const anc of ancestorsOf(c)) {
+            if (!seenCats.has(anc)) {
+              category.set(anc, (category.get(anc) ?? 0) + 1)
+              seenCats.add(anc)
+            }
+          }
         }
       }
       for (const du of a.directUsers ?? []) {
@@ -126,6 +141,30 @@ export function AnlagenFilterPanel({ value, onChange, counts, categories, allUse
     return categories
       .filter((c) => c.parentId === null && c.isActive)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+  }, [categories])
+
+  // Flache, vor-sortierte Liste aller aktiven Kategorien inkl. Tiefe (DFS).
+  const categoryTree = useMemo(() => {
+    const byParent = new Map<string | null, ErzeugerCategoryWithTypes[]>()
+    for (const c of categories) {
+      if (!c.isActive) continue
+      const k = c.parentId ?? null
+      const arr = byParent.get(k) ?? []
+      arr.push(c)
+      byParent.set(k, arr)
+    }
+    for (const arr of byParent.values()) {
+      arr.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    }
+    const out: { cat: ErzeugerCategoryWithTypes; depth: number }[] = []
+    const visit = (parentId: string | null, depth: number) => {
+      for (const c of byParent.get(parentId) ?? []) {
+        out.push({ cat: c, depth })
+        visit(c.id, depth + 1)
+      }
+    }
+    visit(null, 0)
+    return out
   }, [categories])
 
   const allTypesForCategory = (rootId: string): string[] => {
@@ -177,16 +216,19 @@ export function AnlagenFilterPanel({ value, onChange, counts, categories, allUse
       </FacetSection>
 
       <FacetSection label="Erzeuger-Kategorie" count={value.categoryIds.size}>
-        {topCategories.length === 0 && <Typography variant="caption" color="text.secondary">Keine Kategorien</Typography>}
-        {topCategories.map((cat) => (
-          <FilterCheckbox
-            key={cat.id}
-            checked={value.categoryIds.has(cat.id)}
-            label={cat.name}
-            count={counts.category.get(cat.id) ?? 0}
-            onToggle={() => onChange({ ...value, categoryIds: toggleIn(value.categoryIds, cat.id) })}
-          />
-        ))}
+        {categoryTree.length === 0 && <Typography variant="caption" color="text.secondary">Keine Kategorien</Typography>}
+        {categoryTree
+          .filter(({ cat }) => (counts.category.get(cat.id) ?? 0) > 0 || value.categoryIds.has(cat.id))
+          .map(({ cat, depth }) => (
+            <FilterCheckbox
+              key={cat.id}
+              checked={value.categoryIds.has(cat.id)}
+              label={cat.name}
+              count={counts.category.get(cat.id) ?? 0}
+              indent={depth}
+              onToggle={() => onChange({ ...value, categoryIds: toggleIn(value.categoryIds, cat.id) })}
+            />
+          ))}
       </FacetSection>
 
       <FacetSection label="Erzeuger-Typ" count={value.typeIds.size}>
@@ -335,12 +377,13 @@ function FacetSection({
 }
 
 function FilterCheckbox({
-  checked, label, count, onToggle,
+  checked, label, count, onToggle, indent = 0,
 }: {
   checked: boolean
   label: string
   count?: number
   onToggle: () => void
+  indent?: number
 }) {
   return (
     <FormControlLabel
@@ -353,7 +396,7 @@ function FilterCheckbox({
           )}
         </Box>
       }
-      sx={{ width: '100%', m: 0, py: 0.25 }}
+      sx={{ width: '100%', m: 0, py: 0.25, pl: indent * 2 }}
     />
   )
 }
