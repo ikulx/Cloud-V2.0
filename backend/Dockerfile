@@ -2,13 +2,13 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm config set fetch-timeout 600000 && npm config set fetch-retries 5 && npm ci --omit=dev --prefer-offline
 
 # ─── Stage 2: TypeScript kompilieren ─────────────────────────────────────────
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm config set fetch-timeout 600000 && npm config set fetch-retries 5 && npm ci --prefer-offline
 COPY tsconfig.json ./
 COPY tsconfig.seed.json ./
 COPY src ./src
