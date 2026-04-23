@@ -266,6 +266,15 @@ export function useDeleteAlarmRecipient(anlageId: string) {
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
+export interface TestRecipientResult {
+  results: Record<'email' | 'sms', { ok: boolean; error?: string } | undefined>
+}
+export function useTestAlarmRecipient() {
+  return useMutation({
+    mutationFn: (id: string) => apiPost<TestRecipientResult>(`/alarms/recipients/${id}/test`, {}),
+  })
+}
+
 export function useForceClearAlarmEvent() {
   const qc = useQueryClient()
   return useMutation({

@@ -72,6 +72,7 @@ export function SettingsPage() {
   const [alarmForm, setAlarmForm] = useState({
     'alarm.offlineNotificationEmail': '',
     'alarm.offlineThresholdMinutes': '180',
+    'alarms.defaultExternalDelayMinutes': '10',
   })
   const [alarmSaved, setAlarmSaved] = useState(false)
 
@@ -132,6 +133,7 @@ export function SettingsPage() {
       setAlarmForm({
         'alarm.offlineNotificationEmail': settings['alarm.offlineNotificationEmail'] ?? '',
         'alarm.offlineThresholdMinutes': settings['alarm.offlineThresholdMinutes'] ?? '180',
+        'alarms.defaultExternalDelayMinutes': settings['alarms.defaultExternalDelayMinutes'] ?? '10',
       })
       setTwilioForm({
         'twilio.accountSid': settings['twilio.accountSid'] ?? '',
@@ -652,6 +654,16 @@ export function SettingsPage() {
               value={alarmForm['alarm.offlineThresholdMinutes']}
               onChange={(e) => setAlarmForm((f) => ({ ...f, 'alarm.offlineThresholdMinutes': e.target.value }))}
               helperText="Standard: 180 min (3 Stunden). Der Check läuft alle 5 min."
+              fullWidth
+            />
+
+            <TextField
+              label="Grund-Verzögerung externe Empfänger (Minuten)"
+              type="number"
+              value={alarmForm['alarms.defaultExternalDelayMinutes']}
+              onChange={(e) => setAlarmForm((f) => ({ ...f, 'alarms.defaultExternalDelayMinutes': e.target.value }))}
+              helperText="Wird bei jedem externen Alarm-Empfänger zusätzlich zur individuellen Verzögerung addiert. Default 10 min. 0 = deaktiviert. Für Kunden nicht sichtbar."
+              inputProps={{ min: 0, max: 1440, step: 1 }}
               fullWidth
             />
 

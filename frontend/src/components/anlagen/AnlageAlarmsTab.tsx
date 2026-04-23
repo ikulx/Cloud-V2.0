@@ -29,6 +29,7 @@ import Divider from '@mui/material/Divider'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/DeleteOutline'
+import SendIcon from '@mui/icons-material/Send'
 import EmailIcon from '@mui/icons-material/Email'
 import SmsIcon from '@mui/icons-material/Sms'
 import TelegramIcon from '@mui/icons-material/Telegram'
@@ -37,7 +38,7 @@ import CancelIcon from '@mui/icons-material/Cancel'
 import ScheduleIcon from '@mui/icons-material/Schedule'
 import {
   useAlarmRecipients, useCreateAlarmRecipient, useUpdateAlarmRecipient, useDeleteAlarmRecipient,
-  useAlarmEvents, useForceClearAlarmEvent, normalizeSchedule,
+  useAlarmEvents, useForceClearAlarmEvent, useTestAlarmRecipient, normalizeSchedule,
   type AlarmRecipient, type AlarmPriority, type AlarmRecipientType, type AlarmEvent,
   type RecipientSchedule,
 } from '../../features/alarms/queries'
@@ -390,6 +391,7 @@ function RecipientTable({
 }) {
   const { t } = useTranslation()
   const update = useUpdateAlarmRecipient(anlageId ?? '')
+  const testMut = useTestAlarmRecipient()
   if (loading) return <Typography variant="body2" color="text.secondary">{t('common.loading')}</Typography>
   if (recipients.length === 0) {
     return (
@@ -485,11 +487,34 @@ function RecipientTable({
                     </span>
                   </Tooltip>
                 ) : (
-                  <Tooltip title="Bearbeiten">
-                    <IconButton size="small" onClick={() => onEdit(r)}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
+                  <>
+                    <Tooltip title="Test-Alarm senden">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={testMut.isPending}
+                          onClick={async () => {
+                            try {
+                              const res = await testMut.mutateAsync(r.id)
+                              const parts: string[] = []
+                              if (res.results.email) parts.push(`E-Mail: ${res.results.email.ok ? 'OK' : 'FEHLER – ' + (res.results.email.error ?? '')}`)
+                              if (res.results.sms)   parts.push(`SMS: ${res.results.sms.ok ? 'OK' : 'FEHLER – ' + (res.results.sms.error ?? '')}`)
+                              window.alert('Test-Alarm:\n' + parts.join('\n'))
+                            } catch (err) {
+                              window.alert('Test-Alarm fehlgeschlagen: ' + (err instanceof Error ? err.message : String(err)))
+                            }
+                          }}
+                        >
+                          <SendIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="Bearbeiten">
+                      <IconButton size="small" onClick={() => onEdit(r)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </>
                 )}
               </TableCell>
             </TableRow>

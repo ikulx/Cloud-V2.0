@@ -251,6 +251,73 @@ router.get('/events', authenticate, requirePermission('anlagen:read'), async (re
   res.json(events)
 })
 
+// POST /api/alarms/recipients/:id/test – sendet eine Test-Nachricht direkt
+// an diesen Empfänger (E-Mail + SMS je nach Kanal). Keine Deliveries-Zeile,
+// kein Rate-Limit-Check – rein für Admin-Test.
+router.post('/recipients/:id/test', authenticate, requirePermission('anlagen:update'), async (req, res) => {
+  const id = req.params.id as string
+  const r = await prisma.alarmRecipient.findUnique({
+    where: { id },
+    include: { template: { select: { email: true } } } as never,
+  })
+  if (!r) { res.status(404).json({ message: 'Empfänger nicht gefunden' }); return }
+
+  // Template-E-Mail bevorzugen, sonst target.
+  const rAny = r as unknown as {
+    type: string
+    target: string
+    smsTarget?: string | null
+    templateId?: string | null
+    template?: { email: string | null } | null
+  }
+  const emailTarget = rAny.templateId ? (rAny.template?.email ?? '').trim() : (rAny.target ?? '').trim()
+  const smsTargetNumber = (rAny.smsTarget ?? '').trim() || (rAny.type === 'SMS' ? (rAny.target ?? '').trim() : '')
+
+  const anlage = await prisma.anlage.findUnique({ where: { id: r.anlageId }, select: { name: true, projectNumber: true } })
+  const anlageStr = anlage ? `${anlage.name}${anlage.projectNumber ? ' (' + anlage.projectNumber + ')' : ''}` : '—'
+  const now = new Date()
+
+  const results: Record<string, { ok: boolean; error?: string }> = {}
+
+  // E-Mail, wenn type = EMAIL oder EMAIL_AND_SMS
+  if ((rAny.type === 'EMAIL' || rAny.type === 'EMAIL_AND_SMS') && emailTarget) {
+    try {
+      const { sendAlarmMail } = await import('../services/mail.service')
+      await sendAlarmMail(emailTarget, {
+        priority: 'INFO',
+        message: 'Test-Alarm (manuell ausgelöst) – Ihre Konfiguration funktioniert.',
+        anlageName: anlageStr,
+        projectNumber: anlage?.projectNumber ?? null,
+        deviceName: 'Test-Gerät',
+        serial: 'TEST',
+        activatedAt: now,
+        source: 'test',
+      })
+      results.email = { ok: true }
+    } catch (err) {
+      results.email = { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  // SMS, wenn type = SMS oder EMAIL_AND_SMS
+  if ((rAny.type === 'SMS' || rAny.type === 'EMAIL_AND_SMS') && smsTargetNumber) {
+    try {
+      const { sendSms } = await import('../services/twilio.service')
+      const body = `[Test] YControl: ${anlageStr} – Test-Alarm. Konfiguration OK.`
+      const r2 = await sendSms(smsTargetNumber, body)
+      results.sms = r2.ok ? { ok: true } : { ok: false, error: r2.error }
+    } catch (err) {
+      results.sms = { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  if (Object.keys(results).length === 0) {
+    res.status(400).json({ message: 'Empfänger hat keine gültige Zieladresse.' })
+    return
+  }
+  res.json({ results })
+})
+
 // POST /api/alarms/events/:id/force-clear – Admin-Escape-Hatch.
 // Setzt ein hängendes AlarmEvent auf CLEARED, ohne auf ein Pi-cleared-Event
 // zu warten. Nützlich, wenn das cleared-MQTT-Signal verloren ging (Agent-

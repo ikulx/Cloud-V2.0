@@ -327,7 +327,17 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
     }
 
     // Zeitplan ok → Delivery für scheduledAt planen (= now + delayMinutes).
-    const delay = Math.max(0, eff.delayMinutes ?? 0)
+    // Bei externen Empfängern (kein Template) wird zusätzlich die globale
+    // Grund-Verzögerung aus SystemSettings addiert (alarms.defaultExternalDelayMinutes).
+    let baseDelay = 0
+    if (!rAny.templateId) {
+      try {
+        const { getSetting } = await import('../routes/settings.router')
+        const s = await getSetting('alarms.defaultExternalDelayMinutes' as never)
+        baseDelay = Math.max(0, parseInt(String(s)) || 0)
+      } catch { /* ignore */ }
+    }
+    const delay = Math.max(0, (eff.delayMinutes ?? 0) + baseDelay)
     const scheduledAt = new Date(now.getTime() + delay * 60_000)
 
     // Für EMAIL_AND_SMS je eine Delivery pro Kanal anlegen. target → E-Mail
