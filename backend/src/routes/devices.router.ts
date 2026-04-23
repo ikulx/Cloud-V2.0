@@ -78,8 +78,9 @@ MQTT_PORT     = <<MQTT_PORT>>
 # Visu-Frontend den Weltkugel-Indikator anzeigen kann.
 LOCAL_MQTT_HOST        = "127.0.0.1"
 LOCAL_MQTT_PORT        = 1883
-LOCAL_ALARM_TOPIC      = "ycontrol/agent/alarm"
-LOCAL_CLOUD_STATUS_TOP = "ycontrol/agent/cloud-status"
+LOCAL_ALARM_TOPIC        = "ycontrol/agent/alarm"
+LOCAL_ALARM_SUPPRESS_TOP = "ycontrol/agent/alarm-suppression"
+LOCAL_CLOUD_STATUS_TOP   = "ycontrol/agent/cloud-status"
 CONFIG_PATH   = "/etc/ycontrol/config.json"
 AGENT_PATH    = "/usr/local/bin/ycontrol-agent.py"
 SERVICE_PATH  = "/etc/systemd/system/ycontrol-agent.service"
@@ -370,7 +371,8 @@ def run_agent():
     topic_tele  = "yc/" + serial + "/tele"
     topic_cmnd  = "yc/" + serial + "/cmnd"
     topic_resp  = "yc/" + serial + "/resp"
-    topic_alarm = "yc/" + serial + "/alarm"
+    topic_alarm       = "yc/" + serial + "/alarm"
+    topic_alarm_suppr = "yc/" + serial + "/alarm-suppression"
 
     try:
         import paho.mqtt.client as mqtt
@@ -447,6 +449,7 @@ def run_agent():
             print("[YControl] Lokaler MQTT verbunden: " + LOCAL_MQTT_HOST + ":" + str(LOCAL_MQTT_PORT))
             try:
                 c.subscribe(LOCAL_ALARM_TOPIC, qos=1)
+                c.subscribe(LOCAL_ALARM_SUPPRESS_TOP, qos=1)
             except Exception as ex:
                 print("[YControl] Lokales Subscribe fehlgeschlagen: " + str(ex), file=sys.stderr)
             # Aktuellen Cloud-Verbindungszustand beim (Re-)Connect sofort spiegeln,
@@ -467,8 +470,22 @@ def run_agent():
             print("[YControl] Lokaler MQTT getrennt (rc=" + str(rc) + "), reconnect läuft...")
 
     def on_local_message(c, userdata, msg):
-        # Visu publisht hier JSON-Alarm-Events ohne Seriennummer.
-        # Agent hängt die Seriennummer an und schickt an Cloud.
+        cc = client[0]
+        # ── Alarm-Unterdrückung (retained, damit Cloud nach Reconnect den
+        #    aktuellen Stand kennt). Payload "1"/"0" oder {"suppressed":...}.
+        if msg.topic == LOCAL_ALARM_SUPPRESS_TOP:
+            raw = msg.payload.decode("utf-8").strip()
+            if cc is None or not cc.is_connected():
+                print("[YControl] Suppression: keine Cloud-Verbindung, nicht weitergeleitet", file=sys.stderr)
+                return
+            try:
+                cc.publish(topic_alarm_suppr, raw, retain=True, qos=1)
+                print("[YControl] Alarm-Unterdrückung an Cloud weitergeleitet: " + raw)
+            except Exception as ex:
+                print("[YControl] Suppression-Weiterleitung fehlgeschlagen: " + str(ex), file=sys.stderr)
+            return
+
+        # ── Alarm-Event: Visu publisht JSON ohne Seriennummer, Agent ergänzt.
         if msg.topic != LOCAL_ALARM_TOPIC:
             return
         try:
@@ -484,7 +501,6 @@ def run_agent():
             return
         # Seriennummer ergänzen – die Cloud löst darüber Device + Anlage auf.
         payload["serial"] = serial
-        cc = client[0]
         if cc is None or not cc.is_connected():
             print("[YControl] Alarm kann nicht zur Cloud – MQTT nicht verbunden, gepuffert wird nicht (Agent erwartet Neuversand)", file=sys.stderr)
             return
