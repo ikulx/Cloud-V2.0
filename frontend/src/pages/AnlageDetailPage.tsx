@@ -68,6 +68,7 @@ import { AnlagePhotosTab } from '../components/anlagen/AnlagePhotosTab'
 import { AnlageAlarmsTab } from '../components/anlagen/AnlageAlarmsTab'
 import { useAlarmRecipients } from '../features/alarms/queries'
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive'
+import NotificationsOffIcon from '@mui/icons-material/NotificationsOff'
 import { useErzeugerTypes, useErzeugerCategories } from '../features/erzeuger-types/queries'
 import { formatCategoryPath } from '../features/erzeuger-types/helpers'
 
@@ -537,6 +538,17 @@ export function AnlageDetailPage() {
                           />
                         </Box>
                       )}
+                      {anlageDevices.some((d) => d.alarmsSuppressed) && (
+                        <Alert
+                          severity="info"
+                          icon={<NotificationsOffIcon fontSize="small" />}
+                          sx={{ py: 0.5 }}
+                        >
+                          Alarme dieser Anlage sind unterdrückt
+                          ({anlageDevices.filter((d) => d.alarmsSuppressed).length} von {anlageDevices.length} Gerät{anlageDevices.length === 1 ? '' : 'en'}).
+                          Cloud sendet keine Benachrichtigungen.
+                        </Alert>
+                      )}
                     </Stack>
                   )}
                 </CardContent>
@@ -780,6 +792,17 @@ export function AnlageDetailPage() {
                             variant={device.vpnDevice ? 'filled' : 'outlined'}
                             sx={{ fontSize: '0.65rem', height: 20 }}
                           />
+                          {device.alarmsSuppressed && (
+                            <Tooltip title="Alarme an dieser Anlage sind auf der Visu unterdrückt – die Cloud sendet keine Benachrichtigungen.">
+                              <Chip
+                                icon={<NotificationsOffIcon sx={{ fontSize: '0.85rem' }} />}
+                                label="Alarme aus"
+                                size="small"
+                                color="info"
+                                sx={{ fontSize: '0.65rem', height: 20 }}
+                              />
+                            </Tooltip>
+                          )}
                         </Box>
                       </TableCell>
                       <TableCell align="right" onClick={(e) => e.stopPropagation()}>

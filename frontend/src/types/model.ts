@@ -50,6 +50,10 @@ export interface Device {
   serialNumber: string
   status: DeviceStatus
   isApproved: boolean
+  /** true wenn die Visu auf dem Pi alle Alarme unterdrückt (Hardware-Schalter
+   *  oder Software-Toggle). Cloud sendet dann selbst keine Benachrichtigungen. */
+  alarmsSuppressed?: boolean
+  alarmsSuppressedAt?: string | null
   hasConflict?: boolean
   requestedSerialNumber?: string | null
   piSerial?: string | null

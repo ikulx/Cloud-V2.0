@@ -48,6 +48,8 @@ import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { getSocket } from '../../lib/socket'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
+import NotificationsOffIcon from '@mui/icons-material/NotificationsOff'
+import Alert from '@mui/material/Alert'
 import LockIcon from '@mui/icons-material/Lock'
 import { ScheduleEditor } from './ScheduleEditor'
 
@@ -180,8 +182,20 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
   }
   const [baseDelayPopup, setBaseDelayPopup] = useState(false)
 
+  const suppressedDevices = (anlage?.anlageDevices ?? [])
+    .filter((ad) => ad.device.alarmsSuppressed === true)
+    .map((ad) => ad.device.name)
+
   return (
     <Stack gap={3}>
+      {suppressedDevices.length > 0 && (
+        <Alert severity="info" icon={<NotificationsOffIcon />}>
+          Alarme dieser Anlage sind aktuell auf der Visu unterdrückt
+          ({suppressedDevices.length} Gerät{suppressedDevices.length === 1 ? '' : 'e'}: {suppressedDevices.join(', ')}).
+          Solange die Unterdrückung aktiv ist, kommen keine Alarme vom Pi → Cloud sendet keine Benachrichtigungen.
+        </Alert>
+      )}
+
       {/* ── Kombinierte Admin-Karte: Offline + Versand-Limit (oben) + Interne Empfänger (unten) ── */}
       {isAdmin && (
         <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', p: 2 }}>
