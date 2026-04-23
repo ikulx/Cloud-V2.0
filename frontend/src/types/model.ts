@@ -120,7 +120,7 @@ export interface Anlage {
     sortOrder: number
     type: { id: string; name: string; sortOrder: number; isActive: boolean }
   }[]
-  _count?: { anlageDevices: number; todos: number }
+  _count?: { anlageDevices: number; todos: number; alarmEvents?: number }
   todos?: AnlageTodo[]
   logEntries?: AnlageLogEntry[]
   createdAt: string

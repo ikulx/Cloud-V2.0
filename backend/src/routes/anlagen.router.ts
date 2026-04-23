@@ -168,6 +168,8 @@ const anlageInclude = {
       anlageDevices: true,
       // Nur OFFENE Todos zählen (für Status-Anzeige in der Übersicht)
       todos: { where: { status: 'OPEN' as const } },
+      // Aktive Alarme zählen (für Status-Chip "Störung" in der Übersicht)
+      alarmEvents: { where: { status: 'ACTIVE' as const } },
     },
   },
 }

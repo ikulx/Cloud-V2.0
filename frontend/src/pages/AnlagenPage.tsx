@@ -55,11 +55,12 @@ type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'SUPPRESSED' | 'EMPTY'
 
 function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
   if (devices.length === 0) return 'EMPTY'
-  // Alarme unterdrückt hat Vorrang vor OK/TODO – wichtig damit das sofort
-  // auffällt. OFFLINE/ERROR bleiben davor, weil der Pi nicht funktioniert.
   const hasOffline = devices.some((d) => d.status !== 'ONLINE')
   if (hasOffline) return 'OFFLINE'
-  const hasError = devices.some((d) => d.hasError === true)
+  // Aktive Alarme = Störung an einem Gerät der Anlage. Vorrang vor
+  // suppressed/TODO, weil ein laufender Alarm das wichtigste Signal ist.
+  const activeAlarms = anlage._count?.alarmEvents ?? 0
+  const hasError = activeAlarms > 0 || devices.some((d) => d.hasError === true)
   if (hasError) return 'ERROR'
   const anySuppressed = anlage.anlageDevices.some((ad) => ad.device.alarmsSuppressed === true)
   if (anySuppressed) return 'SUPPRESSED'

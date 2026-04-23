@@ -231,7 +231,7 @@ const de = {
   anlagenList: {
     statusOK: 'OK',
     statusTodo: 'Todos offen',
-    statusError: 'Fehler',
+    statusError: 'Störung',
     statusOffline: 'Offline',
     statusSuppressed: 'Alarme unterdrückt',
     searchPlaceholder: 'Suchen (Name, Projekt-Nr, Ort, Seriennummer …)',
