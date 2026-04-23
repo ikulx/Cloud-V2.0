@@ -141,7 +141,7 @@ router.post('/:id/backups', authenticate, requirePermission('devices:update'), a
 
   const targets = await getActiveBackupTargets()
   if (targets.length === 0) {
-    res.status(400).json({ message: 'Es ist kein Backup-Ziel aktiviert. Bitte in den Einstellungen Syno NAS oder Infomaniak Swiss Backup konfigurieren.' })
+    res.status(400).json({ message: 'Es ist kein Backup-Ziel aktiviert. Bitte in den Einstellungen Infomaniak Swiss Backup konfigurieren.' })
     return
   }
 
@@ -167,7 +167,6 @@ router.post('/:id/backups', authenticate, requirePermission('devices:update'), a
       objectKey,
       uploadToken: pullToken,
       status: 'PENDING',
-      synoStatus: targets.find((t) => t.id === 'syno') ? 'PENDING' : 'SKIPPED',
       infomaniakStatus: targets.find((t) => t.id === 'infomaniak') ? 'PENDING' : 'SKIPPED',
       createdById: req.user!.userId,
     },
@@ -262,7 +261,6 @@ async function runBackupPull(
       data: { status: 'DISTRIBUTING', sizeBytes: BigInt(size) },
     })
 
-    const synoTarget = targets.find((t) => t.id === 'syno')
     const infoTarget = targets.find((t) => t.id === 'infomaniak')
 
     async function uploadToTarget(t: BackupTarget): Promise<{ ok: boolean; error?: string }> {
@@ -275,12 +273,8 @@ async function runBackupPull(
       }
     }
 
-    const [synoRes, infoRes] = await Promise.all([
-      synoTarget ? uploadToTarget(synoTarget) : Promise.resolve(null),
-      infoTarget ? uploadToTarget(infoTarget) : Promise.resolve(null),
-    ])
-
-    const overallOk = (synoRes?.ok ?? false) || (infoRes?.ok ?? false)
+    const infoRes = infoTarget ? await uploadToTarget(infoTarget) : null
+    const overallOk = infoRes?.ok ?? false
 
     await pAny.deviceBackup.update({
       where: { id: backupId },
@@ -288,11 +282,9 @@ async function runBackupPull(
         status: overallOk ? 'OK' : 'FAILED',
         uploadToken: null,
         completedAt: new Date(),
-        synoStatus: synoRes ? (synoRes.ok ? 'OK' : 'FAILED') : 'SKIPPED',
-        synoError: synoRes && !synoRes.ok ? synoRes.error : null,
         infomaniakStatus: infoRes ? (infoRes.ok ? 'OK' : 'FAILED') : 'SKIPPED',
         infomaniakError: infoRes && !infoRes.ok ? infoRes.error : null,
-        errorMessage: overallOk ? null : 'Alle Backup-Ziele haben den Upload abgelehnt',
+        errorMessage: overallOk ? null : 'Backup-Ziel hat den Upload abgelehnt',
       },
     })
 
@@ -348,7 +340,7 @@ router.delete('/:id/backups/:backupId', authenticate, requirePermission('devices
 })
 
 // ─── POST /api/devices/:id/backups/:backupId/restore ─────────────────────────
-const restoreSchema = z.object({ target: z.enum(['syno', 'infomaniak']) })
+const restoreSchema = z.object({ target: z.enum(['infomaniak']) })
 router.post('/:id/backups/:backupId/restore', authenticate, requirePermission('devices:update'), async (req, res) => {
   const deviceId = req.params.id as string
   const backupId = req.params.backupId as string
@@ -360,7 +352,7 @@ router.post('/:id/backups/:backupId/restore', authenticate, requirePermission('d
   const backup = await pAny.deviceBackup.findUnique({ where: { id: backupId } })
   if (!backup || backup.deviceId !== deviceId) { res.status(404).json({ message: 'Backup nicht gefunden' }); return }
 
-  const targetField = parsed.data.target === 'syno' ? backup.synoStatus : backup.infomaniakStatus
+  const targetField = backup.infomaniakStatus
   if (targetField !== 'OK') { res.status(400).json({ message: 'Backup ist auf diesem Ziel nicht verfügbar' }); return }
 
   const device = await getDeviceWithVpn(deviceId)

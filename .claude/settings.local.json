@@ -73,7 +73,8 @@
       "Bash(docker build *)",
       "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Select-Object -Property Id,StartTime | Sort-Object StartTime | Format-Table\")",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000/api/me)",
-      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"ping\",\"password\":\"ping\"}')"
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"ping\",\"password\":\"ping\"}')",
+      "Bash(npm uninstall *)"
     ]
   }
 }

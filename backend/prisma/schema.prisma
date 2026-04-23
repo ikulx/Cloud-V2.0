@@ -694,8 +694,6 @@ model DeviceBackup {
   sizeBytes      BigInt?             @map("size_bytes")
   status         DeviceBackupStatus  @default(PENDING)
   errorMessage   String?             @map("error_message")
-  synoStatus         DeviceBackupTargetStatus @default(SKIPPED) @map("syno_status")
-  synoError          String?                  @map("syno_error")
   infomaniakStatus   DeviceBackupTargetStatus @default(SKIPPED) @map("infomaniak_status")
   infomaniakError    String?                  @map("infomaniak_error")
   /// Letzter Restore-Versuch dieses Backups (für UI-Status).

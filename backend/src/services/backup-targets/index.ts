@@ -1,19 +1,15 @@
 /**
- * Backup-Targets: Abstraktion über Speicherorte für Geräte-Backups.
+ * Backup-Targets: Speicherort für Geräte-Backups.
  *
- * Aktive Implementierungen:
- *   - syno        → Synology-NAS via WebDAV
- *   - infomaniak  → Infomaniak Swiss Backup via S3
- *
- * Beide werden parallel beschickt, wenn aktiv. Settings liegen in der
- * SystemSetting-Tabelle (Keys siehe routes/settings.router.ts).
+ * Aktuell nur Infomaniak Swiss Backup via S3. Der Adapter ist als Interface
+ * angelegt, damit weitere Targets (z.B. anderes S3, FTP) später einfach
+ * dazukommen können – siehe `BackupTargetId`.
  */
 import type { Readable } from 'stream'
 import { getSetting } from '../../routes/settings.router'
-import { createWebdavTarget } from './webdav.target'
 import { createS3Target } from './s3.target'
 
-export type BackupTargetId = 'syno' | 'infomaniak'
+export type BackupTargetId = 'infomaniak'
 
 export interface BackupObject {
   key: string
@@ -31,16 +27,6 @@ export interface BackupTarget {
 }
 
 export async function resolveBackupTarget(id: BackupTargetId): Promise<BackupTarget | null> {
-  if (id === 'syno') {
-    const enabled = (await getSetting('backup.syno.enabled')) === 'true'
-    if (!enabled) return null
-    const url = (await getSetting('backup.syno.url')).trim()
-    const user = (await getSetting('backup.syno.user')).trim()
-    const password = await getSetting('backup.syno.password')
-    const basePath = (await getSetting('backup.syno.basePath')).trim() || '/'
-    if (!url || !user) return null
-    return createWebdavTarget({ id: 'syno', url, user, password, basePath })
-  }
   if (id === 'infomaniak') {
     const enabled = (await getSetting('backup.infomaniak.enabled')) === 'true'
     if (!enabled) return null
@@ -57,7 +43,7 @@ export async function resolveBackupTarget(id: BackupTargetId): Promise<BackupTar
 
 export async function getActiveBackupTargets(): Promise<BackupTarget[]> {
   const out: BackupTarget[] = []
-  for (const id of ['syno', 'infomaniak'] as BackupTargetId[]) {
+  for (const id of ['infomaniak'] as BackupTargetId[]) {
     const t = await resolveBackupTarget(id)
     if (t) out.push(t)
   }

@@ -487,12 +487,7 @@ const de = {
     downloadScript: 'Setup-Script herunterladen',
     tabBackup: 'Backup',
     backup: {
-      intro: 'Konfiguriere bis zu zwei Backup-Ziele. Wenn beide aktiv sind, werden Backups parallel an beide Ziele geschrieben. Pro Gerät bleiben max. 5 Backups erhalten.',
-      basePath: 'Basis-Pfad',
-      syno: {
-        urlHint: 'Synology DSM → Paket „WebDAV Server" aktivieren. Standardport 5006 (HTTPS) bzw. 5005 (HTTP).',
-        pathHint: 'Wird angelegt, falls nicht vorhanden. Pro Gerät wird darunter ein Unterordner mit der Seriennummer erstellt.',
-      },
+      intro: 'Backups laufen über den bestehenden WireGuard-Tunnel zum Pi und werden auf Infomaniak Swiss Backup hochgeladen. Pro Gerät bleiben die letzten 5 Backups erhalten.',
       infomaniak: {
         bucketHint: 'Bucket-Name aus dem Infomaniak-Manager (Swiss Backup → S3).',
       },
@@ -507,8 +502,6 @@ const de = {
     source: 'Quelle',
     restore: 'Wiederherstellen',
     restoreStarted: 'Wiederherstellung gestartet',
-    restoreFromSyno: 'Vom Syno NAS wiederherstellen',
-    restoreFromInfomaniak: 'Von Infomaniak wiederherstellen',
     restoreConfirmTitle: 'Backup wiederherstellen?',
     restoreConfirmText: 'Die Visu wird gestoppt, die Daten werden ersetzt und die Visu wieder gestartet. Alle Änderungen seit diesem Backup gehen verloren.',
     delete: 'Backup löschen',
@@ -519,7 +512,7 @@ const de = {
       created: 'Erstellt',
       size: 'Grösse',
       status: 'Status',
-      targets: 'Ziele',
+      target: 'Ziel',
       actions: 'Aktionen',
     },
   },

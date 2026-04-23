@@ -48,11 +48,7 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
-function targetLabel(t: 'syno' | 'infomaniak'): string {
-  return t === 'syno' ? 'Syno NAS' : 'Infomaniak'
-}
-
-function TargetBadge({ name, status }: { name: 'syno' | 'infomaniak'; status: BackupTargetStatus }) {
+function TargetBadge({ status }: { status: BackupTargetStatus }) {
   const colorMap: Record<BackupTargetStatus, 'default' | 'success' | 'warning' | 'error'> = {
     SKIPPED: 'default',
     PENDING: 'warning',
@@ -66,8 +62,7 @@ function TargetBadge({ name, status }: { name: 'syno' | 'infomaniak'; status: Ba
       color={colorMap[status]}
       variant={status === 'OK' ? 'filled' : 'outlined'}
       icon={Icon ? <Icon fontSize="small" /> : undefined}
-      label={`${targetLabel(name)}: ${status}`}
-      sx={{ mr: 0.5 }}
+      label={`Infomaniak: ${status}`}
     />
   )
 }
@@ -90,7 +85,7 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
   const startBackup = useStartBackup(deviceId)
   const restoreBackup = useRestoreBackup(deviceId)
   const deleteBackup = useDeleteBackup(deviceId)
-  const [restoreDlg, setRestoreDlg] = useState<{ backup: DeviceBackup; target: 'syno' | 'infomaniak' } | null>(null)
+  const [restoreDlg, setRestoreDlg] = useState<{ backup: DeviceBackup; target: 'infomaniak' } | null>(null)
   const [deleteDlg, setDeleteDlg] = useState<DeviceBackup | null>(null)
   const [snack, setSnack] = useState<string | null>(null)
 
@@ -144,7 +139,7 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
                 <TableCell>{t('backup.col.created', 'Erstellt')}</TableCell>
                 <TableCell>{t('backup.col.size', 'Grösse')}</TableCell>
                 <TableCell>{t('backup.col.status', 'Status')}</TableCell>
-                <TableCell>{t('backup.col.targets', 'Ziele')}</TableCell>
+                <TableCell>{t('backup.col.target', 'Ziel')}</TableCell>
                 <TableCell align="right">{t('backup.col.actions', 'Aktionen')}</TableCell>
               </TableRow>
             </TableHead>
@@ -171,19 +166,11 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
                     )}
                   </TableCell>
                   <TableCell>
-                    <TargetBadge name="syno" status={b.synoStatus} />
-                    <TargetBadge name="infomaniak" status={b.infomaniakStatus} />
+                    <TargetBadge status={b.infomaniakStatus} />
                   </TableCell>
                   <TableCell align="right">
-                    {canUpdate && b.synoStatus === 'OK' && (
-                      <Tooltip title={t('backup.restoreFromSyno', 'Vom Syno NAS wiederherstellen')}>
-                        <IconButton size="small" disabled={!deviceOnline} onClick={() => setRestoreDlg({ backup: b, target: 'syno' })}>
-                          <RestoreIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
                     {canUpdate && b.infomaniakStatus === 'OK' && (
-                      <Tooltip title={t('backup.restoreFromInfomaniak', 'Von Infomaniak wiederherstellen')}>
+                      <Tooltip title={t('backup.restore', 'Wiederherstellen')}>
                         <IconButton size="small" disabled={!deviceOnline} onClick={() => setRestoreDlg({ backup: b, target: 'infomaniak' })}>
                           <RestoreIcon fontSize="small" color="primary" />
                         </IconButton>
@@ -217,7 +204,7 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
           {restoreDlg && (
             <Box mt={2}>
               <Typography variant="body2"><b>{t('backup.col.created', 'Erstellt')}:</b> {new Date(restoreDlg.backup.createdAt).toLocaleString('de-CH')}</Typography>
-              <Typography variant="body2"><b>{t('backup.source', 'Quelle')}:</b> {targetLabel(restoreDlg.target)}</Typography>
+              <Typography variant="body2"><b>{t('backup.source', 'Quelle')}:</b> Infomaniak Swiss Backup</Typography>
             </Box>
           )}
         </DialogContent>
