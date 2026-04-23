@@ -27,6 +27,7 @@ export const SETTING_KEYS = [
   'deepl.tier',
   'alarm.offlineNotificationEmail',
   'alarm.offlineThresholdMinutes',
+  'alarms.retentionDays',
   'twilio.accountSid',
   'twilio.authToken',
   'twilio.smsSenderId',
@@ -54,6 +55,8 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'alarm.offlineNotificationEmail': '',
   // Schwellwert in Minuten, ab wann ein Gerät als "lange offline" gilt (3h = 180)
   'alarm.offlineThresholdMinutes': '180',
+  // Aufbewahrung abgeschlossener Alarm-Events (+ Deliveries + Piket-Events)
+  'alarms.retentionDays': '180',
   // Twilio SMS / Voice
   'twilio.accountSid': '',
   'twilio.authToken': '',
