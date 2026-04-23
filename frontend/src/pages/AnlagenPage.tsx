@@ -51,14 +51,12 @@ import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { useTranslation } from 'react-i18next'
 import type { Anlage, Device } from '../types/model'
 
-type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'SUPPRESSED' | 'EMPTY'
+type AnlageStatus = 'OK' | 'ERROR' | 'OFFLINE' | 'SUPPRESSED' | 'EMPTY'
 
 function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
   if (devices.length === 0) return 'EMPTY'
-  // Reihenfolge: OFFLINE > SUPPRESSED > ERROR (Störung) > TODO > OK.
-  // Suppression hat Vorrang vor der Störung, weil bei Unterdrückung sowieso
-  // keine Benachrichtigung rausgeht – Disponent muss als erstes wissen,
-  // dass die Cloud "blind" ist.
+  // Reihenfolge: OFFLINE > SUPPRESSED > ERROR (Störung) > OK.
+  // Todos sind kein Status mehr – wird als separates Icon angezeigt.
   const hasOffline = devices.some((d) => d.status !== 'ONLINE')
   if (hasOffline) return 'OFFLINE'
   const anySuppressed = anlage.anlageDevices.some((ad) => ad.device.alarmsSuppressed === true)
@@ -66,23 +64,39 @@ function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
   const activeAlarms = anlage._count?.alarmEvents ?? 0
   const hasError = activeAlarms > 0 || devices.some((d) => d.hasError === true)
   if (hasError) return 'ERROR'
-  const openTodos = anlage.todos
-    ? anlage.todos.filter((t) => t.status === 'OPEN').length
-    : (anlage._count?.todos ?? 0)
-  if (openTodos > 0) return 'TODO'
   return 'OK'
 }
 
+/** Reine Icon-Anzeige; Bedeutung im Tooltip. */
 function StatusChip({ status }: { status: AnlageStatus }) {
   const { t } = useTranslation()
-  switch (status) {
-    case 'OK':         return <Chip icon={<CheckCircleIcon />} label={t('anlagenList.statusOK')} color="success" size="small" sx={{ fontWeight: 600 }} />
-    case 'TODO':       return <Chip icon={<AssignmentLateIcon />} label={t('anlagenList.statusTodo')} color="warning" size="small" sx={{ fontWeight: 600 }} />
-    case 'ERROR':      return <Chip icon={<WarningIcon />} label={t('anlagenList.statusError')} color="warning" size="small" sx={{ fontWeight: 600, bgcolor: 'warning.dark', color: 'common.white' }} />
-    case 'OFFLINE':    return <Chip icon={<ErrorIcon />} label={t('anlagenList.statusOffline')} color="error" size="small" sx={{ fontWeight: 600 }} />
-    case 'SUPPRESSED': return <Chip icon={<NotificationsOffIcon />} label={t('anlagenList.statusSuppressed')} color="info" size="small" sx={{ fontWeight: 600 }} />
-    case 'EMPTY':      return <Chip label="—" size="small" variant="outlined" />
-  }
+  const map = {
+    OK:         { icon: <CheckCircleIcon fontSize="small" />,    color: '#2e7d32', label: t('anlagenList.statusOK') },
+    ERROR:      { icon: <WarningIcon fontSize="small" />,        color: '#c62828', label: t('anlagenList.statusError') },
+    OFFLINE:    { icon: <ErrorIcon fontSize="small" />,          color: '#d32f2f', label: t('anlagenList.statusOffline') },
+    SUPPRESSED: { icon: <NotificationsOffIcon fontSize="small" />, color: '#0288d1', label: t('anlagenList.statusSuppressed') },
+    EMPTY:      { icon: <Box sx={{ width: 18, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'text.disabled' }}>—</Box>, color: 'text.disabled', label: t('anlagenList.statusEmpty') ?? '—' },
+  } as const
+  const m = map[status]
+  return (
+    <Tooltip title={m.label}>
+      <Box sx={{ display: 'inline-flex', color: m.color, alignItems: 'center', justifyContent: 'center' }}>{m.icon}</Box>
+    </Tooltip>
+  )
+}
+
+/** Eigener Todo-Indikator (Icon + Anzahl), nur wenn > 0. */
+function TodoIndicator({ count }: { count: number }) {
+  const { t } = useTranslation()
+  if (count <= 0) return null
+  return (
+    <Tooltip title={t('anlagenList.statusTodo') + ` (${count})`}>
+      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, color: '#ed6c02' }}>
+        <AssignmentLateIcon fontSize="small" />
+        <Typography component="span" variant="caption" sx={{ fontWeight: 600, lineHeight: 1 }}>{count}</Typography>
+      </Box>
+    </Tooltip>
+  )
 }
 
 type SortKey = 'name' | 'projectNumber' | 'city' | 'updatedAt'
@@ -611,7 +625,12 @@ export function AnlagenPage() {
                     >
                       {orderedColumns.map((col) => (
                         <TableCell key={col.key}>
-                          {col.key === 'status' && <StatusChip status={status} />}
+                          {col.key === 'status' && (
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                              <StatusChip status={status} />
+                              <TodoIndicator count={openTodos} />
+                            </Box>
+                          )}
                           {col.key === 'projectNumber' && (anlage.projectNumber ?? '—')}
                           {col.key === 'name' && anlage.name}
                           {col.key === 'city' && (anlage.city ?? '—')}

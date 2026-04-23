@@ -234,6 +234,7 @@ const de = {
     statusError: 'Störung',
     statusOffline: 'Offline',
     statusSuppressed: 'Alarme unterdrückt',
+    statusEmpty: 'Keine Geräte zugewiesen',
     searchPlaceholder: 'Suchen (Name, Projekt-Nr, Ort, Seriennummer …)',
     sortName: 'Name (A-Z)',
     sortProjectNumber: 'Projekt-Nr.',

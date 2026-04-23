@@ -225,6 +225,7 @@ const en = {
     statusError: 'Error',
     statusOffline: 'Offline',
     statusSuppressed: 'Alarms suppressed',
+    statusEmpty: 'No devices assigned',
     searchPlaceholder: 'Search (name, project no., city, serial …)',
     sortName: 'Name (A-Z)',
     sortProjectNumber: 'Project no.',

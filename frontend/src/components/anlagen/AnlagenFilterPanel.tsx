@@ -100,7 +100,6 @@ export function useAnlagenFacets(
 
 const STATUS_LABELS: Record<string, string> = {
   OK: 'OK',
-  TODO: 'Todos offen',
   ERROR: 'Störung',
   OFFLINE: 'Offline',
   SUPPRESSED: 'Alarme unterdrückt',

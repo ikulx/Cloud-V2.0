@@ -225,6 +225,7 @@ const fr = {
     statusError: 'Erreur',
     statusOffline: 'Hors ligne',
     statusSuppressed: 'Alarmes supprimées',
+    statusEmpty: 'Aucun appareil assigné',
     searchPlaceholder: 'Rechercher (nom, n° projet, lieu, n° de série …)',
     sortName: 'Nom (A-Z)',
     sortProjectNumber: 'N° projet',

@@ -225,6 +225,7 @@ const it = {
     statusError: 'Errore',
     statusOffline: 'Offline',
     statusSuppressed: 'Allarmi silenziati',
+    statusEmpty: 'Nessun dispositivo assegnato',
     searchPlaceholder: 'Cerca (nome, n. progetto, città, n. serie …)',
     sortName: 'Nome (A-Z)',
     sortProjectNumber: 'N. progetto',
