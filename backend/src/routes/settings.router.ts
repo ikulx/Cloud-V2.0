@@ -28,7 +28,6 @@ export const SETTING_KEYS = [
   'alarm.offlineNotificationEmail',
   'alarm.offlineThresholdMinutes',
   'alarms.retentionDays',
-  'alarms.defaultExternalDelayMinutes',
   'twilio.accountSid',
   'twilio.authToken',
   'twilio.smsSenderId',
@@ -58,9 +57,6 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'alarm.offlineThresholdMinutes': '180',
   // Aufbewahrung abgeschlossener Alarm-Events (+ Deliveries + Piket-Events)
   'alarms.retentionDays': '180',
-  // Globale Grund-Verzögerung für externe Alarm-Empfänger (wird zur
-  // Empfänger-delayMinutes addiert). Für Kunden nicht sichtbar.
-  'alarms.defaultExternalDelayMinutes': '10',
   // Twilio SMS / Voice
   'twilio.accountSid': '',
   'twilio.authToken': '',

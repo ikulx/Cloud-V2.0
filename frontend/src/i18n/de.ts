@@ -233,6 +233,7 @@ const de = {
     statusTodo: 'Todos offen',
     statusError: 'Fehler',
     statusOffline: 'Offline',
+    statusSuppressed: 'Alarme unterdrückt',
     searchPlaceholder: 'Suchen (Name, Projekt-Nr, Ort, Seriennummer …)',
     sortName: 'Name (A-Z)',
     sortProjectNumber: 'Projekt-Nr.',

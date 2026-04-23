@@ -224,6 +224,7 @@ const en = {
     statusTodo: 'Open todos',
     statusError: 'Error',
     statusOffline: 'Offline',
+    statusSuppressed: 'Alarms suppressed',
     searchPlaceholder: 'Search (name, project no., city, serial …)',
     sortName: 'Name (A-Z)',
     sortProjectNumber: 'Project no.',

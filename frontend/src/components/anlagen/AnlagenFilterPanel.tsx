@@ -103,6 +103,7 @@ const STATUS_LABELS: Record<string, string> = {
   TODO: 'Todos offen',
   ERROR: 'Fehler',
   OFFLINE: 'Offline',
+  SUPPRESSED: 'Alarme unterdrückt',
   EMPTY: 'Leer',
 }
 

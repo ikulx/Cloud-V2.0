@@ -100,6 +100,7 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
         select: {
           id: true,
           alarmRateLimitMinutes: true,
+          alarmBaseDelayMinutes: true,
           contract: true,
           alarmRecipients: {
             where: { isActive: true },
@@ -327,16 +328,12 @@ export async function dispatchAlarmEvent({ eventId }: DispatchParams): Promise<v
     }
 
     // Zeitplan ok → Delivery für scheduledAt planen (= now + delayMinutes).
-    // Bei externen Empfängern (kein Template) wird zusätzlich die globale
-    // Grund-Verzögerung aus SystemSettings addiert (alarms.defaultExternalDelayMinutes).
-    let baseDelay = 0
-    if (!rAny.templateId) {
-      try {
-        const { getSetting } = await import('../routes/settings.router')
-        const s = await getSetting('alarms.defaultExternalDelayMinutes' as never)
-        baseDelay = Math.max(0, parseInt(String(s)) || 0)
-      } catch { /* ignore */ }
-    }
+    // Bei externen Empfängern (kein Template) wird zusätzlich die Grund-
+    // Verzögerung der Anlage addiert (alarmBaseDelayMinutes). Bei internen
+    // Template-Empfängern (Piket/Ygnis PM) bleibt es beim Template-Delay.
+    const baseDelay = !rAny.templateId
+      ? Math.max(0, (anlage as unknown as { alarmBaseDelayMinutes?: number }).alarmBaseDelayMinutes ?? 0)
+      : 0
     const delay = Math.max(0, (eff.delayMinutes ?? 0) + baseDelay)
     const scheduledAt = new Date(now.getTime() + delay * 60_000)
 

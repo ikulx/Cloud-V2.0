@@ -26,6 +26,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import ErrorIcon from '@mui/icons-material/Error'
 import WarningIcon from '@mui/icons-material/Warning'
 import AssignmentLateIcon from '@mui/icons-material/AssignmentLate'
+import NotificationsOffIcon from '@mui/icons-material/NotificationsOff'
 import FilterListIcon from '@mui/icons-material/FilterList'
 import CloseIcon from '@mui/icons-material/Close'
 import ViewColumnIcon from '@mui/icons-material/ViewColumn'
@@ -50,14 +51,18 @@ import { useDeviceStatus } from '../hooks/useDeviceStatus'
 import { useTranslation } from 'react-i18next'
 import type { Anlage, Device } from '../types/model'
 
-type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'EMPTY'
+type AnlageStatus = 'OK' | 'TODO' | 'ERROR' | 'OFFLINE' | 'SUPPRESSED' | 'EMPTY'
 
 function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
   if (devices.length === 0) return 'EMPTY'
+  // Alarme unterdrückt hat Vorrang vor OK/TODO – wichtig damit das sofort
+  // auffällt. OFFLINE/ERROR bleiben davor, weil der Pi nicht funktioniert.
   const hasOffline = devices.some((d) => d.status !== 'ONLINE')
   if (hasOffline) return 'OFFLINE'
   const hasError = devices.some((d) => d.hasError === true)
   if (hasError) return 'ERROR'
+  const anySuppressed = anlage.anlageDevices.some((ad) => ad.device.alarmsSuppressed === true)
+  if (anySuppressed) return 'SUPPRESSED'
   const openTodos = anlage.todos
     ? anlage.todos.filter((t) => t.status === 'OPEN').length
     : (anlage._count?.todos ?? 0)
@@ -68,11 +73,12 @@ function computeAnlageStatus(anlage: Anlage, devices: Device[]): AnlageStatus {
 function StatusChip({ status }: { status: AnlageStatus }) {
   const { t } = useTranslation()
   switch (status) {
-    case 'OK':       return <Chip icon={<CheckCircleIcon />} label={t('anlagenList.statusOK')} color="success" size="small" sx={{ fontWeight: 600 }} />
-    case 'TODO':     return <Chip icon={<AssignmentLateIcon />} label={t('anlagenList.statusTodo')} color="warning" size="small" sx={{ fontWeight: 600 }} />
-    case 'ERROR':    return <Chip icon={<WarningIcon />} label={t('anlagenList.statusError')} color="warning" size="small" sx={{ fontWeight: 600, bgcolor: 'warning.dark', color: 'common.white' }} />
-    case 'OFFLINE':  return <Chip icon={<ErrorIcon />} label={t('anlagenList.statusOffline')} color="error" size="small" sx={{ fontWeight: 600 }} />
-    case 'EMPTY':    return <Chip label="—" size="small" variant="outlined" />
+    case 'OK':         return <Chip icon={<CheckCircleIcon />} label={t('anlagenList.statusOK')} color="success" size="small" sx={{ fontWeight: 600 }} />
+    case 'TODO':       return <Chip icon={<AssignmentLateIcon />} label={t('anlagenList.statusTodo')} color="warning" size="small" sx={{ fontWeight: 600 }} />
+    case 'ERROR':      return <Chip icon={<WarningIcon />} label={t('anlagenList.statusError')} color="warning" size="small" sx={{ fontWeight: 600, bgcolor: 'warning.dark', color: 'common.white' }} />
+    case 'OFFLINE':    return <Chip icon={<ErrorIcon />} label={t('anlagenList.statusOffline')} color="error" size="small" sx={{ fontWeight: 600 }} />
+    case 'SUPPRESSED': return <Chip icon={<NotificationsOffIcon />} label={t('anlagenList.statusSuppressed')} color="info" size="small" sx={{ fontWeight: 600 }} />
+    case 'EMPTY':      return <Chip label="—" size="small" variant="outlined" />
   }
 }
 

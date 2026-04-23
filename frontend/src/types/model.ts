@@ -104,8 +104,9 @@ export interface Anlage {
   hasBoiler: boolean
   offlineMonitoringEnabled: boolean
   alarmRateLimitMinutes: number
+  alarmBaseDelayMinutes: number
   contract: AnlageContract
-  anlageDevices: { device: { id: string; name: string; status: DeviceStatus; isApproved: boolean } }[]
+  anlageDevices: { device: { id: string; name: string; status: DeviceStatus; isApproved: boolean; alarmsSuppressed?: boolean } }[]
   directUsers: { user: { id: string; firstName: string; lastName: string } }[]
   groupAnlagen: { group: { id: string; name: string } }[]
   erzeuger: {

@@ -224,6 +224,7 @@ const it = {
     statusTodo: 'Attività aperte',
     statusError: 'Errore',
     statusOffline: 'Offline',
+    statusSuppressed: 'Allarmi silenziati',
     searchPlaceholder: 'Cerca (nome, n. progetto, città, n. serie …)',
     sortName: 'Nome (A-Z)',
     sortProjectNumber: 'N. progetto',

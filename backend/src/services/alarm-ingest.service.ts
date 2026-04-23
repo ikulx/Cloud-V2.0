@@ -69,6 +69,18 @@ export async function handleAlarmMessage(
     console.warn(`[AlarmIngest] Unbekannte Seriennummer "${serial}" – Alarm ignoriert`)
     return
   }
+  // Safety-Net: Pi sollte bei Unterdrückung keine Alarme senden, aber
+  // falls doch einer durchrutscht: hier blockieren.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pAny = prisma as any
+  const suppressed = await pAny.device.findUnique({
+    where: { id: device.id },
+    select: { alarmsSuppressed: true },
+  })
+  if (suppressed?.alarmsSuppressed && state !== 'cleared') {
+    console.log(`[AlarmIngest] ${serial}/${alarmKey}: Gerät hat Alarme unterdrückt – ignoriert`)
+    return
+  }
 
   const anlageId = device.anlageDevices[0]?.anlageId ?? null
 

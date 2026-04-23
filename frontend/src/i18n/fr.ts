@@ -224,6 +224,7 @@ const fr = {
     statusTodo: 'Tâches ouvertes',
     statusError: 'Erreur',
     statusOffline: 'Hors ligne',
+    statusSuppressed: 'Alarmes supprimées',
     searchPlaceholder: 'Rechercher (nom, n° projet, lieu, n° de série …)',
     sortName: 'Nom (A-Z)',
     sortProjectNumber: 'N° projet',

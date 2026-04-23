@@ -19,9 +19,9 @@ export function initMqttService(io: SocketServer) {
 
   client.on('connect', () => {
     console.log(`[MQTT] Backend verbunden mit ${env.mqttUrl}`)
-    client!.subscribe(['yc/+/stat', 'yc/+/tele', 'yc/+/resp', 'yc/+/alarm'], (err) => {
+    client!.subscribe(['yc/+/stat', 'yc/+/tele', 'yc/+/resp', 'yc/+/alarm', 'yc/+/alarm-suppression'], (err) => {
       if (err) console.error('[MQTT] Subscribe Fehler:', err)
-      else console.log('[MQTT] Subscribed: yc/+/stat, yc/+/tele, yc/+/resp, yc/+/alarm')
+      else console.log('[MQTT] Subscribed: yc/+/{stat,tele,resp,alarm,alarm-suppression}')
     })
   })
 
@@ -49,6 +49,8 @@ export function initMqttService(io: SocketServer) {
         handleResp(serial, payload.toString(), io)
       } else if (type === 'alarm') {
         await handleAlarmMessage(serial, payload.toString(), io)
+      } else if (type === 'alarm-suppression') {
+        await handleSuppression(serial, payload.toString(), io)
       }
     } catch (err) {
       console.error('[MQTT] Fehler bei Topic %s:', topic, err)
@@ -241,6 +243,49 @@ export function clearRetainedMessages(serial: string): void {
     client.publish(`yc/${serial}/${suffix}`, '', { retain: true, qos: 1 })
   }
   console.log(`[MQTT] Retained Messages gelöscht für "${serial}"`)
+}
+
+/**
+ * Alarm-Suppression vom Pi entgegennehmen.
+ * Payload: entweder "1"/"0"/"true"/"false" oder JSON `{"suppressed": true}`.
+ * Bei suppressed=true setzt die Cloud das Flag auf dem Gerät und
+ * aktualisiert die abgeleiteten Anlagen-Anzeigen. Der Pi sendet
+ * während der Unterdrückung KEINE Alarme – die Cloud blockiert
+ * zusätzlich zur Sicherheit eingehende Alarm-Events in alarm-ingest.
+ */
+async function handleSuppression(serial: string, payload: string, io: SocketServer) {
+  let suppressed = false
+  const p = payload.trim()
+  if (p === '1' || p.toLowerCase() === 'true') suppressed = true
+  else if (p === '0' || p.toLowerCase() === 'false') suppressed = false
+  else {
+    try {
+      const obj = JSON.parse(p)
+      if (obj && typeof obj === 'object' && typeof obj.suppressed === 'boolean') suppressed = obj.suppressed
+    } catch { /* ignore */ }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pAny = prisma as any
+  const device = await pAny.device.findUnique({
+    where: { serialNumber: serial },
+    select: { id: true, alarmsSuppressed: true, anlageDevices: { select: { anlageId: true }, take: 1 } },
+  })
+  if (!device) return
+  if (device.alarmsSuppressed === suppressed) return // keine Änderung
+
+  await pAny.device.update({
+    where: { id: device.id },
+    data: {
+      alarmsSuppressed: suppressed,
+      alarmsSuppressedAt: suppressed ? new Date() : null,
+    },
+  })
+  console.log(`[MQTT] ${serial}: alarmsSuppressed = ${suppressed}`)
+  const anlageId = device.anlageDevices[0]?.anlageId
+  if (anlageId) {
+    io.to(`anlage:${anlageId}`).emit('device:suppression', { deviceId: device.id, suppressed })
+  }
 }
 
 export function publishCommand(serial: string, command: Record<string, unknown>): boolean {

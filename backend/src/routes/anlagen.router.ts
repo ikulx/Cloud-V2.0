@@ -118,6 +118,7 @@ const anlageSchema = z.object({
   hasBoiler: z.boolean().optional(),
   offlineMonitoringEnabled: z.boolean().optional(),
   alarmRateLimitMinutes: z.number().int().min(0).max(10080).optional(),
+  alarmBaseDelayMinutes: z.number().int().min(0).max(1440).optional(),
   contract: z.enum(['NONE', 'A', 'B', 'C']).optional(),
   deviceIds: z.array(z.string().uuid()).optional(),
   userIds: z.array(z.string().uuid()).optional(),
@@ -155,7 +156,7 @@ const todoInclude = {
 const logSchema = z.object({ message: z.string().min(1), photoUrls: photoUrlsSchema })
 
 const anlageInclude = {
-  anlageDevices: { include: { device: { select: { id: true, name: true, status: true, isApproved: true } } } },
+  anlageDevices: { include: { device: { select: { id: true, name: true, status: true, isApproved: true, alarmsSuppressed: true } as never } as never } },
   directUsers: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
   groupAnlagen: { include: { group: { select: { id: true, name: true } } } },
   erzeuger: {

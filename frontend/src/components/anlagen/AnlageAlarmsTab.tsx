@@ -169,6 +169,17 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
     updateAnlage.mutate({ alarmRateLimitMinutes: n })
   }
 
+  const baseDelay = anlage?.alarmBaseDelayMinutes ?? 10
+  const [baseDelayInput, setBaseDelayInput] = useState<string>(String(baseDelay))
+  useEffect(() => { setBaseDelayInput(String(baseDelay)) }, [baseDelay])
+  const saveBaseDelay = () => {
+    const n = parseInt(baseDelayInput, 10)
+    if (!Number.isFinite(n) || n < 0 || n > 1440) return
+    if (n === baseDelay) return
+    updateAnlage.mutate({ alarmBaseDelayMinutes: n })
+  }
+  const [baseDelayPopup, setBaseDelayPopup] = useState(false)
+
   return (
     <Stack gap={3}>
       {/* ── Kombinierte Admin-Karte: Offline + Versand-Limit (oben) + Interne Empfänger (unten) ── */}
@@ -197,6 +208,19 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
                 </Typography>
               </Box>
               <Button size="small" variant="outlined" onClick={() => setRateLimitPopup(true)}>
+                Verwalten
+              </Button>
+            </Stack>
+            <Divider flexItem orientation="vertical" sx={{ display: { xs: 'none', sm: 'block' } }} />
+            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+              <ScheduleIcon color="secondary" />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="subtitle2" fontWeight={600}>Grund-Verzögerung</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {baseDelay === 0 ? 'keine' : `+${baseDelay} min für externe Empfänger`}
+                </Typography>
+              </Box>
+              <Button size="small" variant="outlined" onClick={() => setBaseDelayPopup(true)}>
                 Verwalten
               </Button>
             </Stack>
@@ -342,6 +366,33 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { saveRateLimit(); setRateLimitPopup(false) }}>{t('anlageAlarms.close')}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Popup: Grund-Verzögerung ─────────────────────── */}
+      <Dialog open={baseDelayPopup} onClose={() => { saveBaseDelay(); setBaseDelayPopup(false) }} fullWidth maxWidth="sm">
+        <DialogTitle>Grund-Verzögerung</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Wird auf jeden externen Alarm-Empfänger dieser Anlage zusätzlich
+            zur individuellen Verzögerung addiert. Interne Empfänger
+            (Piketdienst, Ygnis PM) bleiben unberührt. Default 10 min.
+            0 = deaktiviert. Für Kunden nicht sichtbar.
+          </Typography>
+          <TextField
+            type="number"
+            label="Minuten"
+            size="small"
+            value={baseDelayInput}
+            onChange={(e) => setBaseDelayInput(e.target.value)}
+            onBlur={saveBaseDelay}
+            onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur() } }}
+            inputProps={{ min: 0, max: 1440, step: 1 }}
+            sx={{ width: 140 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { saveBaseDelay(); setBaseDelayPopup(false) }}>{t('anlageAlarms.close')}</Button>
         </DialogActions>
       </Dialog>
 

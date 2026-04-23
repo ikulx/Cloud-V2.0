@@ -319,6 +319,9 @@ model Anlage {
   /// aber NICHT versendet (Deliveries = SKIPPED, Grund "rate_limited").
   /// Default 60 = max. 1 Meldung pro Stunde.
   alarmRateLimitMinutes    Int     @default(60) @map("alarm_rate_limit_minutes")
+  /// Grund-Verzögerung in Minuten, die auf jeden externen (nicht-Template)
+  /// Empfänger dieser Anlage addiert wird. Default 10. Für Kunden nicht sichtbar.
+  alarmBaseDelayMinutes    Int     @default(10) @map("alarm_base_delay_minutes")
   /// Vertragsstufe. NONE + A: Piketdienst/Ygnis PM standardmässig deaktiviert.
   /// B + C: Piketdienst/Ygnis PM standardmässig aktiv. In den Alarm-
   /// einstellungen kann das pro Anlage manuell übersteuert werden.
@@ -428,6 +431,12 @@ model Device {
   hasConflict           Boolean @default(false) @map("has_conflict")
   requestedSerialNumber String? @map("requested_serial_number")
   status          DeviceStatus @default(UNKNOWN)
+  /// Wenn true, hat der Benutzer auf der Visu alle Alarme dieses Geräts
+  /// unterdrückt (Kundentermin etc.). Der Pi sendet dann KEINE Alarme an
+  /// die Cloud; die Cloud setzt das Flag nur, damit die Oberfläche den
+  /// Zustand sichtbar macht.
+  alarmsSuppressed Boolean     @default(false) @map("alarms_suppressed")
+  alarmsSuppressedAt DateTime? @map("alarms_suppressed_at")
   isApproved      Boolean      @default(false) @map("is_approved")
   lastSeen        DateTime?    @map("last_seen")
   piSerial        String?      @map("pi_serial")
