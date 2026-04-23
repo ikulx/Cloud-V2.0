@@ -419,7 +419,12 @@ async function runRestorePush(
         const req = http.request({
           host: piIp, port, method: 'POST',
           path: `/restore?token=${encodeURIComponent(token)}`,
-          headers: { 'Content-Type': 'application/gzip', 'Transfer-Encoding': 'chunked' },
+          // KEIN Transfer-Encoding-Header setzen – Node macht das automatisch
+          // wenn weder Content-Length noch Transfer-Encoding gesetzt sind.
+          // Würden wir es selbst setzen, schickte Node die Bytes ungeframed,
+          // der Pi-Parser würde nur den ersten "Chunk-Header" lesen und den
+          // Rest verlieren → Restore wäre unvollständig.
+          headers: { 'Content-Type': 'application/gzip' },
           timeout: PI_TRANSFER_TIMEOUT_MS,
         }, (response) => {
           let body = ''

@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC25"  # SQLite-Write mit INSERT-Fallback (verhindert PN-Loop nach Restore)
+AGENT_VERSION = "1.0.0-RC26"  # Restore: compose stop/start + Fehler statt silent
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -168,8 +168,9 @@ def _compose_cmd(compose_file, *args):
 
 def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_id):
     """Bindet :port, wartet auf einen POST /restore?token=…, stoppt das
-    Compose-Projekt (docker compose -f compose_file down), entpackt den Body
-    nach extract_to und startet das Compose-Projekt wieder (up -d)."""
+    Compose-Projekt (docker compose -f compose_file stop) damit die Visu
+    nicht in die Daten schreibt während wir entpacken, entpackt den Body
+    nach extract_to und startet die Container wieder (start)."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", port))
@@ -190,9 +191,13 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
             return "Token ungültig"
         chunked = headers.get("transfer-encoding", "").lower() == "chunked"
         content_length = int(headers.get("content-length", "0") or 0) if not chunked else None
-        # Compose-Stack stoppen (down = Container + Netze entfernen, Volumes
-        # bleiben, weil wir sie ja gerade per Restore befüllen).
-        subprocess.run(_compose_cmd(compose_file, "down"), capture_output=True, timeout=180)
+        # Container stoppen, BEVOR wir entpacken – sonst schreibt die Visu
+        # weiter in die SQLite, während wir sie überschreiben. compose stop ist
+        # sanfter als compose down (Container bleiben, nur Prozesse weg).
+        print("[YControl] Restore: stoppe Compose-Stack...")
+        stop_res = subprocess.run(_compose_cmd(compose_file, "stop"), capture_output=True, text=True, timeout=180)
+        if stop_res.returncode != 0:
+            return "compose stop fehlgeschlagen: " + (stop_res.stderr or stop_res.stdout)[:300]
         os.makedirs(extract_to, exist_ok=True)
         proc = subprocess.Popen(["tar", "-xzf", "-", "-C", extract_to], stdin=subprocess.PIPE)
 
@@ -229,12 +234,16 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
             proc.stdin.close()
             proc.wait()
         if proc.returncode != 0:
-            # Compose trotzdem wieder hochziehen, damit Visu nicht offline bleibt.
-            subprocess.run(_compose_cmd(compose_file, "up", "-d"), capture_output=True, timeout=300)
+            # Container trotzdem wieder hochziehen, damit Visu nicht offline bleibt.
+            subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, timeout=300)
             conn.sendall(b"HTTP/1.1 500 Internal Server Error\\r\\nContent-Length: 0\\r\\n\\r\\n")
             return "tar exit=" + str(proc.returncode)
-        # Compose-Stack wieder starten.
-        subprocess.run(_compose_cmd(compose_file, "up", "-d"), capture_output=True, timeout=300)
+        # Container wieder starten (Container existieren noch von vorhin, da wir
+        # nur stop statt down gemacht haben).
+        print("[YControl] Restore: starte Compose-Stack wieder...")
+        start_res = subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, text=True, timeout=300)
+        if start_res.returncode != 0:
+            return "compose start fehlgeschlagen: " + (start_res.stderr or start_res.stdout)[:300]
         conn.sendall(b"HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\n\\r\\nok")
         return "ok"
     finally:
