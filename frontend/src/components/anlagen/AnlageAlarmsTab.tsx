@@ -44,6 +44,8 @@ import {
 import { useAnlage, useUpdateAnlage } from '../../features/anlagen/queries'
 import { useSession } from '../../context/SessionContext'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
+import { getSocket } from '../../lib/socket'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import LockIcon from '@mui/icons-material/Lock'
 import { ScheduleEditor } from './ScheduleEditor'
@@ -123,6 +125,22 @@ export function AnlageAlarmsTab({ anlageId }: Props) {
   const { data: history = [], isLoading: hLoading } = useAlarmEvents({
     anlageId, status: 'ALL', limit: 50,
   })
+
+  // Live-Push: Socket.IO empfängt alarm:new / alarm:cleared für diese Anlage
+  // und invalidiert die Events-Queries → UI aktualisiert sofort ohne Reload.
+  const qc = useQueryClient()
+  useEffect(() => {
+    if (!anlageId) return
+    const s = getSocket()
+    const invalidate = () => qc.invalidateQueries({ queryKey: ['alarms', 'events'] })
+    s.emit('subscribe:anlage', anlageId)
+    s.on('alarm:new', invalidate)
+    s.on('alarm:cleared', invalidate)
+    return () => {
+      s.off('alarm:new', invalidate)
+      s.off('alarm:cleared', invalidate)
+    }
+  }, [anlageId, qc])
 
   // Split extern / intern. Nicht-Admins bekommen intern schon vom Backend
   // gefiltert, aber UI zeigt auch im Frontend keinen Abschnitt.

@@ -4,7 +4,7 @@ import { env } from '../config/env'
 import { verifyAccessToken } from '../lib/token'
 import { getUserAccessContext } from '../services/user-context.service'
 import { prisma } from '../db/prisma'
-import { buildVisibleDevicesWhere } from '../lib/access-filter'
+import { buildVisibleDevicesWhere, buildVisibleAnlagenWhere } from '../lib/access-filter'
 
 export function createSocketServer(httpServer: HttpServer): SocketServer {
   const io = new SocketServer(httpServer, {
@@ -54,6 +54,16 @@ export function createSocketServer(httpServer: HttpServer): SocketServer {
       await socket.join(`device:${device.id}`)
     }
 
+    // Auto-join Anlage-Rooms für Alarm-Events (alarm:new, alarm:cleared).
+    const anlageWhere = buildVisibleAnlagenWhere(user)
+    const visibleAnlagen = await prisma.anlage.findMany({
+      where: anlageWhere,
+      select: { id: true },
+    })
+    for (const anlage of visibleAnlagen) {
+      await socket.join(`anlage:${anlage.id}`)
+    }
+
     // Client can request additional subscriptions
     socket.on('subscribe:device', async (deviceId: string) => {
       const where = buildVisibleDevicesWhere(user)
@@ -64,6 +74,18 @@ export function createSocketServer(httpServer: HttpServer): SocketServer {
       if (device) {
         await socket.join(`device:${device.id}`)
         socket.emit('subscribed:device', deviceId)
+      }
+    })
+
+    socket.on('subscribe:anlage', async (anlageId: string) => {
+      const where = buildVisibleAnlagenWhere(user)
+      const anlage = await prisma.anlage.findFirst({
+        where: { id: anlageId, ...where },
+        select: { id: true },
+      })
+      if (anlage) {
+        await socket.join(`anlage:${anlage.id}`)
+        socket.emit('subscribed:anlage', anlageId)
       }
     })
 
