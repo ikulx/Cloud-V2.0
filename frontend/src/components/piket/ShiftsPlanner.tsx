@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import Stack from '@mui/material/Stack'
@@ -134,20 +134,23 @@ export function ShiftsPlanner() {
 
   // Selection: Set von "regionId|YYYY-MM-DD"
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [lastClicked, setLastClicked] = useState<{ regionId: string; dateKey: string; yearIdx: number } | null>(null)
+  // lastClicked als Ref – ändert sich nicht, deshalb braucht es kein Re-Render.
+  const lastClickedRef = useRef<{ regionId: string; dateKey: string; yearIdx: number } | null>(null)
 
-  const toggle = (regionId: string, dateKey: string, yearIdx: number, shiftKey: boolean) => {
+  // Stabiler Callback (gleiche Referenz über Re-Renders), damit memoisierte
+  // Cell-Komponenten beim Klick nicht alle neu zeichnen.
+  const toggle = useCallback((regionId: string, dateKey: string, yearIdx: number, shiftKey: boolean) => {
+    const lc = lastClickedRef.current
     setSelected((prev) => {
       const next = new Set(prev)
       const k = `${regionId}|${dateKey}`
-      if (shiftKey && lastClicked && lastClicked.regionId === regionId && lastClicked.yearIdx === yearIdx) {
-        // Bereichsselektion in derselben Spalte/Jahr
-        const from = lastClicked.dateKey < dateKey ? lastClicked.dateKey : dateKey
-        const to   = lastClicked.dateKey < dateKey ? dateKey : lastClicked.dateKey
-        const days = daysOfYear(years[yearIdx])
-        for (const d of days) {
+      if (shiftKey && lc && lc.regionId === regionId && lc.yearIdx === yearIdx) {
+        const fromK = lc.dateKey < dateKey ? lc.dateKey : dateKey
+        const toK   = lc.dateKey < dateKey ? dateKey : lc.dateKey
+        const ds = daysOfYear(years[yearIdx])
+        for (const d of ds) {
           const dk = dayKey(d)
-          if (dk >= from && dk <= to && !isPast(d)) next.add(`${regionId}|${dk}`)
+          if (dk >= fromK && dk <= toK && !isPast(d)) next.add(`${regionId}|${dk}`)
         }
       } else if (next.has(k)) {
         next.delete(k)
@@ -156,10 +159,10 @@ export function ShiftsPlanner() {
       }
       return next
     })
-    setLastClicked({ regionId, dateKey, yearIdx })
-  }
+    lastClickedRef.current = { regionId, dateKey, yearIdx }
+  }, [years])
 
-  const clearSelection = () => setSelected(new Set())
+  const clearSelection = useCallback(() => setSelected(new Set()), [])
 
   const bulk = useBulkPiketShifts()
   const [targetUserId, setTargetUserId] = useState<string>('')
@@ -383,39 +386,29 @@ function YearTable({
                   <TableCell sx={{
                     position: 'sticky', left: 0, zIndex: 1,
                     bgcolor: isToday ? 'primary.dark' : weekend ? 'action.hover' : 'background.paper',
-                    color: isToday ? 'primary.contrastText' : undefined,
+                    color: isToday ? '#fff' : undefined,
                     fontFamily: 'monospace', fontSize: 12,
                     fontWeight: isToday ? 600 : undefined,
                   }}>
                     {fmtDate(d)}
                   </TableCell>
-                  <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>{kw}</TableCell>
+                  <TableCell sx={{ fontSize: 12, color: isToday ? '#fff' : 'text.secondary' }}>{kw}</TableCell>
                   {regions.map((r) => {
                     const key = `${r.id}|${dk}`
                     const s = shiftIndex.get(key)
                     const u = s ? userMap.get(s.userId) : null
-                    const isSelected = selected.has(key)
+                    const label = u ? `${u.lastName} - ${u.firstName}` : ''
                     return (
-                      <TableCell
+                      <Cell
                         key={r.id}
-                        onClick={(e) => {
-                          if (past) return
-                          onToggle(r.id, dk, yearIdx, e.shiftKey)
-                        }}
-                        sx={{
-                          cursor: past ? 'not-allowed' : 'pointer',
-                          userSelect: 'none',
-                          bgcolor: isSelected ? 'primary.dark' : undefined,
-                          color: isSelected ? 'primary.contrastText' : undefined,
-                          fontSize: 13,
-                          whiteSpace: 'nowrap',
-                          borderLeft: isSelected ? '2px solid' : undefined,
-                          borderLeftColor: isSelected ? 'primary.main' : undefined,
-                          '&:hover': past ? undefined : { bgcolor: isSelected ? 'primary.main' : 'action.selected' },
-                        }}
-                      >
-                        {u ? `${u.lastName} - ${u.firstName}` : <span style={{ opacity: 0.4 }}>—</span>}
-                      </TableCell>
+                        regionId={r.id}
+                        dateKey={dk}
+                        yearIdx={yearIdx}
+                        isSelected={selected.has(key)}
+                        isPast={past}
+                        label={label}
+                        onClick={onToggle}
+                      />
                     )
                   })}
                 </TableRow>
@@ -428,3 +421,40 @@ function YearTable({
     </Paper>
   )
 }
+
+// Memoisierte Zelle: rendert nur neu, wenn isSelected, label, isPast oder
+// onClick sich tatsächlich ändern. Dadurch wird beim Klick auf eine Zelle
+// nur diese eine + die vorher selektierte Zelle neu gerendert (statt aller
+// 6'000 Zellen pro Jahres-Tabelle).
+interface CellProps {
+  regionId: string
+  dateKey: string
+  yearIdx: number
+  isSelected: boolean
+  isPast: boolean
+  label: string
+  onClick: (regionId: string, dateKey: string, yearIdx: number, shiftKey: boolean) => void
+}
+const Cell = memo(function Cell({ regionId, dateKey, yearIdx, isSelected, isPast, label, onClick }: CellProps) {
+  return (
+    <TableCell
+      onClick={(e) => {
+        if (isPast) return
+        onClick(regionId, dateKey, yearIdx, e.shiftKey)
+      }}
+      sx={{
+        cursor: isPast ? 'not-allowed' : 'pointer',
+        userSelect: 'none',
+        bgcolor: isSelected ? 'primary.dark' : undefined,
+        color: isSelected ? '#fff' : undefined,
+        fontSize: 13,
+        whiteSpace: 'nowrap',
+        borderLeft: isSelected ? '2px solid' : undefined,
+        borderLeftColor: isSelected ? 'primary.main' : undefined,
+        '&:hover': isPast ? undefined : { bgcolor: isSelected ? 'primary.main' : 'action.selected' },
+      }}
+    >
+      {label || <span style={{ opacity: 0.4 }}>—</span>}
+    </TableCell>
+  )
+})
