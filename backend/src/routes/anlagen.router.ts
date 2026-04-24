@@ -137,6 +137,7 @@ const todoSchema = z.object({
   assignedUserIds: z.array(z.string().uuid()).optional(),
   assignedGroupIds: z.array(z.string().uuid()).optional(),
   photoUrls: photoUrlsSchema,
+  notifyAssignees: z.boolean().optional(),
 })
 const todoUpdateSchema = z.object({
   title: z.string().min(1).optional(),
@@ -146,6 +147,7 @@ const todoUpdateSchema = z.object({
   assignedUserIds: z.array(z.string().uuid()).optional(),
   assignedGroupIds: z.array(z.string().uuid()).optional(),
   photoUrls: photoUrlsSchema,
+  notifyAssignees: z.boolean().optional(),
 })
 
 const todoInclude = {
@@ -414,7 +416,7 @@ router.delete('/:id', authenticate, requirePermission('anlagen:delete'), async (
 router.post('/:id/todos', authenticate, requirePermission('todos:create'), async (req, res) => {
   const parsed = todoSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
-  const { assignedUserIds, assignedGroupIds, dueDate, photoUrls, ...base } = parsed.data
+  const { assignedUserIds, assignedGroupIds, dueDate, photoUrls, notifyAssignees, ...base } = parsed.data
   if ((assignedUserIds?.length ?? 0) === 0 && (assignedGroupIds?.length ?? 0) === 0) {
     res.status(400).json({ message: 'Mindestens ein Benutzer oder eine Gruppe muss zugewiesen werden.' })
     return
@@ -426,6 +428,7 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
         ...base,
         dueDate: dueDate ? new Date(dueDate) : null,
         photoUrls: photoUrls ?? [],
+        notifyAssignees: notifyAssignees ?? false,
         createdById: req.user!.userId,
         assignedUsers: assignedUserIds?.length
           ? { create: assignedUserIds.map((userId) => ({ userId })) } : undefined,
@@ -442,6 +445,15 @@ router.post('/:id/todos', authenticate, requirePermission('todos:create'), async
       },
     }),
   ])
+
+  // Sofort-Benachrichtigung im Hintergrund anstossen (best-effort, blockt
+  // den Response nicht). Der Scheduler übernimmt später den 24h-Reminder.
+  if (notifyAssignees) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { notifyOnCreate } = await import('../services/todo-notifications.service')
+    void notifyOnCreate(todo.id)
+  }
+
   res.status(201).json(todo)
 })
 

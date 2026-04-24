@@ -32,6 +32,7 @@ export function TodoEditDialog({ open, anlageId, todo, onClose, onSave }: Props)
         userIds: todo.assignedUsers.map((u) => u.user.id),
         groupIds: todo.assignedGroups.map((g) => g.group.id),
         photoUrls: todo.photoUrls ?? [],
+        notifyAssignees: todo.notifyAssignees ?? false,
       })
       setError(null)
     }

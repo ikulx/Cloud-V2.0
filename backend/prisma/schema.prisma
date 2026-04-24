@@ -265,6 +265,10 @@ model UserGroup {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
   description String?
+  /// Optionale gemeinsame Gruppen-Mail-Adresse. Wenn gesetzt, erhalten
+  /// Todo-Benachrichtigungen an diese Gruppe NUR diese eine Adresse
+  /// (z.B. eine Verteiler-Liste im Mail-System), nicht jeder Member einzeln.
+  email       String?
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -545,6 +549,13 @@ model AnlageTodo {
   /// Optionaler Fälligkeits-Termin – wird im Todo-Überblick zur Sortierung
   /// und für Überfällig-Kennzeichnung genutzt.
   dueDate         DateTime?  @map("due_date")
+  /// Wenn true, werden die zugewiesenen User/Gruppen per E-Mail informiert:
+  /// - beim Erstellen des Todos (sofort)
+  /// - 24h vor dueDate (Reminder, max 1x pro Todo via dueReminderSentAt)
+  notifyAssignees     Boolean   @default(false) @map("notify_assignees")
+  /// Timestamp wann der 24h-Vorfrist-Reminder rausging, damit der Scheduler
+  /// nicht mehrfach Mails sendet.
+  dueReminderSentAt   DateTime? @map("due_reminder_sent_at")
   /// URLs angehängter Fotos (werden client-seitig komprimiert und in
   /// /uploads/photos/ gespeichert). Leeres Array = kein Foto.
   photoUrls       String[]   @default([]) @map("photo_urls")

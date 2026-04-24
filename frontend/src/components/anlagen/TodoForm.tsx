@@ -2,6 +2,10 @@ import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
 import Autocomplete from '@mui/material/Autocomplete'
 import Chip from '@mui/material/Chip'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Checkbox from '@mui/material/Checkbox'
+import Tooltip from '@mui/material/Tooltip'
+import NotificationsIcon from '@mui/icons-material/Notifications'
 import { useUsers } from '../../features/users/queries'
 import { useGroups } from '../../features/groups/queries'
 import { PhotoUploadField } from './PhotoUploadField'
@@ -13,10 +17,11 @@ export interface TodoFormValue {
   userIds: string[]
   groupIds: string[]
   photoUrls: string[]
+  notifyAssignees: boolean
 }
 
 export const EMPTY_TODO_FORM: TodoFormValue = {
-  title: '', details: '', dueDate: '', userIds: [], groupIds: [], photoUrls: [],
+  title: '', details: '', dueDate: '', userIds: [], groupIds: [], photoUrls: [], notifyAssignees: false,
 }
 
 interface Props {
@@ -119,6 +124,24 @@ export function TodoForm({ value, onChange, onSubmitHint, disabled, compact }: P
         onChange={(urls) => onChange({ ...value, photoUrls: urls })}
         disabled={disabled}
       />
+      <Tooltip
+        placement="right"
+        title="Bei Erstellen geht eine E-Mail an die zugewiesenen User / Gruppen. 24h vor Fälligkeit kommt zusätzlich ein Reminder. Bei Gruppen mit hinterlegter Gruppen-Mail geht die Nachricht nur an diese Adresse, sonst an alle Member."
+      >
+        <FormControlLabel
+          control={
+            <Checkbox
+              size="small"
+              checked={value.notifyAssignees}
+              onChange={(e) => onChange({ ...value, notifyAssignees: e.target.checked })}
+              disabled={disabled}
+              icon={<NotificationsIcon fontSize="small" color="disabled" />}
+              checkedIcon={<NotificationsIcon fontSize="small" color="primary" />}
+            />
+          }
+          label="Zugewiesene per E-Mail benachrichtigen (+ Reminder 24h vor Fälligkeit)"
+        />
+      </Tooltip>
     </Box>
   )
 }
@@ -131,6 +154,7 @@ export function todoFormToPayload(v: TodoFormValue): {
   assignedUserIds: string[]
   assignedGroupIds: string[]
   photoUrls: string[]
+  notifyAssignees: boolean
 } {
   return {
     title: v.title.trim(),
@@ -140,5 +164,6 @@ export function todoFormToPayload(v: TodoFormValue): {
     assignedUserIds: v.userIds,
     assignedGroupIds: v.groupIds,
     photoUrls: v.photoUrls,
+    notifyAssignees: v.notifyAssignees,
   }
 }

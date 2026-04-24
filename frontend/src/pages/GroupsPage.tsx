@@ -33,7 +33,7 @@ import { usePermission } from '../hooks/usePermission'
 import { useTranslation } from 'react-i18next'
 import type { UserGroup } from '../types/model'
 
-const EMPTY_FORM = { name: '', description: '' }
+const EMPTY_FORM = { name: '', description: '', email: '' }
 const EMPTY_ASSIGN = { userIds: [] as string[], anlageIds: [] as string[], deviceIds: [] as string[] }
 
 export function GroupsPage() {
@@ -70,7 +70,7 @@ export function GroupsPage() {
 
   const openEdit = (g: UserGroup) => {
     setEditGroup(g)
-    setForm({ name: g.name, description: g.description ?? '' })
+    setForm({ name: g.name, description: g.description ?? '', email: g.email ?? '' })
     setAssign({
       userIds: g.members.map((m) => m.user.id),
       anlageIds: g.groupAnlagen.map((a) => a.anlage.id),
@@ -159,6 +159,15 @@ export function GroupsPage() {
               <Box display="flex" flexDirection="column" gap={2}>
                 <TextField label={t('common.name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} fullWidth required />
                 <TextField label={t('common.description')} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} fullWidth multiline rows={3} />
+                <TextField
+                  label={t('groups.email', 'Gruppen-E-Mail')}
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  fullWidth
+                  placeholder="team@beispiel.ch"
+                  helperText={t('groups.emailHint', 'Wenn gesetzt, gehen Todo-Benachrichtigungen NUR an diese Adresse (Verteiler), sonst an jeden Member einzeln.')}
+                />
               </Box>
             )}
 

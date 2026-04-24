@@ -36,6 +36,8 @@ export interface UserGroup {
   id: string
   name: string
   description: string | null
+  /** Optionale gemeinsame Gruppen-Mail für Todo-Benachrichtigungen. */
+  email: string | null
   members: { user: { id: string; firstName: string; lastName: string; email: string } }[]
   groupAnlagen: { anlage: { id: string; name: string } }[]
   groupDevices: { device: { id: string; name: string } }[]
@@ -146,6 +148,8 @@ export interface AnlageTodo {
   status: TodoStatus
   dueDate: string | null
   photoUrls: string[]
+  notifyAssignees: boolean
+  dueReminderSentAt: string | null
   createdBy: { id: string; firstName: string; lastName: string }
   assignedUsers: { user: { id: string; firstName: string; lastName: string; email: string } }[]
   assignedGroups: { group: { id: string; name: string } }[]

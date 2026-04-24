@@ -9,6 +9,10 @@ const router = Router()
 const groupSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().optional(),
+  /// Optionale gemeinsame Gruppen-Mail. Wenn gesetzt, bekommt die Gruppe
+  /// Todo-Benachrichtigungen NUR an diese Adresse (Verteiler-Liste),
+  /// nicht jeder Member einzeln.
+  email: z.string().email().max(200).optional().nullable().or(z.literal('')),
   userIds: z.array(z.string().uuid()).optional(),
   anlageIds: z.array(z.string().uuid()).optional(),
   deviceIds: z.array(z.string().uuid()).optional(),
@@ -39,10 +43,11 @@ router.post('/', authenticate, requirePermission('groups:create'), async (req, r
   const parsed = groupSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
 
-  const { userIds, anlageIds, deviceIds, ...data } = parsed.data
+  const { userIds, anlageIds, deviceIds, email, ...data } = parsed.data
   const group = await prisma.userGroup.create({
     data: {
       ...data,
+      email: email && email.trim() ? email.trim() : null,
       members: userIds ? { create: userIds.map((userId) => ({ userId })) } : undefined,
       groupAnlagen: anlageIds ? { create: anlageIds.map((anlageId) => ({ anlageId })) } : undefined,
       groupDevices: deviceIds ? { create: deviceIds.map((deviceId) => ({ deviceId })) } : undefined,
@@ -57,11 +62,12 @@ router.patch('/:id', authenticate, requirePermission('groups:update'), async (re
   const parsed = groupSchema.partial().safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe', errors: parsed.error.flatten() }); return }
 
-  const { userIds, anlageIds, deviceIds, ...data } = parsed.data
+  const { userIds, anlageIds, deviceIds, email, ...data } = parsed.data
   const group = await prisma.userGroup.update({
     where: { id: req.params.id as string },
     data: {
       ...data,
+      ...(email !== undefined && { email: email && email.trim() ? email.trim() : null }),
       ...(userIds !== undefined && {
         members: { deleteMany: {}, create: userIds.map((userId) => ({ userId })) },
       }),
