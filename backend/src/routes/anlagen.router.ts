@@ -515,11 +515,12 @@ router.post('/:id/logs', authenticate, requirePermission('logbook:create'), asyn
   res.status(201).json(log)
 })
 
-// GET /api/anlagen/:id/photos – alle Fotos aus Todos und Logs der Anlage,
-// flach, mit Caption (= Titel des Todos bzw. Message des Logs).
+// GET /api/anlagen/:id/photos – alle Fotos der Anlage: Standalone-Uploads
+// + Fotos aus Todos/Logs, flach gemischt und nach Datum sortiert. Caption
+// ist der vom Uploader gesetzte Text bzw. der Todo-Titel / die Log-Message.
 router.get('/:id/photos', authenticate, requirePermission('anlagen:read'), async (req, res) => {
   const anlageId = req.params.id as string
-  const [todos, logs] = await Promise.all([
+  const [todos, logs, photos] = await Promise.all([
     prisma.anlageTodo.findMany({
       where: { anlageId, photoUrls: { isEmpty: false } },
       include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
@@ -530,11 +531,17 @@ router.get('/:id/photos', authenticate, requirePermission('anlagen:read'), async
       include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
       orderBy: { createdAt: 'desc' },
     }),
+    prisma.anlagePhoto.findMany({
+      where: { anlageId },
+      include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' },
+    }),
   ])
   const out: Array<{
+    id?: string
     url: string
     caption: string
-    source: 'todo' | 'log'
+    source: 'todo' | 'log' | 'photo'
     sourceId: string
     createdAt: Date
     createdBy: { id: string; firstName: string; lastName: string }
@@ -549,8 +556,51 @@ router.get('/:id/photos', authenticate, requirePermission('anlagen:read'), async
       out.push({ url, caption: l.message, source: 'log', sourceId: l.id, createdAt: l.createdAt, createdBy: l.createdBy })
     }
   }
+  for (const p of photos) {
+    out.push({
+      id: p.id, url: p.url, caption: p.caption ?? '', source: 'photo',
+      sourceId: p.id, createdAt: p.createdAt, createdBy: p.createdBy,
+    })
+  }
   out.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   res.json(out)
+})
+
+// POST /api/anlagen/:id/photos – Standalone-Upload (URL stammt aus dem
+// generischen /api/uploads/photo-Endpoint, hier wird nur der Metadaten-
+// Record angelegt).
+const anlagePhotoSchema = z.object({
+  url: z.string().min(1).max(500),
+  caption: z.string().max(500).optional().nullable(),
+})
+router.post('/:id/photos', authenticate, requirePermission('anlagen:update'), async (req, res) => {
+  const parsed = anlagePhotoSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+  const anlageId = req.params.id as string
+  const anlage = await prisma.anlage.findUnique({ where: { id: anlageId }, select: { id: true } })
+  if (!anlage) { res.status(404).json({ message: 'Anlage nicht gefunden' }); return }
+  const photo = await prisma.anlagePhoto.create({
+    data: {
+      anlageId,
+      url: parsed.data.url,
+      caption: parsed.data.caption || null,
+      createdById: req.user!.userId,
+    },
+    include: { createdBy: { select: { id: true, firstName: true, lastName: true } } },
+  })
+  res.status(201).json(photo)
+})
+
+// DELETE /api/anlagen/:id/photos/:photoId – löscht nur den DB-Record.
+// Die physische Datei in /app/uploads bleibt (könnte noch in Todos/Logs
+// referenziert sein; bereinigen macht ein separater Garbage-Collector).
+router.delete('/:id/photos/:photoId', authenticate, requirePermission('anlagen:update'), async (req, res) => {
+  const anlageId = req.params.id as string
+  const photoId = req.params.photoId as string
+  const photo = await prisma.anlagePhoto.findUnique({ where: { id: photoId } })
+  if (!photo || photo.anlageId !== anlageId) { res.status(404).json({ message: 'Foto nicht gefunden' }); return }
+  await prisma.anlagePhoto.delete({ where: { id: photoId } })
+  res.json({ ok: true })
 })
 
 export default router

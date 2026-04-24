@@ -116,6 +116,7 @@ model User {
   vpnPeers         VpnPeer[]
 
   createdAnlageTodos  AnlageTodo[]     @relation("AnlageTodoAuthor")
+  createdAnlagePhotos AnlagePhoto[]    @relation("AnlagePhotoAuthor")
   assignedAnlageTodos AnlageTodoUser[] @relation("AnlageTodoAssignee")
   createdAnlageLogs   AnlageLogEntry[] @relation("AnlageLogAuthor")
   createdDeviceTodos  DeviceTodo[]     @relation("DeviceTodoAuthor")
@@ -334,6 +335,7 @@ model Anlage {
   groupAnlagen  GroupAnlage[]
   todos         AnlageTodo[]
   logEntries    AnlageLogEntry[]
+  photos        AnlagePhoto[]
   vpnAnlage     VpnAnlage?
   erzeuger      AnlageErzeuger[]
   alarmRecipients AlarmRecipient[]
@@ -581,6 +583,23 @@ model AnlageTodoGroup {
   @@id([todoId, groupId])
   @@index([groupId])
   @@map("anlage_todo_groups")
+}
+
+/// Standalone-Foto an einer Anlage, unabhängig von Todos oder Log-Einträgen.
+/// Wird im Photos-Tab der Anlage-Detail-Seite angezeigt, zusammen mit den
+/// Fotos die aus Todos/Logs kommen.
+model AnlagePhoto {
+  id          String   @id @default(uuid()) @db.Uuid
+  anlageId    String   @map("anlage_id") @db.Uuid
+  url         String
+  caption     String?
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  anlage      Anlage   @relation(fields: [anlageId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("AnlagePhotoAuthor", fields: [createdById], references: [id])
+
+  @@index([anlageId, createdAt])
+  @@map("anlage_photos")
 }
 
 model AnlageLogEntry {

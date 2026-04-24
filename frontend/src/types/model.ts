@@ -175,9 +175,11 @@ export interface AnlageLogEntry {
 }
 
 export interface AnlagePhoto {
+  /** DB-ID nur bei source='photo' gesetzt (Standalone-Uploads, löschbar). */
+  id?: string
   url: string
   caption: string
-  source: 'todo' | 'log'
+  source: 'todo' | 'log' | 'photo'
   sourceId: string
   createdAt: string
   createdBy: { id: string; firstName: string; lastName: string }
