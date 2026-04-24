@@ -91,7 +91,8 @@
       "Bash(python -m py_compile D:/tmp/agent-real2.py)",
       "Bash(grep -iE \"docker|build|\\\\.yml$|\\\\.yaml$|\\\\.sh$\")",
       "Bash(python -m py_compile D:/tmp/agent-rc37.py)",
-      "Bash(python -m py_compile D:/tmp/agent-rc38.py)"
+      "Bash(python -m py_compile D:/tmp/agent-rc38.py)",
+      "Bash(grep -n \"</Box>$\\\\|</Card>\\\\s*$\" \"D:/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0/frontend/src/components/settings/BackupTargetsSettings.tsx\")"
     ]
   }
 }

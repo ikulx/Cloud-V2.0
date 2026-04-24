@@ -22,8 +22,12 @@ RUN npx tsc -p tsconfig.seed.json
 FROM node:20-alpine
 WORKDIR /app
 
-# OpenSSL installieren – Prisma Schema-Engine benötigt es auf Alpine
-RUN apk add --no-cache openssl
+# OpenSSL: Prisma Schema-Engine braucht's auf Alpine.
+# postgresql16-client: pg_dump für die Cloud-DB-Backups (siehe
+# services/cloud-backup.service.ts). Die Major-Version MUSS zur
+# Postgres-Server-Version passen – Alpine liefert hier nur 16, der
+# Compose-Stack nutzt Postgres 16 (docker-compose.prod.yml).
+RUN apk add --no-cache openssl postgresql16-client
 
 # Nur was gebraucht wird
 COPY --from=deps  /app/node_modules              ./node_modules

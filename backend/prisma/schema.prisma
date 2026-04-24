@@ -724,6 +724,27 @@ model DeviceBackup {
   @@map("device_backups")
 }
 
+/// Backup der Cloud-Postgres-DB als pg_dump (Custom-Format).
+/// Wird periodisch (Cron) oder manuell über das Admin-UI erstellt,
+/// landet auf demselben Swift-Target wie die Geräte-Backups, aber unter
+/// einem separaten Objekt-Prefix (`cloud/...`).
+model CloudBackup {
+  id             String              @id @default(uuid()) @db.Uuid
+  objectKey      String              @map("object_key")
+  sizeBytes      BigInt?             @map("size_bytes")
+  status         DeviceBackupStatus  @default(PENDING)
+  errorMessage   String?             @map("error_message")
+  /// 'manual' (UI-Button) oder 'auto' (Scheduler)
+  trigger        String              @default("manual")
+  createdById    String?             @map("created_by_id") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at")
+  completedAt    DateTime?           @map("completed_at")
+
+  @@index([createdAt])
+  @@index([status])
+  @@map("cloud_backups")
+}
+
 // ─── System Settings ──────────────────────────────────────────────────────────
 
 model SystemSetting {

@@ -20,6 +20,7 @@ import alarmsRouter from './alarms.router'
 import internalAlarmTemplatesRouter from './internal-alarm-templates.router'
 import holidaysRouter from './holidays.router'
 import piketRouter from './piket.router'
+import cloudBackupsRouter from './cloud-backups.router'
 
 const router = Router()
 
@@ -48,5 +49,6 @@ router.use('/alarms', alarmsRouter)
 router.use('/alarms/internal-templates', internalAlarmTemplatesRouter)
 router.use('/alarms/holidays', holidaysRouter)
 router.use('/piket', piketRouter)
+router.use('/cloud-backups', cloudBackupsRouter)
 
 export default router

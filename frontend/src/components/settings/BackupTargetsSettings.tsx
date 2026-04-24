@@ -12,6 +12,7 @@ import Stack from '@mui/material/Stack'
 import { useTranslation } from 'react-i18next'
 import { useSettings, useUpdateSettings } from '../../features/settings/queries'
 import { apiPost } from '../../lib/api'
+import { CloudBackupCard } from './CloudBackupCard'
 
 type SwiftForm = {
   'backup.infomaniakSwift.enabled': string
@@ -226,6 +227,9 @@ export function BackupTargetsSettings() {
           </Stack>
         </CardContent>
       </Card>
+
+      {/* Cloud-DB-Backup (Admin-only): pg_dump auf dasselbe Swift-Target. */}
+      <CloudBackupCard />
     </Box>
   )
 }

@@ -57,9 +57,13 @@ export const SETTING_KEYS = [
   'backup.infomaniakSwift.projectDomain',
   'backup.infomaniakSwift.region',
   'backup.infomaniakSwift.container',
-  // Auto-Backup
+  // Auto-Backup (pro Gerät)
   'backup.autoEnabled',
   'backup.autoIntervalMinutes',
+  // Cloud-eigene DB-Backups (pg_dump → Swift)
+  'cloud.backup.enabled',
+  'cloud.backup.intervalHours',
+  'cloud.backup.retentionDays',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -109,6 +113,10 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   // = 24h; für Testzwecke kann der Wert bis auf 5 min runter.
   'backup.autoEnabled': 'true',
   'backup.autoIntervalMinutes': '1440',
+  // Cloud-DB-Backup: täglich pg_dump, 14 Tage aufbewahren
+  'cloud.backup.enabled': 'true',
+  'cloud.backup.intervalHours': '24',
+  'cloud.backup.retentionDays': '14',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {

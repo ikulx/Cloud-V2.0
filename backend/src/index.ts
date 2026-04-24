@@ -13,6 +13,7 @@ import { startPiketShiftsCleanup } from './services/piket-shifts-cleanup.service
 import { startAlarmEventsCleanup } from './services/alarm-events-cleanup.service'
 import { startActivityLogCleanupScheduler } from './services/activity-log-cleanup.service'
 import { startBackupAutoScheduler } from './services/backup-auto.service'
+import { startCloudBackupScheduler } from './services/cloud-backup.service'
 import { runSecretsEncryptionMigration } from './services/encrypt-secrets-migration.service'
 import { env } from './config/env'
 import { prisma } from './db/prisma'
@@ -173,7 +174,9 @@ async function main() {
     startOfflineMonitor(io)
     console.log('✓ Offline-Monitor gestartet (5-min-Poll)')
     startBackupAutoScheduler()
-    console.log('✓ Auto-Backup-Scheduler gestartet (30-min-Poll)')
+    console.log('✓ Auto-Backup-Scheduler gestartet (2-min-Poll)')
+    startCloudBackupScheduler()
+    console.log('✓ Cloud-Backup-Scheduler gestartet (60-min-Poll)')
     startAlarmDeliveryWorker()
     console.log('✓ Alarm-Delivery-Worker gestartet (30-s-Poll)')
     ensureSystemTemplateRecipientsForAllAnlagen().catch((err) => {
