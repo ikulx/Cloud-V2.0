@@ -68,7 +68,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC35"  # Fix: JS-Template-Escape für \\n/\\s in _swap_compose_image
+AGENT_VERSION = "1.0.0-RC36"  # updateContainer nutzt eigenen state='update' (Overlay-Text)
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -726,8 +726,9 @@ def run_agent():
 
     def publish_maintenance(state, message=None, job_id=None):
         """Publisht den Wartungs-Zustand an die Visu (lokaler Broker, retained).
-        state: 'idle' | 'backup' | 'restore'. Die Visu blendet bei != 'idle'
-        ein Vollbild-Overlay ein, bei Wechsel zu 'idle' wird neu geladen."""
+        state: 'idle' | 'backup' | 'restore' | 'update'. Die Visu blendet bei
+        != 'idle' ein Vollbild-Overlay mit passendem Text ein, bei Wechsel
+        zu 'idle' wird neu geladen."""
         lc = local_client[0]
         if lc is None:
             return
@@ -1037,7 +1038,7 @@ def run_agent():
             else:
                 def do_update(c, job_id, service, new_image, compose_file):
                     try:
-                        publish_maintenance("restore", "Visu-Update läuft – " + new_image + " wird geladen...", job_id)
+                        publish_maintenance("update", "Visu-Update läuft – " + new_image + " wird geladen...", job_id)
                         print("[YControl] updateContainer: " + service + " → " + new_image)
                         old_image, _ = _swap_compose_image(compose_file, service, new_image)
                         print("[YControl] Compose aktualisiert: " + old_image + " → " + new_image)
