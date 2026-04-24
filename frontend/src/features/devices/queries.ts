@@ -108,3 +108,39 @@ export function useUpdateLanDevice(deviceId: string) {
   })
 }
 
+// ─── Container-Update (Docker-Image-Tag wechseln) ────────────────────────────
+
+export interface DockerTag {
+  name: string
+  lastUpdated: string | null
+  size: number | null
+}
+
+/** Listet verfügbare Tags eines DockerHub-Repos (z.B. 'ikulx/y-vis3'). */
+export function useDockerHubTags(repo: string | null) {
+  return useQuery({
+    queryKey: ['docker-tags', repo] as const,
+    queryFn: async () => {
+      const data = await apiGet<{ repo: string; tags: DockerTag[] }>(`/devices/container-update/tags?repo=${encodeURIComponent(repo!)}`)
+      return data.tags
+    },
+    enabled: !!repo && repo.includes('/'),
+    staleTime: 60_000,
+  })
+}
+
+/**
+ * Triggert auf dem Pi ein Container-Update: Agent ersetzt im Compose-File
+ * die image-Zeile des Services und zieht das neue Image von DockerHub.
+ */
+export function useContainerUpdate(deviceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { image: string; service?: string; composeFile?: string }) =>
+      apiPost<{ ok: true; jobId: string }>(`/devices/${deviceId}/container-update`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: devicesKeys.detail(deviceId) })
+    },
+  })
+}
+

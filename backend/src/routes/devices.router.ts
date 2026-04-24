@@ -1,5 +1,6 @@
 ﻿import { Router } from 'express'
 import { z } from 'zod'
+import crypto from 'crypto'
 import { prisma } from '../db/prisma'
 import { authenticate } from '../middleware/authenticate'
 import { requirePermission } from '../middleware/require-permission'
@@ -55,7 +56,7 @@ Der Agent laeuft danach als systemd-Dienst und:
   - sendet Versionsinformationen und lokale IP
   - empfaengt und beantwortet Remote-Befehle
 """
-import json, os, sys, socket, signal, subprocess, shutil, stat, time, threading
+import json, os, sys, socket, signal, subprocess, shutil, stat, time, threading, re
 import urllib.request as urlreq
 import urllib.error   as urlerr
 import http.client    as httplib
@@ -67,7 +68,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC32"  # Restore: tar --overwrite (--unlink-first rmdir-Fehler auf Dirs)
+AGENT_VERSION = "1.0.0-RC33"  # updateContainer: Image-Tag im Compose swappen + pull/up
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -167,6 +168,63 @@ def _compose_cmd(compose_file, *args):
     """Wählt automatisch den richtigen Compose-Aufruf (V2 vs. V1)."""
     base = ["docker", "compose"] if shutil.which("docker") else ["docker-compose"]
     return base + ["-f", compose_file] + list(args)
+
+def _swap_compose_image(compose_file, service, new_image):
+    """Ersetzt den 'image:'-Wert eines bestimmten Service im Compose-File
+    atomar (tmp + rename). Nutzt einen zeilenbasierten State-Scanner statt
+    einer vollen YAML-Bibliothek, damit wir auf dem Pi keine PyYAML-Abhängigkeit
+    brauchen und Kommentare/Formatierung erhalten bleiben.
+
+    Gibt (old_image, new_image) zurück oder wirft bei Fehlern.
+    """
+    with open(compose_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    # State-Scanner: wir laufen erst bis zur Zeile "  <service>:" und ersetzen
+    # dann die nächste "  image: …"-Zeile innerhalb desselben Blocks (gleiche
+    # oder tiefere Einrückung).
+    target_indent = None   # Einrückung der Service-Zeile (z.B. 2 Spaces)
+    in_target = False
+    old_image = None
+    for i, raw in enumerate(lines):
+        stripped = raw.lstrip(" ")
+        if stripped == raw.rstrip("\n") + ("\n" if raw.endswith("\n") else ""):
+            # keine Einrückung → top-level (meist 'services:' oder 'version:')
+            pass
+        indent = len(raw) - len(raw.lstrip(" "))
+        content = raw.strip()
+
+        if not in_target:
+            # Suche Zeile "  <service>:"
+            if content == service + ":" or content.startswith(service + ":"):
+                # Wirklich der Service-Key? → Nächste nicht-leere Zeile sollte
+                # mit mehr Einrückung kommen. Heuristik: Service-Keys liegen
+                # im YAML genau unter 'services:' (Einrückung = 2). Wir
+                # akzeptieren hier jede Einrückung, prüfen aber dass wir
+                # nicht versehentlich einen Mapping-Key im image-Namen matchen.
+                if content.endswith(":") and ":" not in content[:-1]:
+                    in_target = True
+                    target_indent = indent
+        else:
+            # Block verlassen? Neue Top-Level-Zeile oder Zeile mit gleicher
+            # Einrückung wie der Service-Key = nächster Service.
+            if content and indent <= target_indent and not raw.startswith(" " * (target_indent + 1)):
+                break
+            # image-Zeile innerhalb des Service-Blocks?
+            m = re.match(r"^(\s+)image:\s*(\S+)\s*$", raw)
+            if m:
+                old_image = m.group(2)
+                lines[i] = m.group(1) + "image: " + new_image + "\n"
+                break
+
+    if old_image is None:
+        raise Exception("image-Zeile für Service '" + service + "' nicht gefunden")
+
+    tmp = compose_file + ".new"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    os.replace(tmp, compose_file)
+    return old_image, new_image
 
 def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_id, skip_compose_stop=False):
     """Bindet :port, wartet auf einen POST /restore?token=…, entpackt den Body
@@ -949,6 +1007,44 @@ def run_agent():
                         time.sleep(3)
                         publish_maintenance("idle")
                 threading.Thread(target=do_restore, args=(c, job_id, pull_port, pull_token, extract_to, compose_file), daemon=True).start()
+        elif action == "updateContainer":
+            # Cloud will den Docker-Image-Tag eines Services wechseln. Wir
+            # ersetzen im Compose-File die 'image:'-Zeile, ziehen das neue
+            # Image und starten den Container neu. Per Default ist der
+            # Service 'ycontrol-rt-v3' (Visu), kann aber überschrieben werden.
+            job_id       = cmd.get("jobId", "")
+            service      = cmd.get("service", "ycontrol-rt-v3")
+            new_image    = (cmd.get("image") or "").strip()
+            compose_file = cmd.get("composeFile", "/home/pi/docker/docker-compose.yml")
+            if not new_image or "/" not in new_image:
+                c.publish(topic_resp, json.dumps({"action": "updateContainer", "jobId": job_id, "status": "error", "error": "image fehlt oder ungültig"}), qos=1)
+            else:
+                def do_update(c, job_id, service, new_image, compose_file):
+                    try:
+                        publish_maintenance("restore", "Visu-Update läuft – " + new_image + " wird geladen...", job_id)
+                        print("[YControl] updateContainer: " + service + " → " + new_image)
+                        old_image, _ = _swap_compose_image(compose_file, service, new_image)
+                        print("[YControl] Compose aktualisiert: " + old_image + " → " + new_image)
+                        c.publish(topic_resp, json.dumps({"action": "updateContainer", "jobId": job_id, "status": "pulling", "oldImage": old_image, "newImage": new_image}), qos=1)
+                        # Image von DockerHub ziehen (kann je nach Verbindung etwas dauern).
+                        pull = subprocess.run(_compose_cmd(compose_file, "pull", service), capture_output=True, text=True, timeout=900)
+                        if pull.returncode != 0:
+                            raise Exception("docker pull fehlgeschlagen: " + (pull.stderr or pull.stdout)[:400])
+                        # Container mit neuem Image hochziehen (--no-deps weil wir gezielt EINEN Service tauschen).
+                        up = subprocess.run(_compose_cmd(compose_file, "up", "-d", "--no-deps", "--force-recreate", service), capture_output=True, text=True, timeout=300)
+                        if up.returncode != 0:
+                            raise Exception("docker up fehlgeschlagen: " + (up.stderr or up.stdout)[:400])
+                        c.publish(topic_resp, json.dumps({"action": "updateContainer", "jobId": job_id, "status": "ok", "oldImage": old_image, "newImage": new_image}), qos=1)
+                        print("[YControl] updateContainer OK")
+                        # Tele gleich neu schicken, damit Cloud+Frontend die neue Version sofort sehen.
+                        publish_tele(c)
+                    except Exception as ex:
+                        print("[YControl] updateContainer fehlgeschlagen: " + str(ex), file=sys.stderr)
+                        c.publish(topic_resp, json.dumps({"action": "updateContainer", "jobId": job_id, "status": "error", "error": str(ex)}), qos=1)
+                    finally:
+                        time.sleep(2)
+                        publish_maintenance("idle")
+                threading.Thread(target=do_update, args=(c, job_id, service, new_image, compose_file), daemon=True).start()
         elif action == "vpn_install":
             # WireGuard-Config wird direkt im MQTT-Befehl mitgeliefert (kein HTTP nötig)
             vpn_config = cmd.get("config", "")
@@ -1659,6 +1755,83 @@ router.patch('/:id/approve', authenticate, requirePermission('devices:update'), 
 })
 
 // POST /api/devices/:id/command  (Frontend → sendet Befehl an Pi via MQTT)
+// ─── Container-Update (Docker-Image-Tag wechseln) ────────────────────────────
+// Cloud → Pi via MQTT: Agent ersetzt die 'image:'-Zeile in seiner compose.yml
+// und zieht das neue Image von DockerHub. Per Default der Visu-Service.
+const containerUpdateSchema = z.object({
+  image: z.string().min(3).max(300),                       // z.B. ikulx/y-vis3:v0.0.2-rc8
+  service: z.string().min(1).max(100).optional(),          // default: ycontrol-rt-v3 (Visu)
+  composeFile: z.string().min(1).max(500).optional(),      // default: /home/pi/docker/docker-compose.yml
+})
+router.post('/:id/container-update', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const parsed = containerUpdateSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }
+  if (!parsed.data.image.includes('/')) { res.status(400).json({ message: 'Image muss "repo/name:tag" sein' }); return }
+
+  const device = await prisma.device.findUnique({
+    where: { id: req.params.id as string },
+    select: { id: true, serialNumber: true, status: true, name: true },
+  })
+  if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
+  if (device.status !== 'ONLINE') { res.status(409).json({ message: 'Gerät ist offline' }); return }
+
+  const jobId = crypto.randomUUID()
+  const payload: Record<string, unknown> = {
+    action: 'updateContainer',
+    jobId,
+    image: parsed.data.image,
+  }
+  if (parsed.data.service) payload.service = parsed.data.service
+  if (parsed.data.composeFile) payload.composeFile = parsed.data.composeFile
+
+  const sent = publishCommand(device.serialNumber, payload)
+  if (!sent) { res.status(503).json({ message: 'MQTT nicht verfügbar' }); return }
+
+  logActivity({
+    action: 'devices.container.update',
+    entityType: 'devices',
+    entityId: device.id,
+    details: {
+      entityName: device.name?.trim() || device.serialNumber,
+      service: parsed.data.service || 'ycontrol-rt-v3',
+      image: parsed.data.image,
+      jobId,
+    },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
+
+  res.status(202).json({ ok: true, jobId })
+})
+
+// ─── DockerHub-Tags abrufen (Vorschlagsliste fürs Update-UI) ─────────────────
+// Einfacher HTTP-GET auf die öffentliche DockerHub-API. Kein Token nötig für
+// public repos. Timeout kurz, damit das UI nicht hängt wenn DockerHub langsam.
+router.get('/container-update/tags', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const repo = String(req.query.repo || '').trim()
+  if (!repo.match(/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9._-]*$/i)) {
+    res.status(400).json({ message: 'repo-Query fehlt oder ungültig (erwartet: owner/name)' })
+    return
+  }
+  try {
+    const url = `https://hub.docker.com/v2/repositories/${repo}/tags?page_size=50&ordering=last_updated`
+    const controller = new AbortController()
+    const t = setTimeout(() => controller.abort(), 8000)
+    const resp = await fetch(url, { signal: controller.signal })
+    clearTimeout(t)
+    if (!resp.ok) { res.status(502).json({ message: `DockerHub antwortete ${resp.status}` }); return }
+    const data = await resp.json() as { results?: Array<{ name: string; last_updated?: string; full_size?: number }> }
+    const tags = (data.results || []).map((t) => ({
+      name: t.name,
+      lastUpdated: t.last_updated || null,
+      size: t.full_size || null,
+    }))
+    res.json({ repo, tags })
+  } catch (e) {
+    res.status(503).json({ message: 'DockerHub nicht erreichbar: ' + (e instanceof Error ? e.message : String(e)) })
+  }
+})
+
 router.post('/:id/command', authenticate, requirePermission('devices:update'), async (req, res) => {
   const parsed = z.object({ action: z.string().min(1) }).safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ message: 'Ungültige Eingabe' }); return }

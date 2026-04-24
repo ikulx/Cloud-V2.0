@@ -25,6 +25,7 @@ import InfoIcon from '@mui/icons-material/Info'
 import HistoryIcon from '@mui/icons-material/History'
 import { EntityActivityLog } from '../components/EntityActivityLog'
 import { DeviceBackupCard } from '../components/devices/DeviceBackupCard'
+import { DeviceContainerUpdateCard } from '../components/devices/DeviceContainerUpdateCard'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
 import TableCell from '@mui/material/TableCell'
@@ -716,6 +717,14 @@ export function DeviceDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        <Box mt={3}>
+          <DeviceContainerUpdateCard
+            deviceId={id!}
+            deviceOnline={device.status === 'ONLINE'}
+            visuVersion={device.visuVersion ?? null}
+          />
+        </Box>
 
         <Box mt={3}>
           <DeviceBackupCard deviceId={id!} deviceOnline={device.status === 'ONLINE'} />
