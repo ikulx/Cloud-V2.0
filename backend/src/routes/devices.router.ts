@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC28"  # Restore kooperativ: Visu-Ack → kein compose stop nötig
+AGENT_VERSION = "1.0.0-RC29"  # Restore: extract_to='/' erzwingen + tar-stderr loggen
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -205,13 +205,20 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
             stop_res = subprocess.run(_compose_cmd(compose_file, "stop"), capture_output=True, text=True, timeout=180)
             if stop_res.returncode != 0:
                 return "compose stop fehlgeschlagen: " + (stop_res.stderr or stop_res.stdout)[:300]
-        os.makedirs(extract_to, exist_ok=True)
+        # Backup-Archive enthalten absolute Pfade (tar strippt nur das führende
+        # '/'), deshalb MUSS nach '/' entpackt werden. Ältere Cloud-Versionen
+        # schickten extract_to='/home/pi/ycontrol-data', das würde beim Entpacken
+        # ein verschachteltes '/home/pi/ycontrol-data/home/pi/...' ergeben.
+        if extract_to != "/":
+            print("[YControl] Restore: extract_to='" + str(extract_to) + "' ignoriert, verwende '/'")
+            extract_to = "/"
         # --unlink-first + --overwrite: entfernt Ziel-Dateien vor dem Schreiben,
         # damit Prozesse die noch einen offenen Filedescriptor halten auf Geister-
         # Inodes zeigen statt die Datei mitten im Schreibvorgang zu "sehen".
         # Im Fallback-Pfad (compose stop) ist das harmlos, im Koop-Pfad essentiell.
         tar_args = ["tar", "--unlink-first", "--overwrite", "-xzf", "-", "-C", extract_to]
-        proc = subprocess.Popen(tar_args, stdin=subprocess.PIPE)
+        print("[YControl] Restore: tar " + " ".join(tar_args[1:]))
+        proc = subprocess.Popen(tar_args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
         def feed(b):
             if b: proc.stdin.write(b)
@@ -243,14 +250,20 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
                     feed(more)
                     got += len(more)
         finally:
-            proc.stdin.close()
+            try: proc.stdin.close()
+            except Exception: pass
             proc.wait()
         if proc.returncode != 0:
+            try:
+                tar_err = proc.stderr.read().decode("utf-8", "replace").strip() if proc.stderr else ""
+            except Exception:
+                tar_err = ""
+            print("[YControl] Restore: tar exit=" + str(proc.returncode) + (" stderr=" + tar_err if tar_err else ""), file=sys.stderr)
             if not skip_compose_stop:
                 # Container wieder hochziehen (wir hatten sie gestoppt).
                 subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, timeout=300)
             conn.sendall(b"HTTP/1.1 500 Internal Server Error\\r\\nContent-Length: 0\\r\\n\\r\\n")
-            return "tar exit=" + str(proc.returncode)
+            return "tar exit=" + str(proc.returncode) + (" – " + tar_err[:200] if tar_err else "")
         if not skip_compose_stop:
             print("[YControl] Restore: starte Compose-Stack wieder...")
             start_res = subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, text=True, timeout=300)

@@ -382,7 +382,11 @@ router.post('/:id/backups/:backupId/restore', authenticate, requirePermission('d
     jobId: backupId,
     pullPort,
     pullToken,
-    extractTo: '/home/pi/ycontrol-data',
+    // Muss '/' sein weil unser Backup-tar absolute Pfade enthält (tar strippt
+    // nur das führende '/', Archive-Einträge heißen also 'home/pi/…'). Mit
+    // extractTo='/home/pi/ycontrol-data' würde das beim Entpacken ein
+    // doppelt verschachteltes '/home/pi/ycontrol-data/home/pi/…' ergeben.
+    extractTo: '/',
     composeFile: '/home/pi/docker/docker-compose.yml',
   })
   if (!ok) { res.status(503).json({ message: 'MQTT nicht verfügbar' }); return }
