@@ -13,15 +13,6 @@ import { useTranslation } from 'react-i18next'
 import { useSettings, useUpdateSettings } from '../../features/settings/queries'
 import { apiPost } from '../../lib/api'
 
-type InfoForm = {
-  'backup.infomaniak.enabled': string
-  'backup.infomaniak.endpoint': string
-  'backup.infomaniak.region': string
-  'backup.infomaniak.bucket': string
-  'backup.infomaniak.accessKey': string
-  'backup.infomaniak.secretKey': string
-}
-
 type SwiftForm = {
   'backup.infomaniakSwift.enabled': string
   'backup.infomaniakSwift.authUrl': string
@@ -43,18 +34,6 @@ export function BackupTargetsSettings() {
   const { t } = useTranslation()
   const { data: settings } = useSettings(true)
   const updateSettings = useUpdateSettings()
-
-  const [info, setInfo] = useState<InfoForm>({
-    'backup.infomaniak.enabled': 'false',
-    'backup.infomaniak.endpoint': 'https://s3.swiss-backup.infomaniak.com',
-    'backup.infomaniak.region': 'rma',
-    'backup.infomaniak.bucket': '',
-    'backup.infomaniak.accessKey': '',
-    'backup.infomaniak.secretKey': '',
-  })
-  const [infoMsg, setInfoMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [infoSaved, setInfoSaved] = useState(false)
-  const [infoTesting, setInfoTesting] = useState(false)
 
   const [auto, setAuto] = useState<AutoForm>({
     'backup.autoEnabled': 'true',
@@ -79,14 +58,6 @@ export function BackupTargetsSettings() {
 
   useEffect(() => {
     if (!settings) return
-    setInfo({
-      'backup.infomaniak.enabled': settings['backup.infomaniak.enabled'] ?? 'false',
-      'backup.infomaniak.endpoint': settings['backup.infomaniak.endpoint'] ?? 'https://s3.swiss-backup.infomaniak.com',
-      'backup.infomaniak.region': settings['backup.infomaniak.region'] ?? 'rma',
-      'backup.infomaniak.bucket': settings['backup.infomaniak.bucket'] ?? '',
-      'backup.infomaniak.accessKey': settings['backup.infomaniak.accessKey'] ?? '',
-      'backup.infomaniak.secretKey': settings['backup.infomaniak.secretKey'] ?? '',
-    })
     setAuto({
       'backup.autoEnabled': settings['backup.autoEnabled'] ?? 'true',
       'backup.autoIntervalMinutes': settings['backup.autoIntervalMinutes'] ?? '1440',
@@ -121,21 +92,6 @@ export function BackupTargetsSettings() {
   const handleSaveAuto = async () => {
     await updateSettings.mutateAsync(auto)
     setAutoSaved(true); setTimeout(() => setAutoSaved(false), 3000)
-  }
-
-  const handleSaveInfo = async () => {
-    await updateSettings.mutateAsync(info)
-    setInfoSaved(true); setTimeout(() => setInfoSaved(false), 3000)
-  }
-
-  const handleTest = async () => {
-    setInfoMsg(null); setInfoTesting(true)
-    try {
-      const r = await apiPost<{ ok: boolean; message: string }>('/settings/test-backup-target', { target: 'infomaniak' })
-      setInfoMsg({ type: 'success', text: r.message })
-    } catch (err) {
-      setInfoMsg({ type: 'error', text: err instanceof Error ? err.message : 'Test fehlgeschlagen' })
-    } finally { setInfoTesting(false) }
   }
 
   return (
@@ -180,73 +136,8 @@ export function BackupTargetsSettings() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Box display="flex" justifyContent="space-between" alignItems="center">
-              <Typography variant="h6">Infomaniak Swiss Backup (S3)</Typography>
-              <FormControlLabel
-                control={<Switch
-                  checked={info['backup.infomaniak.enabled'] === 'true'}
-                  onChange={(e) => setInfo({ ...info, 'backup.infomaniak.enabled': e.target.checked ? 'true' : 'false' })}
-                />}
-                label={t('common.active', 'Aktiv')}
-              />
-            </Box>
-            <Box display="flex" gap={2}>
-              <TextField
-                label="Endpoint"
-                value={info['backup.infomaniak.endpoint']}
-                onChange={(e) => setInfo({ ...info, 'backup.infomaniak.endpoint': e.target.value })}
-                placeholder="https://s3.swiss-backup.infomaniak.com"
-                fullWidth size="small"
-              />
-              <TextField
-                label="Region"
-                value={info['backup.infomaniak.region']}
-                onChange={(e) => setInfo({ ...info, 'backup.infomaniak.region': e.target.value })}
-                placeholder="rma"
-                size="small"
-                sx={{ minWidth: 120 }}
-              />
-            </Box>
-            <TextField
-              label="Bucket"
-              value={info['backup.infomaniak.bucket']}
-              onChange={(e) => setInfo({ ...info, 'backup.infomaniak.bucket': e.target.value })}
-              fullWidth size="small"
-              helperText={t('settings.backup.infomaniak.bucketHint', 'Bucket-Name aus dem Infomaniak-Manager (Swiss Backup → S3).')}
-            />
-            <Box display="flex" gap={2}>
-              <TextField
-                label="Access Key"
-                value={info['backup.infomaniak.accessKey']}
-                onChange={(e) => setInfo({ ...info, 'backup.infomaniak.accessKey': e.target.value })}
-                fullWidth size="small"
-              />
-              <TextField
-                label="Secret Key"
-                type="password"
-                value={info['backup.infomaniak.secretKey']}
-                onChange={(e) => setInfo({ ...info, 'backup.infomaniak.secretKey': e.target.value })}
-                fullWidth size="small"
-              />
-            </Box>
-            {infoMsg && <Alert severity={infoMsg.type}>{infoMsg.text}</Alert>}
-            {infoSaved && <Alert severity="success">{t('common.saved', 'Gespeichert')}</Alert>}
-            <Box display="flex" gap={1}>
-              <Button variant="contained" onClick={handleSaveInfo}>{t('common.save', 'Speichern')}</Button>
-              <Button variant="outlined" onClick={handleTest} disabled={infoTesting}>
-                {infoTesting ? t('common.testing', 'Teste…') : t('common.test', 'Verbindung testen')}
-              </Button>
-            </Box>
-          </Stack>
-        </CardContent>
-      </Card>
-
-      {/* Swiss Backup via OpenStack Swift (Alternative zum S3-Protokoll).
-          Beide Blöcke teilen sich die DeviceBackup.infomaniakStatus-Spalte –
-          es muss aber nur EINES aktiv sein. */}
+      {/* Swiss Backup via OpenStack Swift (Keystone v3). Einziges konfigurierbares
+          Backup-Ziel; S3-Support wurde per Entscheid Swift-only entfernt. */}
       <Card>
         <CardContent>
           <Stack spacing={2}>

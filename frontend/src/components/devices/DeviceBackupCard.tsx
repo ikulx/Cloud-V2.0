@@ -112,7 +112,7 @@ export function DeviceBackupCard({ deviceId, deviceOnline, autoBackupEnabled }: 
   const pinBackup = usePinBackup(deviceId)
   const unpinBackup = useUnpinBackup(deviceId)
   const updateDevice = useUpdateDevice(deviceId)
-  const [restoreDlg, setRestoreDlg] = useState<{ backup: { id: string; createdAt: string; sourceDeviceName?: string | null } ; target: 'infomaniak'; crossDevice?: boolean } | null>(null)
+  const [restoreDlg, setRestoreDlg] = useState<{ backup: { id: string; createdAt: string; sourceDeviceName?: string | null } ; target: 'infomaniakSwift'; crossDevice?: boolean } | null>(null)
   const [deleteDlg, setDeleteDlg] = useState<DeviceBackup | null>(null)
   const [crossDlgOpen, setCrossDlgOpen] = useState(false)
   const [crossSearch, setCrossSearch] = useState('')
@@ -280,7 +280,7 @@ export function DeviceBackupCard({ deviceId, deviceOnline, autoBackupEnabled }: 
                     )}
                     {canUpdate && b.infomaniakStatus === 'OK' && (
                       <Tooltip title={t('backup.restore', 'Wiederherstellen')}>
-                        <IconButton size="small" disabled={!deviceOnline} onClick={() => setRestoreDlg({ backup: b, target: 'infomaniak' })}>
+                        <IconButton size="small" disabled={!deviceOnline} onClick={() => setRestoreDlg({ backup: b, target: 'infomaniakSwift' })}>
                           <RestoreIcon fontSize="small" color="primary" />
                         </IconButton>
                       </Tooltip>
@@ -442,7 +442,7 @@ export function DeviceBackupCard({ deviceId, deviceOnline, autoBackupEnabled }: 
                             setCrossSearch('')
                             setRestoreDlg({
                               backup: { id: s.id, createdAt: s.createdAt, sourceDeviceName: s.deviceName || s.deviceSerial },
-                              target: 'infomaniak',
+                              target: 'infomaniakSwift',
                               crossDevice: true,
                             })
                           }}

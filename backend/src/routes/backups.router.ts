@@ -175,7 +175,7 @@ export async function startBackupForDevice(
       objectKey,
       uploadToken: pullToken,
       status: 'PENDING',
-      infomaniakStatus: targets.find((t) => t.id === 'infomaniak') ? 'PENDING' : 'SKIPPED',
+      infomaniakStatus: targets.find((t) => t.id === 'infomaniakSwift') ? 'PENDING' : 'SKIPPED',
       createdById: userId,
       trigger,
     },
@@ -279,11 +279,11 @@ async function runBackupPull(
       data: { status: 'DISTRIBUTING', sizeBytes: BigInt(size) },
     })
 
-    // Beide Infomaniak-Varianten ('infomaniak' = S3, 'infomaniakSwift' = Swift)
-    // teilen sich dieselben Status-Columns (DeviceBackup.infomaniakStatus/-Error).
-    // Wenn der Admin beide aktiviert hat, wird parallel hochgeladen (Redundanz);
-    // Status = OK nur wenn ALLE erfolgreich, sonst FAILED mit gesammelten Meldungen.
-    const infoTargets = targets.filter((t) => t.id === 'infomaniak' || t.id === 'infomaniakSwift')
+    // Aktuell einziges Backup-Ziel: Infomaniak Swiss Backup via Swift.
+    // Die DB-Columns heißen aus historischen Gründen noch 'infomaniakStatus'
+    // / 'infomaniakError' – semantisch passt das weiter, weil beide Varianten
+    // dasselbe Produkt waren.
+    const infoTarget = targets.find((t) => t.id === 'infomaniakSwift')
 
     async function uploadToTarget(t: BackupTarget): Promise<{ ok: boolean; error?: string }> {
       const stream = createReadStream(tmpFile)
@@ -291,16 +291,11 @@ async function runBackupPull(
         await t.put(objectKey, stream, size)
         return { ok: true }
       } catch (e) {
-        return { ok: false, error: `${t.id}: ${e instanceof Error ? e.message : String(e)}` }
+        return { ok: false, error: e instanceof Error ? e.message : String(e) }
       }
     }
 
-    let infoRes: { ok: boolean; error?: string } | null = null
-    if (infoTargets.length > 0) {
-      const results = await Promise.all(infoTargets.map(uploadToTarget))
-      if (results.every((r) => r.ok)) infoRes = { ok: true }
-      else infoRes = { ok: false, error: results.filter((r) => !r.ok).map((r) => r.error).join('; ') }
-    }
+    const infoRes = infoTarget ? await uploadToTarget(infoTarget) : null
     const overallOk = infoRes?.ok ?? false
 
     await pAny.deviceBackup.update({
@@ -375,11 +370,8 @@ router.delete('/:id/backups/:backupId', authenticate, requirePermission('devices
 })
 
 // ─── POST /api/devices/:id/backups/:backupId/restore ─────────────────────────
-// 'infomaniak' (S3) und 'infomaniakSwift' (Swift) sind beide Swiss-Backup-
-// Produkte; welches aktiv ist, wird in den Settings gewählt. Das Frontend
-// kann einfach 'infomaniak' schicken; wir fallen dann automatisch auf
-// Swift zurück wenn das gewählte Target nicht konfiguriert ist.
-const restoreSchema = z.object({ target: z.enum(['infomaniak', 'infomaniakSwift']) })
+// Aktuell einziges Backup-Ziel: Infomaniak Swiss Backup via Swift.
+const restoreSchema = z.object({ target: z.enum(['infomaniakSwift']) })
 router.post('/:id/backups/:backupId/restore', authenticate, requirePermission('devices:update'), async (req, res) => {
   const deviceId = req.params.id as string
   const backupId = req.params.backupId as string
@@ -414,13 +406,7 @@ router.post('/:id/backups/:backupId/restore', authenticate, requirePermission('d
     res.status(400).json({ message: 'Gerät hat keine VPN-IP.' }); return
   }
 
-  // Gewünschtes Ziel probieren, sonst auf das andere Swiss-Backup-Protokoll
-  // ausweichen (beides liegt bei Infomaniak, Status-Columns werden geteilt).
-  let target = await resolveBackupTarget(parsed.data.target)
-  if (!target) {
-    const fallbackId = parsed.data.target === 'infomaniak' ? 'infomaniakSwift' : 'infomaniak'
-    target = await resolveBackupTarget(fallbackId)
-  }
+  const target = await resolveBackupTarget(parsed.data.target)
   if (!target) { res.status(503).json({ message: 'Backup-Ziel nicht aktiv' }); return }
 
   await pAny.deviceBackup.update({

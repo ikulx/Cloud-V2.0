@@ -47,7 +47,7 @@ export function useStartBackup(deviceId: string) {
 export function useRestoreBackup(deviceId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ backupId, target }: { backupId: string; target: 'infomaniak' }) =>
+    mutationFn: ({ backupId, target }: { backupId: string; target: 'infomaniakSwift' }) =>
       apiPost(`/devices/${deviceId}/backups/${backupId}/restore`, { target }),
     onSuccess: () => qc.invalidateQueries({ queryKey: backupsKeys.forDevice(deviceId) }),
   })

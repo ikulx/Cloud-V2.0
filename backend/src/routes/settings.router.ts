@@ -22,8 +22,6 @@ export const SENSITIVE_SETTING_KEYS: ReadonlySet<string> = new Set([
   'smtp.password',
   'deepl.apiKey',
   'twilio.authToken',
-  'backup.infomaniak.accessKey',
-  'backup.infomaniak.secretKey',
   'backup.infomaniakSwift.password',
 ])
 
@@ -49,14 +47,7 @@ export const SETTING_KEYS = [
   'twilio.smsSenderId',
   'twilio.callFromNumber',
   'twilio.enabled',
-  // Backup-Targets (siehe services/backup-targets/*)
-  'backup.infomaniak.enabled',
-  'backup.infomaniak.endpoint',
-  'backup.infomaniak.region',
-  'backup.infomaniak.bucket',
-  'backup.infomaniak.accessKey',
-  'backup.infomaniak.secretKey',
-  // Infomaniak Swiss Backup via OpenStack Swift (statt S3)
+  // Infomaniak Swiss Backup via OpenStack Swift
   'backup.infomaniakSwift.enabled',
   'backup.infomaniakSwift.authUrl',
   'backup.infomaniakSwift.username',
@@ -103,12 +94,6 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'twilio.callFromNumber': '',
   'twilio.enabled': 'false',
   // Infomaniak Swiss Backup – S3
-  'backup.infomaniak.enabled': 'false',
-  'backup.infomaniak.endpoint': 'https://s3.swiss-backup.infomaniak.com',
-  'backup.infomaniak.region': 'rma',
-  'backup.infomaniak.bucket': '',
-  'backup.infomaniak.accessKey': '',
-  'backup.infomaniak.secretKey': '',
   // Swiss Backup als Swift/OpenStack (Keystone v3 Auth)
   'backup.infomaniakSwift.enabled': 'false',
   'backup.infomaniakSwift.authUrl': 'https://swiss-backup02.infomaniak.com/identity/v3',
@@ -365,7 +350,7 @@ router.delete('/activity-log/all', authenticate, requirePermission('roles:read')
 })
 
 // POST /api/settings/test-backup-target – prüft Erreichbarkeit eines Backup-Ziels
-const testBackupSchema = z.object({ target: z.enum(['infomaniak', 'infomaniakSwift']) })
+const testBackupSchema = z.object({ target: z.enum(['infomaniakSwift']) })
 router.post('/test-backup-target', authenticate, requirePermission('roles:read'), async (req, res) => {
   const parsed = testBackupSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ ok: false, message: 'target fehlt' }); return }
