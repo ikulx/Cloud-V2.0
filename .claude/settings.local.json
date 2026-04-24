@@ -75,7 +75,16 @@
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000/api/me)",
       "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"ping\",\"password\":\"ping\"}')",
       "Bash(npm uninstall *)",
-      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(grep -n \"SETUP_SCRIPT_TEMPLATE\\\\s*=\\\\s*\\\\`\\\\|AGENT_SCRIPT\\\\s*=\\\\s*\\\\`\\\\|^const.*\\\\`\" \"D:/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0/backend/src/routes/devices.router.ts\")",
+      "Bash(grep -n \"^\\\\`$\" \"D:/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0/backend/src/routes/devices.router.ts\")",
+      "Bash(cd \"D:/tmp\")",
+      "Bash(mkdir -p /tmp)",
+      "Bash(node -e *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('D:/tmp/agent-extracted.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python -m py_compile \"D:/tmp/agent-extracted.py\")",
+      "Bash(python -c ' *)",
+      "Bash(python -m py_compile D:/tmp/agent-rc34.py)"
     ]
   }
 }

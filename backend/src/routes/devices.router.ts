@@ -68,7 +68,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC33"  # updateContainer: Image-Tag im Compose swappen + pull/up
+AGENT_VERSION = "1.0.0-RC34"  # Update: py_compile-Check + .bak-Backup (kein Dead-Agent mehr)
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -911,25 +911,46 @@ def run_agent():
             else:
                 c.publish(topic_resp, json.dumps({"action": "setProjectNumber", "status": "error"}), qos=1)
         elif action == "update":
-            # Script wird direkt im MQTT-Befehl als Base64 mitgeliefert (kein HTTP nötig)
+            # Script wird direkt im MQTT-Befehl als Base64 mitgeliefert (kein HTTP nötig).
+            # Absicherung:
+            #   1. Neues Script nach /tmp schreiben, mit python3 -m py_compile validieren.
+            #      Scheitert das, bleibt der alte Agent unangetastet.
+            #   2. Den aktuellen Agent VORM replace nach AGENT_PATH.bak sichern – falls
+            #      jemand per SSH eingreifen muss, kann er manuell zurückrollen.
             script_b64 = cmd.get("script", "")
             if not script_b64:
                 print("[YControl] Update fehlgeschlagen: kein Script im Befehl", file=sys.stderr)
                 c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": "kein Script"}), qos=1)
             else:
-                print("[YControl] Update-Befehl empfangen – schreibe neues Script...")
+                print("[YControl] Update-Befehl empfangen – validiere neues Script...")
                 try:
                     import base64
                     new_script = base64.b64decode(script_b64)
-                    tmp_path = AGENT_PATH + ".tmp"
-                    with open(tmp_path, "wb") as f:
+                    staging_path = "/tmp/ycontrol-agent.new.py"
+                    with open(staging_path, "wb") as f:
                         f.write(new_script)
-                    os.chmod(tmp_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-                    os.replace(tmp_path, AGENT_PATH)
-                    print("[YControl] Script aktualisiert – starte Service neu...")
-                    c.publish(topic_resp, json.dumps({"action": "update", "status": "ok"}), qos=1)
-                    time.sleep(1)
-                    subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
+                    # Syntax-/Import-Check am Staging-File. Bricht bei Syntax-Fehlern
+                    # mit exit != 0 ab, stderr enthält die genaue Stelle.
+                    chk = subprocess.run(
+                        [sys.executable, "-m", "py_compile", staging_path],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    if chk.returncode != 0:
+                        try: os.remove(staging_path)
+                        except Exception: pass
+                        err = (chk.stderr or chk.stdout).strip()[:400]
+                        print("[YControl] Update abgelehnt – py_compile-Fehler: " + err, file=sys.stderr)
+                        c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": "py_compile: " + err}), qos=1)
+                    else:
+                        # Backup des aktuellen Agents für manuellen Rollback.
+                        try: shutil.copy2(AGENT_PATH, AGENT_PATH + ".bak")
+                        except Exception as bex: print("[YControl] Agent-Backup fehlgeschlagen (ignoriert): " + str(bex), file=sys.stderr)
+                        os.chmod(staging_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                        os.replace(staging_path, AGENT_PATH)
+                        print("[YControl] Script aktualisiert – starte Service neu...")
+                        c.publish(topic_resp, json.dumps({"action": "update", "status": "ok"}), qos=1)
+                        time.sleep(1)
+                        subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
                 except Exception as ex:
                     print("[YControl] Update fehlgeschlagen: " + str(ex), file=sys.stderr)
                     c.publish(topic_resp, json.dumps({"action": "update", "status": "error", "error": str(ex)}), qos=1)
