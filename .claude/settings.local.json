@@ -90,7 +90,8 @@
       "Bash(python -m py_compile D:/tmp/agent-real.py)",
       "Bash(python -m py_compile D:/tmp/agent-real2.py)",
       "Bash(grep -iE \"docker|build|\\\\.yml$|\\\\.yaml$|\\\\.sh$\")",
-      "Bash(python -m py_compile D:/tmp/agent-rc37.py)"
+      "Bash(python -m py_compile D:/tmp/agent-rc37.py)",
+      "Bash(python -m py_compile D:/tmp/agent-rc38.py)"
     ]
   }
 }

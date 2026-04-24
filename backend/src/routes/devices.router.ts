@@ -69,7 +69,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC37"  # Tele: lastConfigChangeAt (mtime der Visu-SQLite) für Auto-Backup
+AGENT_VERSION = "1.0.0-RC38"  # Update: Staging-Datei neben AGENT_PATH (tmpfs-Cross-Device-Bug)
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -933,7 +933,11 @@ def run_agent():
                 try:
                     import base64
                     new_script = base64.b64decode(script_b64)
-                    staging_path = "/tmp/ycontrol-agent.new.py"
+                    # Staging-Datei MUSS im selben Filesystem wie AGENT_PATH
+                    # liegen, sonst scheitert os.replace mit EXDEV ('Invalid
+                    # cross-device link'). /tmp ist auf dem Pi tmpfs, deshalb
+                    # nehmen wir das Zielverzeichnis.
+                    staging_path = AGENT_PATH + ".new"
                     with open(staging_path, "wb") as f:
                         f.write(new_script)
                     # Syntax-/Import-Check am Staging-File. Bricht bei Syntax-Fehlern
