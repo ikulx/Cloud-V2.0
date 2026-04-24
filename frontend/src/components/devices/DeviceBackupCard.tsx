@@ -26,11 +26,15 @@ import CloudDoneIcon from '@mui/icons-material/CloudDone'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import { useTranslation } from 'react-i18next'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
+import SearchIcon from '@mui/icons-material/Search'
+import ClearIcon from '@mui/icons-material/Clear'
 import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
 import Divider from '@mui/material/Divider'
 import Alert from '@mui/material/Alert'
+import TextField from '@mui/material/TextField'
+import InputAdornment from '@mui/material/InputAdornment'
 import {
   useDeviceBackups,
   useStartBackup,
@@ -70,7 +74,7 @@ function TargetBadge({ status }: { status: BackupTargetStatus }) {
       color={colorMap[status]}
       variant={status === 'OK' ? 'filled' : 'outlined'}
       icon={Icon ? <Icon fontSize="small" /> : undefined}
-      label={`Infomaniak: ${status}`}
+      label={`${status}`}
     />
   )
 }
@@ -97,6 +101,7 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
   const [restoreDlg, setRestoreDlg] = useState<{ backup: { id: string; createdAt: string; sourceDeviceName?: string | null } ; target: 'infomaniak'; crossDevice?: boolean } | null>(null)
   const [deleteDlg, setDeleteDlg] = useState<DeviceBackup | null>(null)
   const [crossDlgOpen, setCrossDlgOpen] = useState(false)
+  const [crossSearch, setCrossSearch] = useState('')
   const crossSources = useCrossDeviceBackupSources(crossDlgOpen && canCrossRestore)
   const [snack, setSnack] = useState<string | null>(null)
 
@@ -264,22 +269,72 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={crossDlgOpen} onClose={() => setCrossDlgOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={crossDlgOpen}
+        onClose={() => { setCrossDlgOpen(false); setCrossSearch('') }}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>{t('backup.crossDeviceTitle', 'Backup eines anderen Geräts einspielen')}</DialogTitle>
         <DialogContent>
           <DialogContentText>
             {t('backup.crossDeviceIntro', 'Wähle ein Backup aus einem anderen Gerät aus. Die Daten werden auf DIESES Gerät übertragen und überschreiben dort die aktuelle Konfiguration.')}
           </DialogContentText>
+
+          {/* Suchfeld: filtert nach Gerätename, Seriennummer oder formatiertem Datum. */}
+          <TextField
+            size="small"
+            fullWidth
+            autoFocus
+            placeholder={t('backup.crossDeviceSearch', 'Suchen nach Gerät, Seriennummer oder Datum...')}
+            value={crossSearch}
+            onChange={(e) => setCrossSearch(e.target.value)}
+            sx={{ mt: 2 }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>
+                ),
+                endAdornment: crossSearch ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setCrossSearch('')} aria-label={t('common.clear', 'Zurücksetzen')}>
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              },
+            }}
+          />
+
           {crossSources.isLoading ? (
             <Box display="flex" justifyContent="center" py={3}><CircularProgress size={24} /></Box>
           ) : crossSources.isError ? (
             <Alert severity="error" sx={{ mt: 2 }}>{crossSources.error instanceof Error ? crossSources.error.message : String(crossSources.error)}</Alert>
           ) : (() => {
-            const rows = (crossSources.data ?? []).filter((s: CrossDeviceBackupSource) => s.deviceId !== deviceId)
-            if (rows.length === 0) {
+            const allRows = (crossSources.data ?? []).filter((s: CrossDeviceBackupSource) => s.deviceId !== deviceId)
+            if (allRows.length === 0) {
               return <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{t('backup.crossDeviceEmpty', 'Keine verfügbaren Backups von anderen Geräten gefunden.')}</Typography>
             }
-            // Nach Quell-Gerät gruppieren, damit man bei vielen Backups nicht scrollt.
+            // Suche gegen Gerätename + Seriennummer + formatiertes Datum prüfen.
+            const needle = crossSearch.trim().toLowerCase()
+            const rows = needle
+              ? allRows.filter((s) => {
+                  const haystack = [
+                    s.deviceName || '',
+                    s.deviceSerial || '',
+                    new Date(s.createdAt).toLocaleString('de-CH'),
+                    new Date(s.createdAt).toLocaleDateString('de-CH'),
+                  ].join(' ').toLowerCase()
+                  return haystack.includes(needle)
+                })
+              : allRows
+            if (rows.length === 0) {
+              return (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                  {t('backup.crossDeviceNoMatch', 'Keine Treffer für «{{q}}».', { q: crossSearch })}
+                </Typography>
+              )
+            }
             const grouped = new Map<string, CrossDeviceBackupSource[]>()
             rows.forEach((s) => {
               const k = s.deviceId
@@ -287,42 +342,48 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
               grouped.get(k)!.push(s)
             })
             return (
-              <List dense sx={{ mt: 1 }}>
-                {Array.from(grouped.entries()).map(([devId, items], idx) => (
-                  <Box key={devId}>
-                    {idx > 0 && <Divider sx={{ my: 1 }} />}
-                    <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>
-                      {items[0].deviceName || items[0].deviceSerial || devId}
-                      {items[0].deviceName && items[0].deviceSerial && (
-                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>{items[0].deviceSerial}</Typography>
-                      )}
-                    </Typography>
-                    {items.map((s) => (
-                      <ListItemButton
-                        key={s.id}
-                        onClick={() => {
-                          setCrossDlgOpen(false)
-                          setRestoreDlg({
-                            backup: { id: s.id, createdAt: s.createdAt, sourceDeviceName: s.deviceName || s.deviceSerial },
-                            target: 'infomaniak',
-                            crossDevice: true,
-                          })
-                        }}
-                      >
-                        <ListItemText
-                          primary={new Date(s.createdAt).toLocaleString('de-CH')}
-                          secondary={formatSize(s.sizeBytes)}
-                        />
-                      </ListItemButton>
-                    ))}
-                  </Box>
-                ))}
-              </List>
+              <>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+                  {t('backup.crossDeviceCount', '{{count}} Backup(s) auf {{devices}} Gerät(en)', { count: rows.length, devices: grouped.size })}
+                </Typography>
+                <List dense sx={{ mt: 0.5, maxHeight: '50vh', overflowY: 'auto' }}>
+                  {Array.from(grouped.entries()).map(([devId, items], idx) => (
+                    <Box key={devId}>
+                      {idx > 0 && <Divider sx={{ my: 1 }} />}
+                      <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>
+                        {items[0].deviceName || items[0].deviceSerial || devId}
+                        {items[0].deviceName && items[0].deviceSerial && (
+                          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>{items[0].deviceSerial}</Typography>
+                        )}
+                      </Typography>
+                      {items.map((s) => (
+                        <ListItemButton
+                          key={s.id}
+                          onClick={() => {
+                            setCrossDlgOpen(false)
+                            setCrossSearch('')
+                            setRestoreDlg({
+                              backup: { id: s.id, createdAt: s.createdAt, sourceDeviceName: s.deviceName || s.deviceSerial },
+                              target: 'infomaniak',
+                              crossDevice: true,
+                            })
+                          }}
+                        >
+                          <ListItemText
+                            primary={new Date(s.createdAt).toLocaleString('de-CH')}
+                            secondary={formatSize(s.sizeBytes)}
+                          />
+                        </ListItemButton>
+                      ))}
+                    </Box>
+                  ))}
+                </List>
+              </>
             )
           })()}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCrossDlgOpen(false)}>{t('common.close', 'Schliessen')}</Button>
+          <Button onClick={() => { setCrossDlgOpen(false); setCrossSearch('') }}>{t('common.close', 'Schliessen')}</Button>
         </DialogActions>
       </Dialog>
 
