@@ -13,6 +13,7 @@ import { startPiketShiftsCleanup } from './services/piket-shifts-cleanup.service
 import { startAlarmEventsCleanup } from './services/alarm-events-cleanup.service'
 import { startActivityLogCleanupScheduler } from './services/activity-log-cleanup.service'
 import { startBackupAutoScheduler } from './services/backup-auto.service'
+import { runSecretsEncryptionMigration } from './services/encrypt-secrets-migration.service'
 import { env } from './config/env'
 import { prisma } from './db/prisma'
 import { verifyAccessToken } from './lib/token'
@@ -161,6 +162,10 @@ async function main() {
   httpServer.listen(env.port, '0.0.0.0', () => {
     console.log(`✓ Server running on http://0.0.0.0:${env.port}`)
     console.log(`  Environment: ${env.nodeEnv}`)
+    // Bestehende Klartext-Secrets in der DB at-rest verschlüsseln (einmalige
+    // Migration, idempotent). Läuft vor MQTT/Scheduler, damit ab jetzt alle
+    // Reads garantiert den decrypted Pfad nutzen.
+    runSecretsEncryptionMigration().catch((e) => console.error('[Startup] Secrets-Migration failed:', e))
     initMqttService(io)
     console.log('✓ MQTT service initializing...')
     startActivityLogCleanupScheduler()

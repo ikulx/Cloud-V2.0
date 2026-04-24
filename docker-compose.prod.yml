@@ -100,6 +100,7 @@ services:
       JWT_REFRESH_SECRET:        ${JWT_REFRESH_SECRET}
       JWT_ACCESS_EXPIRES_IN:     ${JWT_ACCESS_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN:    ${JWT_REFRESH_EXPIRES_IN:-7d}
+      SECRETS_KEY:               ${SECRETS_KEY}
       CORS_ORIGIN:               ${APP_URL}
       MQTT_URL:                  mqtt://mqtt:1883
       MQTT_AUTH_SECRET:          ${MQTT_AUTH_SECRET}

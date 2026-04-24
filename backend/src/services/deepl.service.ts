@@ -1,5 +1,7 @@
 import { env } from '../config/env'
 import { prisma } from '../db/prisma'
+import { SENSITIVE_SETTING_KEYS } from '../routes/settings.router'
+import { decryptSecret } from '../lib/secret-crypto'
 
 /**
  * Sehr dünner DeepL-Wrapper. Unterstützt Batch-Übersetzung mehrerer Strings
@@ -36,7 +38,9 @@ async function loadConfig(): Promise<{ apiKey: string; tier: 'free' | 'pro' }> {
     where: { key: { in: ['deepl.apiKey', 'deepl.tier'] } },
   })
   const db: Record<string, string> = {}
-  for (const r of rows) db[r.key] = r.value
+  for (const r of rows) {
+    db[r.key] = SENSITIVE_SETTING_KEYS.has(r.key) ? decryptSecret(r.value) : r.value
+  }
 
   const apiKey = db['deepl.apiKey'] || env.deepl.apiKey || ''
   const rawTier = (db['deepl.tier'] || env.deepl.tier || 'free').toLowerCase()

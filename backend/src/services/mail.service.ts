@@ -1,6 +1,8 @@
 import nodemailer from 'nodemailer'
 import { prisma } from '../db/prisma'
 import { env } from '../config/env'
+import { SENSITIVE_SETTING_KEYS } from '../routes/settings.router'
+import { decryptSecret } from '../lib/secret-crypto'
 
 let transporter: nodemailer.Transporter | null = null
 let lastConfigHash = ''
@@ -24,7 +26,10 @@ async function loadSmtpConfig(): Promise<SmtpConfig> {
   })
   const appUrlRow = await prisma.systemSetting.findUnique({ where: { key: 'app.url' } })
   const db: Record<string, string> = {}
-  for (const r of rows) db[r.key] = r.value
+  for (const r of rows) {
+    // smtp.password ist at-rest AES-verschlüsselt → transparent entschlüsseln.
+    db[r.key] = SENSITIVE_SETTING_KEYS.has(r.key) ? decryptSecret(r.value) : r.value
+  }
 
   return {
     host:     db['smtp.host']     || env.smtp.host     || '',

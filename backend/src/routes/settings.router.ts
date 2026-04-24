@@ -8,8 +8,23 @@ import { cleanupOldActivityLogs } from '../services/activity-log-cleanup.service
 import { env } from '../config/env'
 import { testMailRateLimiter } from '../middleware/rate-limit'
 import { invalidateDeeplConfigCache, testDeepl } from '../services/deepl.service'
+import { encryptSecret, decryptSecret, isEncrypted } from '../lib/secret-crypto'
 
 const router = Router()
+
+/**
+ * Settings-Keys die BEIM SPEICHERN verschlüsselt werden müssen (AES-256-GCM,
+ * siehe lib/secret-crypto.ts). GET liefert sie für den Admin entschlüsselt
+ * zurück – der User ist authentifiziert und hat die Permission, die Klartexte
+ * zu sehen. Schutz greift gegen DB-Leak (Dump, Replika, Backup-Kopie).
+ */
+export const SENSITIVE_SETTING_KEYS: ReadonlySet<string> = new Set([
+  'smtp.password',
+  'deepl.apiKey',
+  'twilio.authToken',
+  'backup.infomaniak.accessKey',
+  'backup.infomaniak.secretKey',
+])
 
 export const SETTING_KEYS = [
   'pi.serverUrl',
@@ -92,14 +107,22 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
 
 export async function getSetting(key: SettingKey): Promise<string> {
   const row = await prisma.systemSetting.findUnique({ where: { key } })
-  return row?.value ?? DEFAULT_SETTINGS[key]
+  const raw = row?.value ?? DEFAULT_SETTINGS[key]
+  // Sensible Keys werden at-rest AES-GCM-verschlüsselt abgelegt – hier
+  // entschlüsseln wir sie transparent wieder, sodass alle Konsumenten
+  // (Mail, S3-Client, Twilio, DeepL) den Klartext wie gewohnt bekommen.
+  return SENSITIVE_SETTING_KEYS.has(key) ? decryptSecret(raw) : raw
 }
 
 // GET /api/settings
 router.get('/', authenticate, requirePermission('devices:read'), async (_req, res) => {
   const rows = await prisma.systemSetting.findMany()
   const result: Record<string, string> = { ...DEFAULT_SETTINGS }
-  for (const row of rows) result[row.key] = row.value
+  for (const row of rows) {
+    result[row.key] = SENSITIVE_SETTING_KEYS.has(row.key)
+      ? decryptSecret(row.value)
+      : row.value
+  }
   res.json(result)
 })
 
@@ -118,9 +141,14 @@ router.patch('/', authenticate, requirePermission('devices:update'), async (req,
   const allowed = new Set<string>(SETTING_KEYS)
   const updates = Object.entries(parsed.data).filter(([k]) => allowed.has(k))
 
-  await Promise.all(updates.map(([key, value]) =>
-    prisma.systemSetting.upsert({ where: { key }, update: { value }, create: { key, value } })
-  ))
+  await Promise.all(updates.map(([key, value]) => {
+    // Sensible Werte VOR dem DB-Write verschlüsseln. Leere Werte bleiben
+    // leer (= Setting-"deaktiviert").
+    const stored = (SENSITIVE_SETTING_KEYS.has(key) && value)
+      ? encryptSecret(value)
+      : value
+    return prisma.systemSetting.upsert({ where: { key }, update: { value: stored }, create: { key, value: stored } })
+  }))
 
   // DeepL-Konfig-Cache sofort verwerfen, damit die nächste Übersetzung den
   // neuen Key verwendet.
@@ -130,7 +158,11 @@ router.patch('/', authenticate, requirePermission('devices:update'), async (req,
 
   const rows = await prisma.systemSetting.findMany()
   const result: Record<string, string> = { ...DEFAULT_SETTINGS }
-  for (const row of rows) result[row.key] = row.value
+  for (const row of rows) {
+    result[row.key] = SENSITIVE_SETTING_KEYS.has(row.key)
+      ? decryptSecret(row.value)
+      : row.value
+  }
   res.json(result)
 })
 

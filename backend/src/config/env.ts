@@ -42,6 +42,14 @@ export const env = {
     /** 'free' (api-free.deepl.com) oder 'pro' (api.deepl.com) */
     tier: (process.env.DEEPL_TIER ?? 'free') as 'free' | 'pro',
   },
+  /**
+   * Master-Schlüssel für die At-Rest-Verschlüsselung sensibler SystemSettings
+   * (Backup-S3-Keys, SMTP-Password, Twilio-Token, DeepL-Key). 32-Byte als
+   * Hex (64 Zeichen) empfohlen, z.B. via: openssl rand -hex 32
+   * In Prod zwingend, in Dev wird ein deterministischer Fallback aus dem
+   * JWT_ACCESS_SECRET abgeleitet (bequem, aber NICHT sicher).
+   */
+  secretsKey: process.env.SECRETS_KEY ?? '',
 }
 
 /**
@@ -80,6 +88,9 @@ export function validateProdSecrets(): void {
     ['JWT_REFRESH_SECRET', env.jwt.refreshSecret],
     ['MQTT_AUTH_SECRET', env.mqttAuthSecret],
     ['MQTT_BACKEND_PASSWORD', env.mqttBackendPassword],
+    // Schlüssel für die At-Rest-Verschlüsselung der sensiblen Settings.
+    // Rotation = manuelle Re-Verschlüsselung aller bestehenden Secrets.
+    ['SECRETS_KEY', env.secretsKey],
   ]
   for (const [name, value] of checks) {
     const issue = classifySecret(value)
