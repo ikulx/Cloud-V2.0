@@ -120,10 +120,18 @@ export async function runCloudBackup(
     const dumpSize = statSync(dumpPath).size
     if (dumpSize === 0) throw new Error('pg_dump lieferte eine leere Datei')
 
-    // 2. tar.gz-Bundle erstellen: db.dump + (falls vorhanden) uploads/-Tree.
-    //    Die Uploads können mehrere GB sein – tar streamt sequentiell, kein
-    //    Memory-Problem.
-    await buildBundle(bundlePath, dumpPath, UPLOADS_DIR)
+    // 2. Symlink 'uploads' → /app/uploads im workDir anlegen (nur falls Dir
+    //    existiert). So können wir tar mit einem einzigen -C aufrufen – das
+    //    spielt auch mit busybox-tar (Alpine), das mehrfache -C nicht
+    //    zuverlässig unterstützt. tar -h folgt dem Symlink und zieht den
+    //    echten Dateibaum ins Archiv.
+    if (existsSync(UPLOADS_DIR)) {
+      await fsp.symlink(UPLOADS_DIR, path.join(workDir, 'uploads'))
+    }
+
+    // 3. tar.gz-Bundle erstellen. Uploads können GB-groß sein – tar streamt
+    //    sequentiell, kein Memory-Problem.
+    await buildBundle(bundlePath, workDir)
     const bundleSize = statSync(bundlePath).size
     if (bundleSize === 0) throw new Error('tar-Bundle ist leer')
 
@@ -168,17 +176,13 @@ export async function runCloudBackup(
 }
 
 /**
- * Baut das tar.gz-Bundle. `db.dump` kommt aus dem workDir, `uploads/` aus
- * dem Backend-Arbeitsverzeichnis (idR /app). Mit mehreren -C-Options
- * wechselt tar pro Input-Pfad sauber ins entsprechende Verzeichnis, damit
- * die Pfade im Archiv relativ sauber sind (`db.dump`, `uploads/...`).
+ * Baut das tar.gz-Bundle aus workDir (enthält db.dump + optional den
+ * Symlink 'uploads' auf /app/uploads). `-h` dereferenziert den Symlink,
+ * sodass der echte Upload-Tree im Archiv landet.
  */
-function buildBundle(bundlePath: string, dumpPath: string, uploadsDir: string): Promise<void> {
+function buildBundle(bundlePath: string, workDir: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const args: string[] = ['czf', bundlePath, '-C', path.dirname(dumpPath), path.basename(dumpPath)]
-    if (existsSync(uploadsDir)) {
-      args.push('-C', path.dirname(uploadsDir), path.basename(uploadsDir))
-    }
+    const args: string[] = ['-czhf', bundlePath, '-C', workDir, '.']
     const proc = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] })
     let stderr = ''
     proc.stderr.on('data', (c) => { stderr += c.toString('utf8') })
