@@ -450,6 +450,7 @@ const en = {
     schemaNumber: 'Schema number',
     visuVersion: 'Visu version',
     lastSeen: 'Last seen',
+    lastConfigChange: 'Last change',
     noPermissionTodos: 'No permission for todos',
     noPermissionLogbook: 'No permission for logbook',
   },

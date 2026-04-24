@@ -151,6 +151,7 @@ export function DeviceDetailPage() {
   if (!device) return <Typography>{t('detail.notFound')}</Typography>
 
   const lastSeen = device.lastSeen ? new Date(device.lastSeen).toLocaleString() : '—'
+  const lastConfigChange = device.lastConfigChangeAt ? new Date(device.lastConfigChangeAt).toLocaleString() : '—'
 
 
   return (
@@ -187,6 +188,7 @@ export function DeviceDetailPage() {
                 { label: t('detail.schemaNumber'), value: device.schemaNumber ?? '—' },
                 { label: t('detail.visuVersion'), value: device.visuVersion ?? '—' },
                 { label: t('detail.lastSeen'), value: lastSeen },
+                { label: t('detail.lastConfigChange', 'Letzte Änderung'), value: lastConfigChange },
               ].map(({ label, value }) => (
                 <Box key={label} display="flex" justifyContent="space-between" py={0.5}>
                   <Typography variant="body2" color="text.secondary">{label}</Typography>

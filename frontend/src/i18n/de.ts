@@ -470,6 +470,7 @@ const de = {
     schemaNumber: 'Schemanummer',
     visuVersion: 'Visu-Version',
     lastSeen: 'Zuletzt gesehen',
+    lastConfigChange: 'Letzte Änderung',
     noPermissionTodos: 'Keine Berechtigung für Todos',
     noPermissionLogbook: 'Keine Berechtigung für das Logbuch',
   },

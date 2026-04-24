@@ -450,6 +450,7 @@ const it = {
     schemaNumber: 'Numero di schema',
     visuVersion: 'Versione visu',
     lastSeen: 'Visto l\'ultima volta',
+    lastConfigChange: 'Ultima modifica',
     noPermissionTodos: 'Nessun permesso per i todos',
     noPermissionLogbook: 'Nessun permesso per il registro',
   },

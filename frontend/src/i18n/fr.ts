@@ -450,6 +450,7 @@ const fr = {
     schemaNumber: 'Numéro de schéma',
     visuVersion: 'Version visu',
     lastSeen: 'Dernière connexion',
+    lastConfigChange: 'Dernière modification',
     noPermissionTodos: 'Pas de permission pour les todos',
     noPermissionLogbook: 'Pas de permission pour le journal',
   },
