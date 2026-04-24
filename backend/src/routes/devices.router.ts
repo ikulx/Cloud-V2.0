@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC30"  # Restore: tar-stderr auch bei Broken Pipe ausgeben
+AGENT_VERSION = "1.0.0-RC31"  # Restore: tar --overwrite entfernt (konflikt mit --unlink-first)
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -212,11 +212,13 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
         if extract_to != "/":
             print("[YControl] Restore: extract_to='" + str(extract_to) + "' ignoriert, verwende '/'")
             extract_to = "/"
-        # --unlink-first + --overwrite: entfernt Ziel-Dateien vor dem Schreiben,
+        # --unlink-first: entfernt existierende Ziel-Dateien VOR dem Schreiben,
         # damit Prozesse die noch einen offenen Filedescriptor halten auf Geister-
-        # Inodes zeigen statt die Datei mitten im Schreibvorgang zu "sehen".
-        # Im Fallback-Pfad (compose stop) ist das harmlos, im Koop-Pfad essentiell.
-        tar_args = ["tar", "--unlink-first", "--overwrite", "-xzf", "-", "-C", extract_to]
+        # Inodes zeigen statt die Datei mitten im Schreibvorgang zu "sehen". Im
+        # Fallback-Pfad (compose stop) harmlos, im Koop-Pfad essentiell.
+        # (GNU tar verbietet --unlink-first zusammen mit --overwrite; brauchen
+        # wir auch nicht – --unlink-first deckt das gleiche Szenario ab.)
+        tar_args = ["tar", "--unlink-first", "-xzf", "-", "-C", extract_to]
         print("[YControl] Restore: tar " + " ".join(tar_args[1:]))
         proc = subprocess.Popen(tar_args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
