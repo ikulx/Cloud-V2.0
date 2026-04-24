@@ -40,6 +40,9 @@ export const SETTING_KEYS = [
   'backup.infomaniak.bucket',
   'backup.infomaniak.accessKey',
   'backup.infomaniak.secretKey',
+  // Auto-Backup
+  'backup.autoEnabled',
+  'backup.autoIntervalHours',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -80,6 +83,10 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'backup.infomaniak.bucket': '',
   'backup.infomaniak.accessKey': '',
   'backup.infomaniak.secretKey': '',
+  // Auto-Backup Master-Switch und Intervall. Pro Gerät lässt sich das noch
+  // einzeln abschalten via Device.autoBackupEnabled.
+  'backup.autoEnabled': 'true',
+  'backup.autoIntervalHours': '24',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {

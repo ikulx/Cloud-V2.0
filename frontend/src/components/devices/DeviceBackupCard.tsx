@@ -41,15 +41,26 @@ import {
   useRestoreBackup,
   useDeleteBackup,
   useCrossDeviceBackupSources,
+  usePinBackup,
+  useUnpinBackup,
   type DeviceBackup,
   type BackupTargetStatus,
   type CrossDeviceBackupSource,
 } from '../../features/backups/queries'
+import { useUpdateDevice } from '../../features/devices/queries'
 import { usePermission } from '../../hooks/usePermission'
+import PushPinIcon from '@mui/icons-material/PushPin'
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
+import ScheduleIcon from '@mui/icons-material/Schedule'
+import AutoModeIcon from '@mui/icons-material/AutoMode'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Switch from '@mui/material/Switch'
 
 interface Props {
   deviceId: string
   deviceOnline: boolean
+  /** Pro-Gerät-Schalter für Auto-Backup; wenn nicht gesetzt wird der Switch nicht angezeigt. */
+  autoBackupEnabled?: boolean
 }
 
 function formatSize(bytes: number | null): string {
@@ -90,7 +101,7 @@ function StatusChip({ b }: { b: DeviceBackup }) {
   return <Chip size="small" color={colorMap[b.status]} label={b.status} />
 }
 
-export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
+export function DeviceBackupCard({ deviceId, deviceOnline, autoBackupEnabled }: Props) {
   const { t } = useTranslation()
   const canUpdate = usePermission('devices:update')
   const canCrossRestore = usePermission('backups:restore_cross_device')
@@ -98,6 +109,9 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
   const startBackup = useStartBackup(deviceId)
   const restoreBackup = useRestoreBackup(deviceId)
   const deleteBackup = useDeleteBackup(deviceId)
+  const pinBackup = usePinBackup(deviceId)
+  const unpinBackup = useUnpinBackup(deviceId)
+  const updateDevice = useUpdateDevice(deviceId)
   const [restoreDlg, setRestoreDlg] = useState<{ backup: { id: string; createdAt: string; sourceDeviceName?: string | null } ; target: 'infomaniak'; crossDevice?: boolean } | null>(null)
   const [deleteDlg, setDeleteDlg] = useState<DeviceBackup | null>(null)
   const [crossDlgOpen, setCrossDlgOpen] = useState(false)
@@ -125,6 +139,20 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
     catch (e) { setSnack(e instanceof Error ? e.message : String(e)) }
     finally { setDeleteDlg(null) }
   }
+  const handleTogglePin = async (b: DeviceBackup) => {
+    try {
+      if (b.isPinned) { await unpinBackup.mutateAsync(b.id); setSnack(t('backup.unpinned', 'Fixierung aufgehoben')) }
+      else { await pinBackup.mutateAsync(b.id); setSnack(t('backup.pinned', 'Backup fixiert – wird von Retention ignoriert')) }
+    } catch (e) { setSnack(e instanceof Error ? e.message : String(e)) }
+  }
+  const handleToggleAutoBackup = async (checked: boolean) => {
+    try { await updateDevice.mutateAsync({ autoBackupEnabled: checked }) }
+    catch (e) { setSnack(e instanceof Error ? e.message : String(e)) }
+  }
+
+  // Pro Gerät darf genau ein Backup pinned sein → für User-Feedback wissen wir
+  // ob es schon eines gibt (dann warnen wir beim Pinnen eines zweiten).
+  const existingPinned = backups?.find((b) => b.isPinned)
 
   return (
     <Card>
@@ -160,6 +188,31 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
             )}
           </Box>
         </Box>
+        {/* Auto-Backup-Switch pro Gerät. Greift nur wenn globaler Master-Switch auch an ist. */}
+        {canUpdate && autoBackupEnabled !== undefined && (
+          <Box display="flex" alignItems="center" gap={1} mb={1}>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={autoBackupEnabled}
+                  onChange={(e) => handleToggleAutoBackup(e.target.checked)}
+                  disabled={updateDevice.isPending}
+                />
+              }
+              label={
+                <Box display="flex" alignItems="center" gap={0.5}>
+                  <ScheduleIcon fontSize="small" color="action" />
+                  <Typography variant="body2">{t('backup.autoLabel', 'Automatisches Backup nach Inaktivität')}</Typography>
+                </Box>
+              }
+            />
+            <Tooltip title={t('backup.autoHint', 'Cloud erstellt automatisch ein Backup wenn seit der letzten Config-Änderung das globale Intervall (Standard 24h) abgelaufen ist. Master-Switch steht in den globalen Einstellungen.')}>
+              <Typography variant="caption" color="text.secondary">ⓘ</Typography>
+            </Tooltip>
+          </Box>
+        )}
+        {existingPinned && !backups?.find((b) => b.isPinned && b.id === existingPinned.id) && null}
         {!deviceOnline && (
           <Typography variant="caption" color="text.secondary">{t('backup.deviceOffline', 'Gerät ist offline – Backups sind erst wieder möglich, sobald es online ist.')}</Typography>
         )}
@@ -178,8 +231,22 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
             </TableHead>
             <TableBody>
               {backups.map((b) => (
-                <TableRow key={b.id} hover>
-                  <TableCell>{new Date(b.createdAt).toLocaleString('de-CH')}</TableCell>
+                <TableRow key={b.id} hover sx={b.isPinned ? { backgroundColor: (theme) => theme.palette.action.hover } : undefined}>
+                  <TableCell>
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      {new Date(b.createdAt).toLocaleString('de-CH')}
+                      {b.trigger === 'auto' && (
+                        <Tooltip title={t('backup.triggerAuto', 'Automatisch nach Inaktivität erstellt')}>
+                          <AutoModeIcon fontSize="small" color="action" />
+                        </Tooltip>
+                      )}
+                      {b.isPinned && (
+                        <Tooltip title={t('backup.pinnedHint', 'Fixiert – wird nicht automatisch gelöscht')}>
+                          <PushPinIcon fontSize="small" sx={{ color: 'warning.main' }} />
+                        </Tooltip>
+                      )}
+                    </Box>
+                  </TableCell>
                   <TableCell>{formatSize(b.sizeBytes)}</TableCell>
                   <TableCell>
                     <Tooltip title={b.errorMessage ?? ''}>
@@ -202,6 +269,15 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
                     <TargetBadge status={b.infomaniakStatus} />
                   </TableCell>
                   <TableCell align="right">
+                    {canUpdate && b.status === 'OK' && (
+                      <Tooltip title={b.isPinned ? t('backup.unpin', 'Fixierung aufheben') : t('backup.pin', 'Backup fixieren (nicht auto-löschen)')}>
+                        <IconButton size="small" onClick={() => handleTogglePin(b)} disabled={pinBackup.isPending || unpinBackup.isPending}>
+                          {b.isPinned
+                            ? <PushPinIcon fontSize="small" sx={{ color: 'warning.main' }} />
+                            : <PushPinOutlinedIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     {canUpdate && b.infomaniakStatus === 'OK' && (
                       <Tooltip title={t('backup.restore', 'Wiederherstellen')}>
                         <IconButton size="small" disabled={!deviceOnline} onClick={() => setRestoreDlg({ backup: b, target: 'infomaniak' })}>
@@ -210,10 +286,12 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
                       </Tooltip>
                     )}
                     {canUpdate && (
-                      <Tooltip title={t('backup.delete', 'Backup löschen')}>
-                        <IconButton size="small" color="error" onClick={() => setDeleteDlg(b)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+                      <Tooltip title={b.isPinned ? t('backup.deletePinnedDisabled', 'Pinned Backup kann nicht gelöscht werden – erst Fixierung aufheben') : t('backup.delete', 'Backup löschen')}>
+                        <span>
+                          <IconButton size="small" color="error" onClick={() => setDeleteDlg(b)} disabled={b.isPinned}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                     )}
                   </TableCell>

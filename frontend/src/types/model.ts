@@ -65,6 +65,8 @@ export interface Device {
   schemaNumber: string | null
   visuVersion: string | null
   notes: string | null
+  lastConfigChangeAt: string | null
+  autoBackupEnabled: boolean
   anlageDevices: { anlage: { id: string; name: string } }[]
   directUsers: { user: { id: string; firstName: string; lastName: string } }[]
   directGroups: { group: { id: string; name: string } }[]

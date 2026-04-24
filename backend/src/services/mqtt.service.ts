@@ -129,6 +129,13 @@ async function handleTele(serial: string, payload: string, io: SocketServer) {
   if (typeof data.httpActive === 'boolean') update.httpActive = data.httpActive
   if (typeof data.hasRouter === 'boolean') update.hasRouter = data.hasRouter
 
+  // Zeitpunkt der letzten Config-Änderung (Visu-SQLite mtime). Wird vom
+  // Auto-Backup-Scheduler ausgewertet: 24h idle → fälliges Backup.
+  if (typeof data.lastConfigChangeAt === 'string') {
+    const parsed = new Date(data.lastConfigChangeAt)
+    if (!isNaN(parsed.getTime())) update.lastConfigChangeAt = parsed
+  }
+
   if (Object.keys(update).length > 0) {
     await prisma.device.update({ where: { id: device.id }, data: update })
     console.log('[MQTT] Tele %s:', serial, update)

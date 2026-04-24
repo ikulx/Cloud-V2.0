@@ -451,6 +451,13 @@ model Device {
   httpActive      Boolean      @default(false) @map("http_active")
   hasRouter       Boolean      @default(false) @map("has_router")
   notes           String?
+  /// Zeitpunkt der letzten lokalen Config-Änderung (mtime der Visu-SQLite).
+  /// Der Agent reportet's im Tele; der Auto-Backup-Scheduler entscheidet
+  /// anhand dieses Feldes, ob für das Gerät ein Backup fällig ist.
+  lastConfigChangeAt DateTime?  @map("last_config_change_at")
+  /// Pro-Gerät Opt-out fürs Auto-Backup. Globaler Master-Switch steht in
+  /// SystemSetting 'backup.autoEnabled'.
+  autoBackupEnabled  Boolean    @default(true) @map("auto_backup_enabled")
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
@@ -702,11 +709,18 @@ model DeviceBackup {
   lastRestoreAt      DateTime?             @map("last_restore_at")
   /// Optional: Welcher Benutzer hat das Backup ausgelöst.
   createdById    String?  @map("created_by_id") @db.Uuid
+  /// Auslöser: 'manual' (UI-Button), 'auto' (Scheduler), 'cross_device' (Fremd-Restore-Quelle).
+  trigger        String   @default("manual")
+  /// Wenn true, wird dieses Backup von der Retention ignoriert (max 1 pro Device).
+  isPinned       Boolean  @default(false) @map("is_pinned")
+  pinnedAt       DateTime? @map("pinned_at")
+  pinnedById     String?  @map("pinned_by_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at")
   completedAt    DateTime? @map("completed_at")
 
   @@index([deviceId, createdAt])
   @@index([status])
+  @@index([deviceId, isPinned])
   @@map("device_backups")
 }
 

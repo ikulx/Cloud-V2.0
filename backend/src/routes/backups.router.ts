@@ -132,32 +132,37 @@ router.get('/:id/backups', authenticate, requirePermission('devices:read'), asyn
 })
 
 // ─── POST /api/devices/:id/backups ───────────────────────────────────────────
-router.post('/:id/backups', authenticate, requirePermission('devices:update'), async (req, res) => {
-  const deviceId = req.params.id as string
+/**
+ * Startet für ein Gerät ein Backup und kickt den Background-Pull. Ergebnis
+ * ist ein Objekt mit `ok` + (im Erfolgsfall) dem Backup-DB-Record, oder ein
+ * Fehler mit HTTP-Status. Wird vom POST-Handler und vom Auto-Backup-Scheduler
+ * genutzt, damit beide Pfade identisch laufen (Retention, Logs, etc).
+ */
+export async function startBackupForDevice(
+  deviceId: string,
+  trigger: 'manual' | 'auto',
+  userId: string | null,
+): Promise<
+  | { ok: true; backup: Record<string, unknown> }
+  | { ok: false; status: number; message: string }
+> {
   const device = await getDeviceWithVpn(deviceId)
-  if (!device) { res.status(404).json({ message: 'Gerät nicht gefunden' }); return }
-  if (device.status !== 'ONLINE') { res.status(409).json({ message: 'Gerät ist offline' }); return }
+  if (!device) return { ok: false, status: 404, message: 'Gerät nicht gefunden' }
+  if (device.status !== 'ONLINE') return { ok: false, status: 409, message: 'Gerät ist offline' }
   if (!device.vpnDevice?.vpnIp) {
-    res.status(400).json({ message: 'Gerät hat keine VPN-IP. Backup läuft über den WireGuard-Tunnel und benötigt eine VPN-Konfiguration.' })
-    return
+    return { ok: false, status: 400, message: 'Gerät hat keine VPN-IP. Backup läuft über den WireGuard-Tunnel und benötigt eine VPN-Konfiguration.' }
   }
-
   const targets = await getActiveBackupTargets()
   if (targets.length === 0) {
-    res.status(400).json({ message: 'Es ist kein Backup-Ziel aktiviert. Bitte in den Einstellungen Infomaniak Swiss Backup konfigurieren.' })
-    return
+    return { ok: false, status: 400, message: 'Es ist kein Backup-Ziel aktiviert. Bitte in den Einstellungen Infomaniak Swiss Backup konfigurieren.' }
   }
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pAny = prisma as any
   const inflight = await pAny.deviceBackup.findFirst({
     where: { deviceId, status: { in: ['PENDING', 'UPLOADING', 'DISTRIBUTING'] } },
     select: { id: true },
   })
-  if (inflight) {
-    res.status(409).json({ message: 'Es läuft bereits ein Backup für dieses Gerät.' })
-    return
-  }
+  if (inflight) return { ok: false, status: 409, message: 'Es läuft bereits ein Backup für dieses Gerät.' }
 
   const isoTs = new Date().toISOString()
   const objectKey = objectKeyFor(device.serialNumber, isoTs)
@@ -171,7 +176,8 @@ router.post('/:id/backups', authenticate, requirePermission('devices:update'), a
       uploadToken: pullToken,
       status: 'PENDING',
       infomaniakStatus: targets.find((t) => t.id === 'infomaniak') ? 'PENDING' : 'SKIPPED',
-      createdById: req.user!.userId,
+      createdById: userId,
+      trigger,
     },
   })
 
@@ -187,26 +193,34 @@ router.post('/:id/backups', authenticate, requirePermission('devices:update'), a
       where: { id: backup.id },
       data: { status: 'FAILED', errorMessage: 'MQTT nicht verfügbar' },
     })
-    res.status(503).json({ message: 'MQTT nicht verfügbar' }); return
+    return { ok: false, status: 503, message: 'MQTT nicht verfügbar' }
   }
 
+  // Hintergrund-Job starten (Fire-and-forget; Status läuft über DB).
+  void runBackupPull(device.vpnDevice.vpnIp, pullPort, pullToken, backup.id, deviceId, objectKey, targets)
+  return { ok: true, backup }
+}
+
+router.post('/:id/backups', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const deviceId = req.params.id as string
+  const result = await startBackupForDevice(deviceId, 'manual', req.user!.userId)
+  if (!result.ok) { res.status(result.status).json({ message: result.message }); return }
+
+  const backup = result.backup as { id: string; sizeBytes: bigint | number | null }
+  const device = await prisma.device.findUnique({ where: { id: deviceId }, select: { name: true, serialNumber: true } })
   logActivity({
     action: 'devices.backup.start',
     entityType: 'devices',
-    entityId: device.id,
-    details: { entityName: device.name?.trim() || device.serialNumber, backupId: backup.id, targets: targets.map((t) => t.id) },
+    entityId: deviceId,
+    details: { entityName: device?.name?.trim() || device?.serialNumber, backupId: backup.id, trigger: 'manual' },
     req,
     statusCode: 200,
   }).catch(() => {})
 
-  // Antwort sofort, der Pull läuft im Hintergrund.
   res.status(202).json({
     ...backup,
     sizeBytes: backup.sizeBytes !== null && backup.sizeBytes !== undefined ? Number(backup.sizeBytes) : null,
   })
-
-  // Hintergrund-Job: Pi-Listener anfragen und Stream verteilen.
-  void runBackupPull(device.vpnDevice.vpnIp, pullPort, pullToken, backup.id, deviceId, objectKey, targets)
 })
 
 async function runBackupPull(
@@ -292,9 +306,12 @@ async function runBackupPull(
       },
     })
 
-    // Retention: pro Gerät max RETENTION OK-Backups behalten.
+    // Retention: pro Gerät max RETENTION OK-Backups behalten. Pinned-Backups
+    // werden NICHT mitgezählt und NIE gelöscht – dadurch kann ein Admin einen
+    // "goldenen Zustand" fixieren, der sich nicht durch neue Backups aus dem
+    // Fenster schiebt (effektives Maximum: RETENTION + 1 Pinned).
     const all = await pAny.deviceBackup.findMany({
-      where: { deviceId, status: 'OK' },
+      where: { deviceId, status: 'OK', isPinned: false },
       orderBy: { createdAt: 'desc' },
       select: { id: true, objectKey: true },
     })
@@ -326,6 +343,11 @@ router.delete('/:id/backups/:backupId', authenticate, requirePermission('devices
   const pAny = prisma as any
   const backup = await pAny.deviceBackup.findUnique({ where: { id: backupId }, include: { device: { select: { serialNumber: true, name: true } } } })
   if (!backup || backup.deviceId !== deviceId) { res.status(404).json({ message: 'Backup nicht gefunden' }); return }
+  // Pinned-Backups sind vor dem Löschen geschützt – UI muss vorher unpinnen.
+  if (backup.isPinned) {
+    res.status(409).json({ message: 'Backup ist fixiert – bitte erst die Fixierung aufheben.' })
+    return
+  }
 
   const targets = await getActiveBackupTargets()
   for (const t of targets) {
@@ -479,6 +501,70 @@ async function runRestorePush(
     console.error('[restore] %s fehlgeschlagen:', backupId, e)
   }
 }
+
+// ─── POST /api/devices/:id/backups/:backupId/pin ─────────────────────────────
+// Pro Gerät darf genau EIN Backup pinned sein (Transaktion sorgt dafür).
+// Pinned-Backups werden von Retention + Auto-Retention ausgenommen – so kann
+// ein "goldener Zustand" dauerhaft erhalten bleiben auch nach vielen neuen
+// Backups. Das pinned Backup zählt nicht zum Retention-Max.
+router.post('/:id/backups/:backupId/pin', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const deviceId = req.params.id as string
+  const backupId = req.params.backupId as string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pAny = prisma as any
+  const backup = await pAny.deviceBackup.findUnique({
+    where: { id: backupId },
+    include: { device: { select: { name: true, serialNumber: true } } },
+  })
+  if (!backup || backup.deviceId !== deviceId) { res.status(404).json({ message: 'Backup nicht gefunden' }); return }
+  if (backup.status !== 'OK') { res.status(400).json({ message: 'Nur erfolgreiche Backups können fixiert werden' }); return }
+
+  await prisma.$transaction([
+    // Altes Pinned für dieses Gerät freigeben (falls es eines gibt).
+    pAny.deviceBackup.updateMany({
+      where: { deviceId, isPinned: true, NOT: { id: backupId } },
+      data: { isPinned: false, pinnedAt: null, pinnedById: null },
+    }),
+    pAny.deviceBackup.update({
+      where: { id: backupId },
+      data: { isPinned: true, pinnedAt: new Date(), pinnedById: req.user!.userId },
+    }),
+  ])
+  logActivity({
+    action: 'devices.backup.pin',
+    entityType: 'devices',
+    entityId: deviceId,
+    details: { entityName: backup.device?.name?.trim() || backup.device?.serialNumber, backupId },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
+  res.json({ ok: true })
+})
+
+router.post('/:id/backups/:backupId/unpin', authenticate, requirePermission('devices:update'), async (req, res) => {
+  const deviceId = req.params.id as string
+  const backupId = req.params.backupId as string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pAny = prisma as any
+  const backup = await pAny.deviceBackup.findUnique({
+    where: { id: backupId },
+    include: { device: { select: { name: true, serialNumber: true } } },
+  })
+  if (!backup || backup.deviceId !== deviceId) { res.status(404).json({ message: 'Backup nicht gefunden' }); return }
+  await pAny.deviceBackup.update({
+    where: { id: backupId },
+    data: { isPinned: false, pinnedAt: null, pinnedById: null },
+  })
+  logActivity({
+    action: 'devices.backup.unpin',
+    entityType: 'devices',
+    entityId: deviceId,
+    details: { entityName: backup.device?.name?.trim() || backup.device?.serialNumber, backupId },
+    req,
+    statusCode: 200,
+  }).catch(() => {})
+  res.json({ ok: true })
+})
 
 // ─── GET /api/backups/cross-device/sources ───────────────────────────────────
 // Für das Cross-Device-Restore-UI: liefert alle OK-Backups aller Geräte, die

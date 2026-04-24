@@ -19,6 +19,9 @@ export interface DeviceBackup {
   lastRestoreAt: string | null
   createdAt: string
   completedAt: string | null
+  trigger: 'manual' | 'auto' | 'cross_device'
+  isPinned: boolean
+  pinnedAt: string | null
 }
 
 export const backupsKeys = {
@@ -54,6 +57,24 @@ export function useDeleteBackup(deviceId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (backupId: string) => apiDelete(`/devices/${deviceId}/backups/${backupId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: backupsKeys.forDevice(deviceId) }),
+  })
+}
+
+/** Fixiert ein Backup (max 1 pro Gerät). Pinned-Backups werden von der
+ *  Retention ignoriert und können nicht direkt gelöscht werden. */
+export function usePinBackup(deviceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (backupId: string) => apiPost(`/devices/${deviceId}/backups/${backupId}/pin`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: backupsKeys.forDevice(deviceId) }),
+  })
+}
+
+export function useUnpinBackup(deviceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (backupId: string) => apiPost(`/devices/${deviceId}/backups/${backupId}/unpin`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: backupsKeys.forDevice(deviceId) }),
   })
 }

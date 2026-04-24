@@ -727,7 +727,11 @@ export function DeviceDetailPage() {
         </Box>
 
         <Box mt={3}>
-          <DeviceBackupCard deviceId={id!} deviceOnline={device.status === 'ONLINE'} />
+          <DeviceBackupCard
+            deviceId={id!}
+            deviceOnline={device.status === 'ONLINE'}
+            autoBackupEnabled={device.autoBackupEnabled ?? true}
+          />
         </Box>
 
         <Snackbar

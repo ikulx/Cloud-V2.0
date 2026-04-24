@@ -88,7 +88,9 @@
       "Bash(grep -n '\"\\\\\\\\\\\\\\\\n\"\\\\|\"\\\\\\\\n\"\\\\|rstrip\\(\"\\\\\\\\|endswith\\(\"\\\\\\\\' \"D:/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0/backend/src/routes/devices.router.ts\")",
       "Bash(python -m py_compile D:/tmp/agent-rc35b.py)",
       "Bash(python -m py_compile D:/tmp/agent-real.py)",
-      "Bash(python -m py_compile D:/tmp/agent-real2.py)"
+      "Bash(python -m py_compile D:/tmp/agent-real2.py)",
+      "Bash(grep -iE \"docker|build|\\\\.yml$|\\\\.yaml$|\\\\.sh$\")",
+      "Bash(python -m py_compile D:/tmp/agent-rc37.py)"
     ]
   }
 }

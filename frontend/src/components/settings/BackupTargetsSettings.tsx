@@ -22,6 +22,11 @@ type InfoForm = {
   'backup.infomaniak.secretKey': string
 }
 
+type AutoForm = {
+  'backup.autoEnabled': string
+  'backup.autoIntervalHours': string
+}
+
 export function BackupTargetsSettings() {
   const { t } = useTranslation()
   const { data: settings } = useSettings(true)
@@ -39,6 +44,12 @@ export function BackupTargetsSettings() {
   const [infoSaved, setInfoSaved] = useState(false)
   const [infoTesting, setInfoTesting] = useState(false)
 
+  const [auto, setAuto] = useState<AutoForm>({
+    'backup.autoEnabled': 'true',
+    'backup.autoIntervalHours': '24',
+  })
+  const [autoSaved, setAutoSaved] = useState(false)
+
   useEffect(() => {
     if (!settings) return
     setInfo({
@@ -49,7 +60,16 @@ export function BackupTargetsSettings() {
       'backup.infomaniak.accessKey': settings['backup.infomaniak.accessKey'] ?? '',
       'backup.infomaniak.secretKey': settings['backup.infomaniak.secretKey'] ?? '',
     })
+    setAuto({
+      'backup.autoEnabled': settings['backup.autoEnabled'] ?? 'true',
+      'backup.autoIntervalHours': settings['backup.autoIntervalHours'] ?? '24',
+    })
   }, [settings])
+
+  const handleSaveAuto = async () => {
+    await updateSettings.mutateAsync(auto)
+    setAutoSaved(true); setTimeout(() => setAutoSaved(false), 3000)
+  }
 
   const handleSaveInfo = async () => {
     await updateSettings.mutateAsync(info)
@@ -69,8 +89,44 @@ export function BackupTargetsSettings() {
   return (
     <Box display="flex" flexDirection="column" gap={3}>
       <Typography variant="body2" color="text.secondary">
-        {t('settings.backup.intro', 'Backups laufen über den bestehenden WireGuard-Tunnel zum Pi und werden auf Infomaniak Swiss Backup hochgeladen. Pro Gerät bleiben die letzten 5 Backups erhalten.')}
+        {t('settings.backup.intro', 'Backups laufen über den bestehenden WireGuard-Tunnel zum Pi und werden auf Infomaniak Swiss Backup hochgeladen. Pro Gerät bleiben die letzten 5 Backups erhalten, plus 1 optional fixiertes Backup.')}
       </Typography>
+
+      {/* Auto-Backup: Scheduler läuft alle 30 min und triggert ein Backup pro Gerät,
+          wenn seit der letzten Config-Änderung das Intervall überschritten ist. */}
+      <Card>
+        <CardContent>
+          <Stack spacing={2}>
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Typography variant="h6">{t('settings.backup.autoTitle', 'Automatisches Backup')}</Typography>
+              <FormControlLabel
+                control={<Switch
+                  checked={auto['backup.autoEnabled'] === 'true'}
+                  onChange={(e) => setAuto({ ...auto, 'backup.autoEnabled': e.target.checked ? 'true' : 'false' })}
+                />}
+                label={t('common.active', 'Aktiv')}
+              />
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              {t('settings.backup.autoIntro', 'Pro Gerät erstellt die Cloud automatisch ein Backup, wenn seit der letzten lokalen Config-Änderung das Intervall abgelaufen ist. Pro Gerät kann das zusätzlich einzeln deaktiviert werden.')}
+            </Typography>
+            <TextField
+              label={t('settings.backup.autoInterval', 'Intervall (Stunden)')}
+              type="number"
+              value={auto['backup.autoIntervalHours']}
+              onChange={(e) => setAuto({ ...auto, 'backup.autoIntervalHours': e.target.value })}
+              size="small"
+              sx={{ maxWidth: 200 }}
+              slotProps={{ htmlInput: { min: 1, max: 720 } }}
+              helperText={t('settings.backup.autoIntervalHint', 'Standard: 24h. Mindestens 1h, maximal 720h (30 Tage).')}
+            />
+            {autoSaved && <Alert severity="success">{t('common.saved', 'Gespeichert')}</Alert>}
+            <Box>
+              <Button variant="contained" onClick={handleSaveAuto}>{t('common.save', 'Speichern')}</Button>
+            </Box>
+          </Stack>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent>

@@ -21,6 +21,7 @@ const deviceSchema = z.object({
   projectNumber: z.string().optional(),
   schemaNumber: z.string().optional(),
   notes: z.string().optional(),
+  autoBackupEnabled: z.boolean().optional(),
   anlageIds: z.array(z.string().uuid()).optional(),
   userIds: z.array(z.string().uuid()).optional(),
   groupIds: z.array(z.string().uuid()).optional(),
@@ -68,7 +69,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC36"  # updateContainer nutzt eigenen state='update' (Overlay-Text)
+AGENT_VERSION = "1.0.0-RC37"  # Tele: lastConfigChangeAt (mtime der Visu-SQLite) für Auto-Backup
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -671,6 +672,16 @@ def run_agent():
             tele["piLanIp"] = ri["piLanIp"]
         if ri["piWanIp"]:
             tele["piWanIp"] = ri["piWanIp"]
+        # Zeitpunkt der letzten Config-Änderung: mtime der Visu-SQLite.
+        # Cloud entscheidet daran wann ein Auto-Backup fällig ist (default
+        # 24h nach der letzten Änderung).
+        try:
+            if os.path.exists(SQLITE_DB):
+                m = os.path.getmtime(SQLITE_DB)
+                # ISO8601 mit 'Z' (UTC) – lässt sich in Node direkt als Date parsen.
+                tele["lastConfigChangeAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(m))
+        except Exception as ex:
+            print("[YControl] lastConfigChangeAt konnte nicht ermittelt werden: " + str(ex), file=sys.stderr)
         return tele
 
     def publish_tele(c):

@@ -12,6 +12,7 @@ import { ensureSystemTemplateRecipientsForAllAnlagen } from './services/internal
 import { startPiketShiftsCleanup } from './services/piket-shifts-cleanup.service'
 import { startAlarmEventsCleanup } from './services/alarm-events-cleanup.service'
 import { startActivityLogCleanupScheduler } from './services/activity-log-cleanup.service'
+import { startBackupAutoScheduler } from './services/backup-auto.service'
 import { env } from './config/env'
 import { prisma } from './db/prisma'
 import { verifyAccessToken } from './lib/token'
@@ -166,6 +167,8 @@ async function main() {
     console.log('✓ Activity-Log cleanup scheduler started (daily at 03:00)')
     startOfflineMonitor(io)
     console.log('✓ Offline-Monitor gestartet (5-min-Poll)')
+    startBackupAutoScheduler()
+    console.log('✓ Auto-Backup-Scheduler gestartet (30-min-Poll)')
     startAlarmDeliveryWorker()
     console.log('✓ Alarm-Delivery-Worker gestartet (30-s-Poll)')
     ensureSystemTemplateRecipientsForAllAnlagen().catch((err) => {
