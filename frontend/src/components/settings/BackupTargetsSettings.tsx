@@ -24,7 +24,7 @@ type InfoForm = {
 
 type AutoForm = {
   'backup.autoEnabled': string
-  'backup.autoIntervalHours': string
+  'backup.autoIntervalMinutes': string
 }
 
 export function BackupTargetsSettings() {
@@ -46,7 +46,7 @@ export function BackupTargetsSettings() {
 
   const [auto, setAuto] = useState<AutoForm>({
     'backup.autoEnabled': 'true',
-    'backup.autoIntervalHours': '24',
+    'backup.autoIntervalMinutes': '1440',
   })
   const [autoSaved, setAutoSaved] = useState(false)
 
@@ -62,7 +62,7 @@ export function BackupTargetsSettings() {
     })
     setAuto({
       'backup.autoEnabled': settings['backup.autoEnabled'] ?? 'true',
-      'backup.autoIntervalHours': settings['backup.autoIntervalHours'] ?? '24',
+      'backup.autoIntervalMinutes': settings['backup.autoIntervalMinutes'] ?? '1440',
     })
   }, [settings])
 
@@ -111,14 +111,14 @@ export function BackupTargetsSettings() {
               {t('settings.backup.autoIntro', 'Pro Gerät erstellt die Cloud automatisch ein Backup, wenn seit der letzten lokalen Config-Änderung das Intervall abgelaufen ist. Pro Gerät kann das zusätzlich einzeln deaktiviert werden.')}
             </Typography>
             <TextField
-              label={t('settings.backup.autoInterval', 'Intervall (Stunden)')}
+              label={t('settings.backup.autoInterval', 'Intervall (Minuten)')}
               type="number"
-              value={auto['backup.autoIntervalHours']}
-              onChange={(e) => setAuto({ ...auto, 'backup.autoIntervalHours': e.target.value })}
+              value={auto['backup.autoIntervalMinutes']}
+              onChange={(e) => setAuto({ ...auto, 'backup.autoIntervalMinutes': e.target.value })}
               size="small"
-              sx={{ maxWidth: 200 }}
-              slotProps={{ htmlInput: { min: 1, max: 720 } }}
-              helperText={t('settings.backup.autoIntervalHint', 'Standard: 24h. Mindestens 1h, maximal 720h (30 Tage).')}
+              sx={{ maxWidth: 220 }}
+              slotProps={{ htmlInput: { min: 5, max: 43200 } }}
+              helperText={t('settings.backup.autoIntervalHint', 'Standard: 1440 min (= 24h). Für Tests bis auf 5 min runter, maximal 43 200 min (= 30 Tage). Scheduler pollt alle 2 min.')}
             />
             {autoSaved && <Alert severity="success">{t('common.saved', 'Gespeichert')}</Alert>}
             <Box>

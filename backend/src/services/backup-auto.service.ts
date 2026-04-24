@@ -6,13 +6,14 @@ import { logActivity } from './activity-log.service'
 /**
  * Auto-Backup-Scheduler
  * ─────────────────────
- * Prüft alle 30 Minuten, ob für ein Gerät ein automatisches Backup fällig ist.
+ * Prüft alle 2 Minuten, ob für ein Gerät ein automatisches Backup fällig ist.
  *
  * Fällig ist ein Backup wenn ALLE stimmen:
  *  - Global-Master-Switch 'backup.autoEnabled' = true
  *  - Gerät hat autoBackupEnabled = true
  *  - Gerät ist ONLINE
- *  - lastConfigChangeAt liegt ≥ 'backup.autoIntervalHours' (default 24) zurück
+ *  - lastConfigChangeAt liegt ≥ 'backup.autoIntervalMinutes' (default 1440)
+ *    Minuten zurück. Für Test-Zwecke kann der Wert bis auf 5 min runter.
  *  - Seit lastConfigChangeAt wurde KEIN erfolgreiches Backup gemacht
  *  - Es läuft gerade KEIN Backup (PENDING/UPLOADING/DISTRIBUTING)
  *
@@ -24,8 +25,8 @@ import { logActivity } from './activity-log.service'
  * erneut versucht – beim nächsten Tick wird sowieso geprüft.
  */
 
-const POLL_INTERVAL_MS = 30 * 60 * 1000 // 30 min
-const INITIAL_DELAY_MS = 60 * 1000       // 1 min nach Start
+const POLL_INTERVAL_MS = 2 * 60 * 1000  // 2 min – genau reaktiv genug auch für 5-min-Test-Intervalle
+const INITIAL_DELAY_MS = 30 * 1000       // 30s nach Start
 
 let timer: NodeJS.Timeout | null = null
 
@@ -48,8 +49,9 @@ async function runTick(): Promise<void> {
   const masterEnabled = (await getSetting('backup.autoEnabled')).toLowerCase() === 'true'
   if (!masterEnabled) return
 
-  const intervalHours = Math.max(1, parseInt(await getSetting('backup.autoIntervalHours'), 10) || 24)
-  const thresholdMs = intervalHours * 60 * 60 * 1000
+  // Intervall in Minuten, Minimum 5 (Test-Setup), Default 1440 (= 24h).
+  const intervalMinutes = Math.max(5, parseInt(await getSetting('backup.autoIntervalMinutes'), 10) || 1440)
+  const thresholdMs = intervalMinutes * 60 * 1000
   const now = Date.now()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -93,7 +95,8 @@ async function runTick(): Promise<void> {
     })
     if (inflight) continue
 
-    console.log(`[BackupAuto] ${device.serialNumber}: idle ${Math.round(idleMs / 3600_000)}h seit letzter Änderung – starte Auto-Backup`)
+    const idleMinutes = Math.round(idleMs / 60_000)
+    console.log(`[BackupAuto] ${device.serialNumber}: idle ${idleMinutes}min seit letzter Änderung – starte Auto-Backup`)
     const result = await startBackupForDevice(device.id, 'auto', null)
     if (result.ok) {
       logActivity({
@@ -103,8 +106,8 @@ async function runTick(): Promise<void> {
         details: {
           entityName: device.name?.trim() || device.serialNumber,
           backupId: (result.backup as { id: string }).id,
-          idleHours: Math.round(idleMs / 3600_000),
-          thresholdHours: intervalHours,
+          idleMinutes,
+          thresholdMinutes: intervalMinutes,
         },
         statusCode: 200,
       }).catch(() => {})
