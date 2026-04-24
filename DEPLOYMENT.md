@@ -22,8 +22,9 @@
 12. [Update einspielen](#12-update-einspielen)
 13. [Raspberry Pi registrieren](#13-raspberry-pi-registrieren)
 14. [Nützliche Befehle im Alltag](#14-nützliche-befehle-im-alltag)
-15. [Automatisches Backup einrichten](#15-automatisches-backup-einrichten)
-16. [Fehlerbehebung](#16-fehlerbehebung)
+15. [Backup-Konzept & automatisches Backup](#15-backup-konzept--automatisches-backup)
+16. [Server wiederherstellen (Disaster Recovery)](#16-server-wiederherstellen-disaster-recovery)
+17. [Fehlerbehebung](#17-fehlerbehebung)
 
 ---
 
@@ -640,38 +641,183 @@ docker system df
 
 ---
 
-## 15. Automatisches Backup einrichten
+## 15. Backup-Konzept & automatisches Backup
 
-```bash
-# Backup-Verzeichnis erstellen
-sudo mkdir -p /opt/backups
-sudo chown $USER:$USER /opt/backups
+Das Backup-System läuft **direkt im Backend** und sichert ins Swift-Target (Infomaniak Swiss Backup) – keine separaten Cron-Jobs nötig.
 
-# Crontab bearbeiten
-crontab -e
-```
+### Was wird gesichert?
 
-Folgende Zeilen einfügen:
+Zwei unabhängige Backup-Mechanismen:
 
-```cron
-# Täglich 03:00 Uhr: Datenbankbackup (komprimiert)
-0 3 * * * cd /opt/ycontrol && docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U postgres ycontrol_cloud | gzip > /opt/backups/db_$(date +\%Y\%m\%d).sql.gz 2>> /opt/backups/backup.log
+| Was | Wo eingerichtet | Inhalt | Ziel |
+|---|---|---|---|
+| **Geräte-Backups** | Gerät → Detail → Backup-Karte | SQLite-DB des Pi + assets-Ordner | Swift `<serial>/<iso>.tar.gz` |
+| **Cloud-Gesamt-Backup** | Einstellungen → Backups → Cloud-DB-Backup | `pg_dump` + `/app/uploads/` (Fotos, Wiki) | Swift `cloud/<iso>.tar.gz` |
 
-# Täglich 04:00 Uhr: Backups älter als 30 Tage löschen
-0 4 * * * find /opt/backups -name "db_*.sql.gz" -mtime +30 -delete
-```
+Beide landen im selben Swift-Container, aber mit unterschiedlichen Präfixen.
 
-Testen:
+### Konfiguration
 
-```bash
-cd /opt/ycontrol && docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U postgres ycontrol_cloud | gzip > /opt/backups/test.sql.gz
-ls -lh /opt/backups/
-```
+**Swift-Target:** Einstellungen → Backups → **Infomaniak Swiss Backup (Swift)**
+Zugangsdaten aus dem Infomaniak-Manager (Swiss Backup → Swift-Zugang), einmal eintragen und "Verbindung testen".
+
+**Auto-Backup pro Gerät:**
+- Setting "Auto-Backup enabled" / Intervall in Minuten (Default 1440 = 24 h)
+- Scheduler pollt alle 2 min, triggert ein Backup wenn die lokale Config-Änderung auf dem Pi älter als das Intervall ist und noch kein Backup seit der Änderung existiert.
+- Pro Gerät einzeln abschaltbar (Schalter in der Device-Backup-Karte).
+- Retention: 5 neueste OK-Backups + 1 "pinned" Backup (manuell fixiert, überlebt Rotation).
+
+**Cloud-Backup:**
+- Setting "Cloud-DB-Backup enabled" + Intervall (h, Default 24) + Retention (Tage, Default 14).
+- Scheduler pollt stündlich, dumpt die gesamte Cloud-DB als Custom-Format + bündelt die Uploads (`/app/uploads/`) in ein einziges `tar.gz`.
+- Manueller Trigger via Admin-UI-Button.
+- Retention: OK-Backups > N Tage werden nach jedem neuen erfolgreichen Dump gelöscht (Swift + DB-Row).
+
+### Daten at rest
+
+- **SystemSettings**: sensible Keys (S3/Swift-Passwords, SMTP-Password, Twilio-Token, DeepL-Key) sind mit AES-256-GCM verschlüsselt. Master-Key = `SECRETS_KEY` env. **Unbedingt** extern sicher aufbewahren (Password-Manager) – ohne den Key keine Entschlüsselung nach einer Wiederherstellung.
+- Swift-Container: Infomaniak Swiss Backup, 3× Replikation in CH-Datacenter.
 
 ---
 
-## 16. Fehlerbehebung
+## 16. Server wiederherstellen (Disaster Recovery)
+
+Wenn der Server komplett weg ist (Hardware-Crash, Kompromittierung, Migration auf neuen VPS), so kommst du zurück zum laufenden Zustand. Voraussetzungen:
+
+- **Zugriff** auf den Infomaniak-Manager (für Swift-Credentials)
+- **Das letzte Cloud-Backup-Bundle** (lokal oder direkt aus Swift herunterladen)
+- **`SECRETS_KEY`** aus dem Password-Manager (entschlüsselt die sensiblen Settings im Dump)
+- **Alle `.env`-Secrets** (`JWT_*`, `MQTT_*`, `DB_PASSWORD`, `CLOUDFLARE_TUNNEL_TOKEN`, `SECRETS_KEY`, `VPN_SERVER_PRIVATE_KEY`)
+
+### Schritt 1 – Frische VPS aufsetzen
+
+Genauso wie bei einer Erstinstallation ([Kapitel 2-10](#2-vps-vorbereiten)). Bis und mit `./install.sh` durchlaufen, damit der Stack grundsätzlich läuft (leere DB, keine Uploads, leere WireGuard-Configs). Dann den Server kurz stoppen:
+
+```bash
+cd /opt/ycontrol
+docker compose -f docker-compose.prod.yml stop backend
+```
+
+### Schritt 2 – Bundle besorgen
+
+Falls du noch einen Browser-Zugriff auf den alten Server hast: Einstellungen → Backups → Cloud-DB-Backup → Download.
+
+Falls nicht, direkt aus Swift holen (Infomaniak-Manager → Swiss Backup → Swift → File-Browser, oder per `swift`/`rclone` CLI):
+
+```bash
+# mit rclone (einmalig mit 'rclone config' die swiss-backup-Verbindung anlegen)
+rclone lsf swiss-backup:<container-name>/cloud/ | sort | tail -5
+rclone copy swiss-backup:<container-name>/cloud/<YYYY-MM-DD>...tar.gz ./restore/
+```
+
+Das Bundle auf den neuen Server kopieren:
+
+```bash
+scp restore/cloud-*.tar.gz ycontrol@<neuer-server>:/tmp/
+```
+
+### Schritt 3 – Bundle auspacken
+
+```bash
+ssh ycontrol@<neuer-server>
+mkdir -p /tmp/ycrestore && cd /tmp/ycrestore
+tar xzf /tmp/cloud-*.tar.gz
+ls -la
+# → db.dump     (Custom-Format pg_dump)
+# → uploads/    (Fotos + Wiki-Anhänge)
+```
+
+### Schritt 4 – Datenbank wiederherstellen
+
+Der Backup-Stack ist aus `./install.sh` schon hochgezogen, die DB ist leer initialisiert. Wir fahren das Backend runter (damit keine neuen Writes reinkommen), `pg_restore` in die frische DB, Backend wieder hoch:
+
+```bash
+cd /opt/ycontrol
+
+# Backend stoppen (Postgres läuft weiter)
+docker compose -f docker-compose.prod.yml stop backend
+
+# DB-Inhalt komplett wegkicken und aus dem Dump wiederherstellen.
+# --clean + --if-exists: bestehende Objekte werden zuerst gedropt,
+# --no-owner + --no-privileges: Besitzer/Grants vom alten Server werden
+# nicht übernommen (die Rolle 'postgres' im neuen Container existiert).
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  pg_restore --clean --if-exists --no-owner --no-privileges \
+  --username=postgres --dbname=ycontrol_cloud \
+  < /tmp/ycrestore/db.dump
+
+# Kurz prüfen dass Tabellen da sind
+docker compose -f docker-compose.prod.yml exec -T postgres \
+  psql -U postgres -d ycontrol_cloud -c "\\dt" | head -20
+```
+
+### Schritt 5 – Uploads ins Volume zurückspielen
+
+```bash
+# Backend-Container (gestoppt) ist OK zum cp rein – docker cp funktioniert auch im Stopped-State.
+docker compose -f docker-compose.prod.yml cp \
+  /tmp/ycrestore/uploads/. ycontrol_backend:/app/uploads/
+
+# Rechte stimmen lassen (der Node-Prozess im Container läuft als root):
+docker compose -f docker-compose.prod.yml exec -u 0 -T backend chown -R node:node /app/uploads || true
+```
+
+### Schritt 6 – Backend starten & verifizieren
+
+```bash
+docker compose -f docker-compose.prod.yml up -d backend
+docker compose -f docker-compose.prod.yml logs -f backend | head -40
+```
+
+Im Log erwartest du:
+```
+[secrets-migration] 0 sensible Settings-Werte verschlüsselt   (schon alles enc:v1:)
+✓ Server running on http://0.0.0.0:3000
+✓ MQTT service initializing...
+✓ Auto-Backup-Scheduler gestartet
+✓ Cloud-Backup-Scheduler gestartet
+```
+
+**Web-UI aufrufen** (die Cloudflare-Tunnel-Config ist schon aktiv durch den Compose-Stack): Login mit dem Admin-Passwort vom **alten** Server.
+
+### Schritt 7 – Raspberry Pis wieder verbinden
+
+Jeder Pi hat sein Device-Secret lokal in `/etc/ycontrol/config.json`. Nach dem Restore:
+
+- **MQTT-Server**: dieselbe URL (aus `pi.mqttHost`-Setting, wird von der DB gelesen) → Pis connecten sich von selbst wieder.
+- **VPN**: die `VpnDevice`-Zuweisungen sind in der DB; der WireGuard-Container regeneriert die `wg0.conf` beim Start aus der DB. **Aber**: der Server-Private-Key muss derselbe sein wie beim Erstellen der Client-Configs (steht in `.env` als `VPN_SERVER_PRIVATE_KEY`).
+- **Pi-Agent-Updates**: einmal "Agent aktualisieren" aus dem UI drücken, falls der Agent-Version-Unterschied störend ist.
+
+Falls ein Pi nach 10-15 Min nicht zurückkommt, den `setup.sh` auf dem Pi erneut laufen lassen (das bestehende Secret bleibt erhalten, nur die MQTT-Verbindung wird refreshed).
+
+### Schritt 8 – Cloud-Backup wieder aktivieren & sofort testen
+
+Einstellungen → Backups → Cloud-DB-Backup → Jetzt Backup erstellen → sollte nach 1-3 Min auf OK wechseln. Damit hast du verifiziert dass:
+- die Swift-Connection funktioniert
+- `SECRETS_KEY` die Credentials entschlüsseln konnte
+- `pg_dump` + tar laufen
+
+### Was dabei NICHT wiederhergestellt wird
+
+- **Activity-Log**: ist in der DB, wird mitgesichert — `OK`
+- **Wiki-Anhänge + Anlagen-Fotos**: in `/app/uploads`, wird mitgesichert — `OK`
+- **JWT-Refresh-Tokens**: die aktuellen Browser-Sessions werden invalid, User müssen sich neu einloggen — `normal`
+- **Cloudflare-Tunnel-Token**: bleibt derselbe (in `.env`), keine Aktion nötig
+- **Laufende MQTT-Subscriptions**: die Retained-Messages der Pis kommen mit dem ersten neuen Pi-Connect zurück
+
+### Bei komplett verlorener `.env`
+
+Dann ist Game Over für:
+- `SECRETS_KEY` → verschlüsselte Settings (Swift-Password, SMTP, Twilio, DeepL) nicht lesbar, manuell neu setzen
+- `JWT_*_SECRET` → neue Secrets generieren (alle User müssen sich neu einloggen)
+- `DB_PASSWORD` → kann frei gewählt werden (Postgres-Volume ist auch weg)
+- `VPN_SERVER_PRIVATE_KEY` → **alle Pi-VPN-Configs werden ungültig**, jeder Pi muss mit neuer Config erneut verbunden werden.
+
+Deshalb: **`.env` IMMER im Password-Manager ablegen**, nicht nur auf dem Server.
+
+---
+
+## 17. Fehlerbehebung
 
 ### Problem: Seite nicht erreichbar
 
