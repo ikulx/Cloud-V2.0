@@ -353,8 +353,21 @@ router.post('/:id/backups/:backupId/restore', authenticate, requirePermission('d
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pAny = prisma as any
-  const backup = await pAny.deviceBackup.findUnique({ where: { id: backupId } })
-  if (!backup || backup.deviceId !== deviceId) { res.status(404).json({ message: 'Backup nicht gefunden' }); return }
+  const backup = await pAny.deviceBackup.findUnique({
+    where: { id: backupId },
+    include: { device: { select: { id: true, name: true, serialNumber: true } } },
+  })
+  if (!backup) { res.status(404).json({ message: 'Backup nicht gefunden' }); return }
+  // Cross-Device-Restore: wenn das Backup NICHT zum Ziel-Gerät gehört, muss
+  // der User entweder System-Admin sein oder die explizite Permission haben.
+  const isCrossDevice = backup.deviceId !== deviceId
+  if (isCrossDevice) {
+    const allowed = req.user!.isSystemRole || req.user!.permissions.includes('backups:restore_cross_device')
+    if (!allowed) {
+      res.status(403).json({ message: 'Keine Berechtigung für Cross-Device-Restore' })
+      return
+    }
+  }
 
   const targetField = backup.infomaniakStatus
   if (targetField !== 'OK') { res.status(400).json({ message: 'Backup ist auf diesem Ziel nicht verfügbar' }); return }
@@ -392,10 +405,18 @@ router.post('/:id/backups/:backupId/restore', authenticate, requirePermission('d
   if (!ok) { res.status(503).json({ message: 'MQTT nicht verfügbar' }); return }
 
   logActivity({
-    action: 'devices.backup.restore',
+    action: isCrossDevice ? 'devices.backup.restore.crossDevice' : 'devices.backup.restore',
     entityType: 'devices',
     entityId: deviceId,
-    details: { entityName: device.name?.trim() || device.serialNumber, backupId, target: parsed.data.target },
+    details: {
+      entityName: device.name?.trim() || device.serialNumber,
+      backupId,
+      target: parsed.data.target,
+      ...(isCrossDevice ? {
+        sourceDeviceId: backup.deviceId,
+        sourceDeviceName: backup.device?.name?.trim() || backup.device?.serialNumber,
+      } : {}),
+    },
     req,
     statusCode: 200,
   }).catch(() => {})
@@ -458,5 +479,34 @@ async function runRestorePush(
     console.error('[restore] %s fehlgeschlagen:', backupId, e)
   }
 }
+
+// ─── GET /api/backups/cross-device/sources ───────────────────────────────────
+// Für das Cross-Device-Restore-UI: liefert alle OK-Backups aller Geräte, die
+// der aufrufende User kennen darf (wie sonst das Devices-Listing). Gatekept
+// durch die explizite Permission – ohne sie kann man die Liste gar nicht
+// abrufen, das schützt auch versehentliches Anzeigen im Frontend.
+export const crossDeviceSourcesRouter: Router = Router()
+crossDeviceSourcesRouter.get('/sources', authenticate, async (req, res) => {
+  const allowed = req.user!.isSystemRole || req.user!.permissions.includes('backups:restore_cross_device')
+  if (!allowed) { res.status(403).json({ message: 'Keine Berechtigung für Cross-Device-Restore' }); return }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pAny = prisma as any
+  const rows = await pAny.deviceBackup.findMany({
+    where: { status: 'OK', infomaniakStatus: 'OK' },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    include: { device: { select: { id: true, name: true, serialNumber: true } } },
+  })
+  res.json(rows.map((r: Record<string, unknown>) => ({
+    id: r.id,
+    deviceId: r.deviceId,
+    deviceName: (r.device as { name?: string } | null)?.name || null,
+    deviceSerial: (r.device as { serialNumber?: string } | null)?.serialNumber || null,
+    sizeBytes: r.sizeBytes !== null && r.sizeBytes !== undefined ? Number(r.sizeBytes) : null,
+    createdAt: r.createdAt,
+    completedAt: r.completedAt,
+  })))
+})
 
 export default router

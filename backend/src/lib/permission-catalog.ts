@@ -10,6 +10,10 @@ export const PERMISSION_CATALOG = [
   'activityLog:read',
   'wiki:read', 'wiki:create', 'wiki:update', 'wiki:delete',
   'piket:alarms:read_own', 'piket:alarms:read_all', 'piket:planning:manage', 'piket:log:read',
+  // Erlaubt einen Restore auf Gerät B mit einem Backup das ursprünglich von
+  // Gerät A gezogen wurde. Ohne diese Permission sind Restores strikt auf die
+  // eigenen Backups des Ziel-Geräts beschränkt.
+  'backups:restore_cross_device',
 ] as const
 
 export const PRIVILEGED_ROLE_NAMES = ['admin', 'verwalter'] as const

@@ -40,6 +40,7 @@ const PERMISSION_CATALOG = [
   { key: 'piket:alarms:read_all',  description: 'Piket: alle aktiven Alarme sehen' },
   { key: 'piket:planning:manage',  description: 'Piket: Bereiche & Schichten sehen und bearbeiten' },
   { key: 'piket:log:read',         description: 'Piket: Log sehen' },
+  { key: 'backups:restore_cross_device', description: 'Backup eines anderen Geräts auf dieses Gerät wiederherstellen' },
 ]
 
 async function main() {

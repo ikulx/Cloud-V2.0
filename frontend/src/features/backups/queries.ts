@@ -57,3 +57,28 @@ export function useDeleteBackup(deviceId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: backupsKeys.forDevice(deviceId) }),
   })
 }
+
+/** Ein verfügbares Backup von einem beliebigen Gerät – für Cross-Device-Restore. */
+export interface CrossDeviceBackupSource {
+  id: string
+  deviceId: string
+  deviceName: string | null
+  deviceSerial: string | null
+  sizeBytes: number | null
+  createdAt: string
+  completedAt: string | null
+}
+
+/**
+ * Listet alle OK-Backups aller Geräte die der User restore-fähig einspielen
+ * kann. Endpoint liefert 403 wenn die Permission `backups:restore_cross_device`
+ * fehlt – in dem Fall zeigt das UI den Button gar nicht erst an.
+ */
+export function useCrossDeviceBackupSources(enabled: boolean) {
+  return useQuery({
+    queryKey: ['cross-device-backup-sources'] as const,
+    queryFn: () => apiGet<CrossDeviceBackupSource[]>(`/backups/cross-device/sources`),
+    enabled,
+    refetchInterval: 10000,
+  })
+}

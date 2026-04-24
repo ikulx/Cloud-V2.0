@@ -25,13 +25,21 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import CloudDoneIcon from '@mui/icons-material/CloudDone'
 import CloudOffIcon from '@mui/icons-material/CloudOff'
 import { useTranslation } from 'react-i18next'
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
+import List from '@mui/material/List'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemText from '@mui/material/ListItemText'
+import Divider from '@mui/material/Divider'
+import Alert from '@mui/material/Alert'
 import {
   useDeviceBackups,
   useStartBackup,
   useRestoreBackup,
   useDeleteBackup,
+  useCrossDeviceBackupSources,
   type DeviceBackup,
   type BackupTargetStatus,
+  type CrossDeviceBackupSource,
 } from '../../features/backups/queries'
 import { usePermission } from '../../hooks/usePermission'
 
@@ -81,12 +89,15 @@ function StatusChip({ b }: { b: DeviceBackup }) {
 export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
   const { t } = useTranslation()
   const canUpdate = usePermission('devices:update')
+  const canCrossRestore = usePermission('backups:restore_cross_device')
   const { data: backups, isLoading } = useDeviceBackups(deviceId)
   const startBackup = useStartBackup(deviceId)
   const restoreBackup = useRestoreBackup(deviceId)
   const deleteBackup = useDeleteBackup(deviceId)
-  const [restoreDlg, setRestoreDlg] = useState<{ backup: DeviceBackup; target: 'infomaniak' } | null>(null)
+  const [restoreDlg, setRestoreDlg] = useState<{ backup: { id: string; createdAt: string; sourceDeviceName?: string | null } ; target: 'infomaniak'; crossDevice?: boolean } | null>(null)
   const [deleteDlg, setDeleteDlg] = useState<DeviceBackup | null>(null)
+  const [crossDlgOpen, setCrossDlgOpen] = useState(false)
+  const crossSources = useCrossDeviceBackupSources(crossDlgOpen && canCrossRestore)
   const [snack, setSnack] = useState<string | null>(null)
 
   const inflight = backups?.some((b) => b.status === 'PENDING' || b.status === 'UPLOADING' || b.status === 'DISTRIBUTING')
@@ -113,19 +124,36 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
   return (
     <Card>
       <CardContent>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} gap={1} flexWrap="wrap">
           <Typography variant="h6">{t('backup.title', 'Backup')}</Typography>
-          {canUpdate && (
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={inflight ? <CircularProgress size={16} color="inherit" /> : <BackupIcon />}
-              onClick={handleStart}
-              disabled={!deviceOnline || inflight || startBackup.isPending}
-            >
-              {t('backup.start', 'Jetzt sichern')}
-            </Button>
-          )}
+          <Box display="flex" gap={1} flexWrap="wrap">
+            {canCrossRestore && (
+              <Tooltip title={t('backup.crossDeviceHint', 'Backup eines anderen Geräts auf dieses Gerät einspielen')}>
+                <span>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<SwapHorizIcon />}
+                    onClick={() => setCrossDlgOpen(true)}
+                    disabled={!deviceOnline}
+                  >
+                    {t('backup.crossDevice', 'Von anderem Gerät')}
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+            {canUpdate && (
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={inflight ? <CircularProgress size={16} color="inherit" /> : <BackupIcon />}
+                onClick={handleStart}
+                disabled={!deviceOnline || inflight || startBackup.isPending}
+              >
+                {t('backup.start', 'Jetzt sichern')}
+              </Button>
+            )}
+          </Box>
         </Box>
         {!deviceOnline && (
           <Typography variant="caption" color="text.secondary">{t('backup.deviceOffline', 'Gerät ist offline – Backups sind erst wieder möglich, sobald es online ist.')}</Typography>
@@ -205,6 +233,11 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
             <Box mt={2}>
               <Typography variant="body2"><b>{t('backup.col.created', 'Erstellt')}:</b> {new Date(restoreDlg.backup.createdAt).toLocaleString('de-CH')}</Typography>
               <Typography variant="body2"><b>{t('backup.source', 'Quelle')}:</b> Infomaniak Swiss Backup</Typography>
+              {restoreDlg.crossDevice && restoreDlg.backup.sourceDeviceName && (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  {t('backup.crossDeviceWarning', 'Dieses Backup stammt von einem ANDEREN Gerät ({{name}}). Die aktuelle Konfiguration dieses Geräts wird komplett durch die Daten des Quell-Geräts ersetzt.', { name: restoreDlg.backup.sourceDeviceName })}
+                </Alert>
+              )}
             </Box>
           )}
         </DialogContent>
@@ -228,6 +261,68 @@ export function DeviceBackupCard({ deviceId, deviceOnline }: Props) {
           <Button onClick={handleDelete} color="error" variant="contained">
             {t('common.delete', 'Löschen')}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={crossDlgOpen} onClose={() => setCrossDlgOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{t('backup.crossDeviceTitle', 'Backup eines anderen Geräts einspielen')}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {t('backup.crossDeviceIntro', 'Wähle ein Backup aus einem anderen Gerät aus. Die Daten werden auf DIESES Gerät übertragen und überschreiben dort die aktuelle Konfiguration.')}
+          </DialogContentText>
+          {crossSources.isLoading ? (
+            <Box display="flex" justifyContent="center" py={3}><CircularProgress size={24} /></Box>
+          ) : crossSources.isError ? (
+            <Alert severity="error" sx={{ mt: 2 }}>{crossSources.error instanceof Error ? crossSources.error.message : String(crossSources.error)}</Alert>
+          ) : (() => {
+            const rows = (crossSources.data ?? []).filter((s: CrossDeviceBackupSource) => s.deviceId !== deviceId)
+            if (rows.length === 0) {
+              return <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>{t('backup.crossDeviceEmpty', 'Keine verfügbaren Backups von anderen Geräten gefunden.')}</Typography>
+            }
+            // Nach Quell-Gerät gruppieren, damit man bei vielen Backups nicht scrollt.
+            const grouped = new Map<string, CrossDeviceBackupSource[]>()
+            rows.forEach((s) => {
+              const k = s.deviceId
+              if (!grouped.has(k)) grouped.set(k, [])
+              grouped.get(k)!.push(s)
+            })
+            return (
+              <List dense sx={{ mt: 1 }}>
+                {Array.from(grouped.entries()).map(([devId, items], idx) => (
+                  <Box key={devId}>
+                    {idx > 0 && <Divider sx={{ my: 1 }} />}
+                    <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>
+                      {items[0].deviceName || items[0].deviceSerial || devId}
+                      {items[0].deviceName && items[0].deviceSerial && (
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>{items[0].deviceSerial}</Typography>
+                      )}
+                    </Typography>
+                    {items.map((s) => (
+                      <ListItemButton
+                        key={s.id}
+                        onClick={() => {
+                          setCrossDlgOpen(false)
+                          setRestoreDlg({
+                            backup: { id: s.id, createdAt: s.createdAt, sourceDeviceName: s.deviceName || s.deviceSerial },
+                            target: 'infomaniak',
+                            crossDevice: true,
+                          })
+                        }}
+                      >
+                        <ListItemText
+                          primary={new Date(s.createdAt).toLocaleString('de-CH')}
+                          secondary={formatSize(s.sizeBytes)}
+                        />
+                      </ListItemButton>
+                    ))}
+                  </Box>
+                ))}
+              </List>
+            )
+          })()}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCrossDlgOpen(false)}>{t('common.close', 'Schliessen')}</Button>
         </DialogActions>
       </Dialog>
 
