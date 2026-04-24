@@ -8,8 +8,9 @@
 import type { Readable } from 'stream'
 import { getSetting } from '../../routes/settings.router'
 import { createS3Target } from './s3.target'
+import { createSwiftTarget } from './swift.target'
 
-export type BackupTargetId = 'infomaniak'
+export type BackupTargetId = 'infomaniak' | 'infomaniakSwift'
 
 export interface BackupObject {
   key: string
@@ -38,12 +39,30 @@ export async function resolveBackupTarget(id: BackupTargetId): Promise<BackupTar
     if (!endpoint || !bucket || !accessKey || !secretKey) return null
     return createS3Target({ id: 'infomaniak', endpoint, region, bucket, accessKey, secretKey })
   }
+  if (id === 'infomaniakSwift') {
+    const enabled = (await getSetting('backup.infomaniakSwift.enabled')) === 'true'
+    if (!enabled) return null
+    const authUrl = (await getSetting('backup.infomaniakSwift.authUrl')).trim()
+    const username = (await getSetting('backup.infomaniakSwift.username')).trim()
+    const password = await getSetting('backup.infomaniakSwift.password')
+    const userDomain = (await getSetting('backup.infomaniakSwift.userDomain')).trim() || 'Default'
+    const projectName = (await getSetting('backup.infomaniakSwift.projectName')).trim()
+    const projectDomain = (await getSetting('backup.infomaniakSwift.projectDomain')).trim() || 'Default'
+    const region = (await getSetting('backup.infomaniakSwift.region')).trim() || 'RegionOne'
+    const container = (await getSetting('backup.infomaniakSwift.container')).trim()
+    if (!authUrl || !username || !password || !projectName || !container) return null
+    return createSwiftTarget({
+      id: 'infomaniakSwift',
+      authUrl, username, password, userDomain,
+      projectName, projectDomain, region, container,
+    })
+  }
   return null
 }
 
 export async function getActiveBackupTargets(): Promise<BackupTarget[]> {
   const out: BackupTarget[] = []
-  for (const id of ['infomaniak'] as BackupTargetId[]) {
+  for (const id of ['infomaniak', 'infomaniakSwift'] as BackupTargetId[]) {
     const t = await resolveBackupTarget(id)
     if (t) out.push(t)
   }

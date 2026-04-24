@@ -24,6 +24,7 @@ export const SENSITIVE_SETTING_KEYS: ReadonlySet<string> = new Set([
   'twilio.authToken',
   'backup.infomaniak.accessKey',
   'backup.infomaniak.secretKey',
+  'backup.infomaniakSwift.password',
 ])
 
 export const SETTING_KEYS = [
@@ -55,6 +56,16 @@ export const SETTING_KEYS = [
   'backup.infomaniak.bucket',
   'backup.infomaniak.accessKey',
   'backup.infomaniak.secretKey',
+  // Infomaniak Swiss Backup via OpenStack Swift (statt S3)
+  'backup.infomaniakSwift.enabled',
+  'backup.infomaniakSwift.authUrl',
+  'backup.infomaniakSwift.username',
+  'backup.infomaniakSwift.password',
+  'backup.infomaniakSwift.userDomain',
+  'backup.infomaniakSwift.projectName',
+  'backup.infomaniakSwift.projectDomain',
+  'backup.infomaniakSwift.region',
+  'backup.infomaniakSwift.container',
   // Auto-Backup
   'backup.autoEnabled',
   'backup.autoIntervalMinutes',
@@ -98,6 +109,16 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'backup.infomaniak.bucket': '',
   'backup.infomaniak.accessKey': '',
   'backup.infomaniak.secretKey': '',
+  // Swiss Backup als Swift/OpenStack (Keystone v3 Auth)
+  'backup.infomaniakSwift.enabled': 'false',
+  'backup.infomaniakSwift.authUrl': 'https://swiss-backup02.infomaniak.com/identity/v3',
+  'backup.infomaniakSwift.username': '',
+  'backup.infomaniakSwift.password': '',
+  'backup.infomaniakSwift.userDomain': 'Default',
+  'backup.infomaniakSwift.projectName': '',
+  'backup.infomaniakSwift.projectDomain': 'Default',
+  'backup.infomaniakSwift.region': 'RegionOne',
+  'backup.infomaniakSwift.container': '',
   // Auto-Backup Master-Switch und Intervall (in Minuten). Pro Gerät lässt sich
   // das noch einzeln abschalten via Device.autoBackupEnabled. Default: 1440 min
   // = 24h; für Testzwecke kann der Wert bis auf 5 min runter.
@@ -344,7 +365,7 @@ router.delete('/activity-log/all', authenticate, requirePermission('roles:read')
 })
 
 // POST /api/settings/test-backup-target – prüft Erreichbarkeit eines Backup-Ziels
-const testBackupSchema = z.object({ target: z.enum(['infomaniak']) })
+const testBackupSchema = z.object({ target: z.enum(['infomaniak', 'infomaniakSwift']) })
 router.post('/test-backup-target', authenticate, requirePermission('roles:read'), async (req, res) => {
   const parsed = testBackupSchema.safeParse(req.body)
   if (!parsed.success) { res.status(400).json({ ok: false, message: 'target fehlt' }); return }
