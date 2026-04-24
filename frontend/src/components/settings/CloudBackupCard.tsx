@@ -106,7 +106,7 @@ export function CloudBackupCard() {
             />
           </Box>
           <Typography variant="body2" color="text.secondary">
-            {t('settings.cloudBackup.intro', 'Täglicher pg_dump der Cloud-Datenbank ins Swift-Target (selbes Ziel wie die Geräte-Backups, aber eigener Objekt-Prefix "cloud/"). Admin-only. Restore manuell via pg_restore.')}
+            {t('settings.cloudBackup.intro', 'Täglicher Komplett-Dump der Cloud (pg_dump + Uploads-Ordner mit Anlagen-Fotos und Wiki-Anhängen) als tar.gz-Bundle ins Swift-Target. Admin-only. Restore manuell via tar+pg_restore – siehe DEPLOYMENT.md.')}
           </Typography>
 
           <Box display="flex" gap={2} flexWrap="wrap">
@@ -182,7 +182,7 @@ export function CloudBackupCard() {
                       </TableCell>
                       <TableCell align="right">
                         {b.status === 'OK' && (
-                          <Tooltip title={t('settings.cloudBackup.download', 'Dump herunterladen')}>
+                          <Tooltip title={t('settings.cloudBackup.download', 'Bundle herunterladen (tar.gz)')}>
                             <IconButton
                               size="small"
                               component="a"

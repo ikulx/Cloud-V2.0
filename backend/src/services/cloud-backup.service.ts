@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { createReadStream, createWriteStream, statSync } from 'fs'
+import { createReadStream, createWriteStream, statSync, existsSync } from 'fs'
 import fsp from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -10,18 +10,23 @@ import { resolveBackupTarget } from './backup-targets'
 import { logActivity } from './activity-log.service'
 
 /**
- * Cloud-DB-Backup
- * ───────────────
- * Legt täglich (oder manuell über den UI-Button) einen pg_dump der
- * Cloud-Postgres an und lädt ihn ins Swift-Target, das auch die
- * Geräte-Backups hält. Objekt-Prefix: `cloud/<ISO>.dump`.
+ * Cloud-Gesamt-Backup
+ * ───────────────────
+ * Legt täglich (oder manuell) ein Bundle der Cloud an und lädt es ins
+ * Swift-Target:
+ *   Bundle = tar.gz mit
+ *     db.dump        → pg_dump --format=custom der Postgres
+ *     uploads/       → Inhalt von /app/uploads (Anlagen-Fotos, Wiki-Files)
  *
- * Das Dump-Format ist `--format=custom` (komprimiertes binary pg_dump),
- * ideal für Restore via:
- *   pg_restore --clean --if-exists -d $DATABASE_URL cloud-2026-04-24.dump
+ * Objekt-Prefix: `cloud/<ISO>.tar.gz`.
+ *
+ * Restore (manuell):
+ *   tar xzf cloud-2026-04-24.tar.gz
+ *   pg_restore --clean --if-exists -d $DATABASE_URL db.dump
+ *   rsync -a uploads/ /app/uploads/
  *
  * Retention: cloud.backup.retentionDays (Default 14) – OK-Backups älter
- * als X Tage werden nach einem erfolgreichen neuen Dump gelöscht.
+ * als X Tage werden nach einem erfolgreichen neuen Backup gelöscht.
  *
  * WICHTIG: die pg_dump-Binary muss im Backend-Container installiert sein
  * (postgresql-client). Ohne die pg_dump-Version die zur Server-Major
@@ -29,6 +34,7 @@ import { logActivity } from './activity-log.service'
  */
 
 const OBJECT_PREFIX = 'cloud'
+const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads')
 const POLL_INTERVAL_MS = 60 * 60 * 1000   // 1h – feingranuläre Intervalle stellt der Admin per Setting ein
 const INITIAL_DELAY_MS = 5 * 60 * 1000     // 5 min nach Start, damit der Server erst mal stabilisiert ist
 
@@ -88,7 +94,7 @@ export async function runCloudBackup(
   if (!target) return { ok: false, status: 503, message: 'Swift-Target nicht aktiv' }
 
   const iso = new Date().toISOString().replace(/[:.]/g, '-')
-  const objectKey = `${OBJECT_PREFIX}/${iso}.dump`
+  const objectKey = `${OBJECT_PREFIX}/${iso}.tar.gz`
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pAny = prisma as any
@@ -101,19 +107,30 @@ export async function runCloudBackup(
     },
   })
 
-  const tmpFile = path.join(os.tmpdir(), `ycbk-cloud-${record.id}.dump`)
+  // Working-Dir mit pg_dump + uploads/-Symlink, daraus bauen wir das Bundle.
+  const workDir = await fsp.mkdtemp(path.join(os.tmpdir(), `ycbk-cloud-${record.id}-`))
+  const dumpPath = path.join(workDir, 'db.dump')
+  const bundlePath = path.join(os.tmpdir(), `ycbk-cloud-${record.id}.tar.gz`)
 
   try {
     await pAny.cloudBackup.update({ where: { id: record.id }, data: { status: 'UPLOADING' } })
-    // pg_dump streamen → Tempfile. Custom-Format ist bereits komprimiert.
-    await dumpPostgresToFile(tmpFile)
 
-    const size = statSync(tmpFile).size
-    if (size === 0) throw new Error('pg_dump lieferte eine leere Datei')
+    // 1. pg_dump → workDir/db.dump
+    await dumpPostgresToFile(dumpPath)
+    const dumpSize = statSync(dumpPath).size
+    if (dumpSize === 0) throw new Error('pg_dump lieferte eine leere Datei')
 
-    await pAny.cloudBackup.update({ where: { id: record.id }, data: { status: 'DISTRIBUTING', sizeBytes: BigInt(size) } })
+    // 2. tar.gz-Bundle erstellen: db.dump + (falls vorhanden) uploads/-Tree.
+    //    Die Uploads können mehrere GB sein – tar streamt sequentiell, kein
+    //    Memory-Problem.
+    await buildBundle(bundlePath, dumpPath, UPLOADS_DIR)
+    const bundleSize = statSync(bundlePath).size
+    if (bundleSize === 0) throw new Error('tar-Bundle ist leer')
 
-    await target.put(objectKey, createReadStream(tmpFile), size)
+    await pAny.cloudBackup.update({ where: { id: record.id }, data: { status: 'DISTRIBUTING', sizeBytes: BigInt(bundleSize) } })
+
+    // 3. Bundle → Swift
+    await target.put(objectKey, createReadStream(bundlePath), bundleSize)
 
     await pAny.cloudBackup.update({
       where: { id: record.id },
@@ -124,7 +141,13 @@ export async function runCloudBackup(
       action: trigger === 'auto' ? 'cloud.backup.auto' : 'cloud.backup.manual',
       entityType: 'system',
       entityId: record.id,
-      details: { backupId: record.id, sizeBytes: size, objectKey },
+      details: {
+        backupId: record.id,
+        sizeBytes: bundleSize,
+        dumpBytes: dumpSize,
+        objectKey,
+        includedUploads: existsSync(UPLOADS_DIR),
+      },
       statusCode: 200,
     }).catch(() => {})
 
@@ -132,15 +155,39 @@ export async function runCloudBackup(
     return { ok: true, backupId: record.id }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    console.error('[CloudBackup] Dump/Upload fehlgeschlagen:', msg)
+    console.error('[CloudBackup] Bundle/Upload fehlgeschlagen:', msg)
     await pAny.cloudBackup.update({
       where: { id: record.id },
       data: { status: 'FAILED', errorMessage: msg, completedAt: new Date() },
     }).catch(() => {})
     return { ok: false, status: 500, message: msg }
   } finally {
-    await fsp.unlink(tmpFile).catch(() => {})
+    await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {})
+    await fsp.unlink(bundlePath).catch(() => {})
   }
+}
+
+/**
+ * Baut das tar.gz-Bundle. `db.dump` kommt aus dem workDir, `uploads/` aus
+ * dem Backend-Arbeitsverzeichnis (idR /app). Mit mehreren -C-Options
+ * wechselt tar pro Input-Pfad sauber ins entsprechende Verzeichnis, damit
+ * die Pfade im Archiv relativ sauber sind (`db.dump`, `uploads/...`).
+ */
+function buildBundle(bundlePath: string, dumpPath: string, uploadsDir: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const args: string[] = ['czf', bundlePath, '-C', path.dirname(dumpPath), path.basename(dumpPath)]
+    if (existsSync(uploadsDir)) {
+      args.push('-C', path.dirname(uploadsDir), path.basename(uploadsDir))
+    }
+    const proc = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stderr = ''
+    proc.stderr.on('data', (c) => { stderr += c.toString('utf8') })
+    proc.on('error', (err) => reject(new Error('tar nicht startbar: ' + err.message)))
+    proc.on('exit', (code) => {
+      if (code !== 0) reject(new Error(`tar exit=${code}: ${stderr.slice(0, 500)}`))
+      else resolve()
+    })
+  })
 }
 
 /** Spawnt pg_dump mit Custom-Format und pipet stdout in eine Datei. */

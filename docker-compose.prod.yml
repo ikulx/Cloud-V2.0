@@ -112,6 +112,9 @@ services:
     volumes:
       - wireguard_config:/wireguard-config
       - /var/run/docker.sock:/var/run/docker.sock
+      # Uploads (Anlagen-Fotos + Wiki-Anhänge) müssen Container-Rebuilds
+      # überleben. Werden zusätzlich im Cloud-Backup-Bundle mitgesichert.
+      - uploads_data:/app/uploads
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
       interval: 15s
@@ -147,3 +150,4 @@ services:
 volumes:
   postgres_data:
   wireguard_config:
+  uploads_data:
