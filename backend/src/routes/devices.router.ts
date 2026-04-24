@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC29"  # Restore: extract_to='/' erzwingen + tar-stderr loggen
+AGENT_VERSION = "1.0.0-RC30"  # Restore: tar-stderr auch bei Broken Pipe ausgeben
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -220,8 +220,19 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
         print("[YControl] Restore: tar " + " ".join(tar_args[1:]))
         proc = subprocess.Popen(tar_args, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
+        # Tar-Prozess parallel zum Body-Stream überwachen: wenn tar stirbt
+        # (invalide gzip-Daten, fehlende Rechte, etc.), schreibt es die Fehler-
+        # meldung nach stderr und schließt stdin → unsere feed() bekommt sofort
+        # BrokenPipeError. Wir MÜSSEN stderr dann lesen, sonst verlieren wir die
+        # Ursache und sehen nur das wenig hilfreiche "[Errno 32] Broken pipe".
+        tar_died_early = [False]
         def feed(b):
-            if b: proc.stdin.write(b)
+            if not b: return
+            try:
+                proc.stdin.write(b)
+            except BrokenPipeError:
+                tar_died_early[0] = True
+                raise
 
         try:
             if chunked:
@@ -249,21 +260,27 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
                     if not more: break
                     feed(more)
                     got += len(more)
+        except BrokenPipeError:
+            pass  # tar tot – Ursache lesen wir gleich aus stderr
         finally:
             try: proc.stdin.close()
             except Exception: pass
-            proc.wait()
-        if proc.returncode != 0:
-            try:
-                tar_err = proc.stderr.read().decode("utf-8", "replace").strip() if proc.stderr else ""
-            except Exception:
-                tar_err = ""
-            print("[YControl] Restore: tar exit=" + str(proc.returncode) + (" stderr=" + tar_err if tar_err else ""), file=sys.stderr)
+            try: proc.wait(timeout=30)
+            except Exception: proc.kill()
+        # stderr in jedem Fall einsammeln, damit wir im Fehlerfall die echte
+        # tar-Meldung (gzip-Fehler, Permission-Denied, …) sehen.
+        tar_err = ""
+        try:
+            if proc.stderr:
+                tar_err = proc.stderr.read().decode("utf-8", "replace").strip()
+        except Exception:
+            pass
+        if proc.returncode != 0 or tar_died_early[0]:
+            print("[YControl] Restore: tar exit=" + str(proc.returncode) + (" stderr=" + tar_err if tar_err else " (keine stderr-Ausgabe)"), file=sys.stderr)
             if not skip_compose_stop:
-                # Container wieder hochziehen (wir hatten sie gestoppt).
                 subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, timeout=300)
             conn.sendall(b"HTTP/1.1 500 Internal Server Error\\r\\nContent-Length: 0\\r\\n\\r\\n")
-            return "tar exit=" + str(proc.returncode) + (" – " + tar_err[:200] if tar_err else "")
+            return "tar exit=" + str(proc.returncode) + (" – " + tar_err[:250] if tar_err else "")
         if not skip_compose_stop:
             print("[YControl] Restore: starte Compose-Stack wieder...")
             start_res = subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, text=True, timeout=300)
