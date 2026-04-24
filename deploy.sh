@@ -3,6 +3,7 @@
 # deploy.sh – Update von Ycontrol Cloud
 # Verwendung: ./deploy.sh
 # Optional:   ./deploy.sh --skip-pull   (kein git pull, nur rebuild)
+#             ./deploy.sh --no-cache    (Full-Rebuild ohne Layer-Cache, langsam)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -18,8 +19,10 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 SKIP_PULL=false
+NO_CACHE=false
 for arg in "$@"; do
   [[ "$arg" == "--skip-pull" ]] && SKIP_PULL=true
+  [[ "$arg" == "--no-cache" ]] && NO_CACHE=true
 done
 
 echo ""
@@ -52,9 +55,26 @@ if [ -d ".git" ]; then
   info "Aktueller Commit: $COMMIT"
 fi
 
+# ─── Disk-Check vor dem Build (Build braucht ~5GB frei) ─────────────────────
+FREE_GB=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
+if [ "${FREE_GB:-0}" -lt 5 ]; then
+  warn "Nur ${FREE_GB}GB frei – räume Build-Cache auf..."
+  docker buildx prune -af --filter "until=24h" >/dev/null 2>&1 || true
+  docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
+  FREE_GB=$(df -BG --output=avail . | tail -1 | tr -dc '0-9')
+  info "Jetzt ${FREE_GB}GB frei"
+fi
+
 # ─── Images neu bauen ────────────────────────────────────────────────────────
-info "Baue Docker Images neu..."
-docker compose -f docker-compose.prod.yml build --no-cache
+if [ "$NO_CACHE" = true ]; then
+  info "Baue Docker Images neu (--no-cache)..."
+  docker compose -f docker-compose.prod.yml build --no-cache
+else
+  # Standard: mit Layer-Cache. Nur bei wirklich nötigen Full-Rebuilds
+  # ./deploy.sh --no-cache aufrufen.
+  info "Baue Docker Images neu (mit Layer-Cache)..."
+  docker compose -f docker-compose.prod.yml build
+fi
 success "Images gebaut"
 
 # ─── MQTT neu starten (Mosquitto – Config aus Git-Repo) ──────────────────────
@@ -95,9 +115,12 @@ success "Frontend neu gestartet"
 # cloudflared verbindet sich automatisch neu wenn nötig.
 info "Cloudflare Tunnel: kein Neustart nötig (Konfiguration liegt bei Cloudflare)"
 
-# ─── Alte Images aufräumen ───────────────────────────────────────────────────
-info "Räume alte Images auf..."
+# ─── Alte Images + Build-Cache aufräumen ─────────────────────────────────────
+info "Räume alte Images + Build-Cache auf..."
 docker image prune -f --filter "dangling=true" >/dev/null 2>&1 || true
+# Build-Cache der älter als 7 Tage ist weg – hält den Cache unter Kontrolle
+# ohne bei jedem Deploy den ganzen Cache zu verlieren.
+docker buildx prune -af --filter "until=168h" >/dev/null 2>&1 || true
 success "Aufgeräumt"
 
 # ─── Fertig ──────────────────────────────────────────────────────────────────
