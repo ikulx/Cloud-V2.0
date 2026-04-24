@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC26"  # Restore: compose stop/start + Fehler statt silent
+AGENT_VERSION = "1.0.0-RC27"  # Maintenance-Topic für Visu-Overlay (Backup/Restore)
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -81,6 +81,7 @@ LOCAL_MQTT_PORT        = 1883
 LOCAL_ALARM_TOPIC        = "ycontrol/agent/alarm"
 LOCAL_ALARM_SUPPRESS_TOP = "ycontrol/agent/alarm-suppression"
 LOCAL_CLOUD_STATUS_TOP   = "ycontrol/agent/cloud-status"
+LOCAL_MAINTENANCE_TOP    = "ycontrol/agent/maintenance"
 CONFIG_PATH   = "/etc/ycontrol/config.json"
 AGENT_PATH    = "/usr/local/bin/ycontrol-agent.py"
 SERVICE_PATH  = "/etc/systemd/system/ycontrol-agent.service"
@@ -612,6 +613,22 @@ def run_agent():
         except Exception as ex:
             print("[YControl] cloud-status publish fehlgeschlagen: " + str(ex), file=sys.stderr)
 
+    def publish_maintenance(state, message=None, job_id=None):
+        """Publisht den Wartungs-Zustand an die Visu (lokaler Broker, retained).
+        state: 'idle' | 'backup' | 'restore'. Die Visu blendet bei != 'idle'
+        ein Vollbild-Overlay ein, bei Wechsel zu 'idle' wird neu geladen."""
+        lc = local_client[0]
+        if lc is None:
+            return
+        payload = {"state": state}
+        if message: payload["message"] = message
+        if job_id:  payload["jobId"] = job_id
+        try:
+            lc.publish(LOCAL_MAINTENANCE_TOP, json.dumps(payload), retain=True, qos=1)
+            print("[YControl] Maintenance: " + state + (" – " + message if message else ""))
+        except Exception as ex:
+            print("[YControl] maintenance publish fehlgeschlagen: " + str(ex), file=sys.stderr)
+
     def on_local_connect(c, userdata, flags, rc):
         if rc == 0:
             local_connected[0] = True
@@ -800,6 +817,7 @@ def run_agent():
                         existing = [p for p in paths if os.path.exists(p)]
                         if not existing:
                             raise Exception("Keine zu sichernden Pfade vorhanden")
+                        publish_maintenance("backup", "Backup wird erstellt...", job_id)
                         c.publish(topic_resp, json.dumps({"action": "backup", "jobId": job_id, "status": "listening", "port": port}), qos=1)
                         print("[YControl] Backup-Listener :" + str(port) + " (" + ", ".join(existing) + ")")
                         srv = serve_backup_once(port, token, existing)
@@ -811,6 +829,8 @@ def run_agent():
                     except Exception as ex:
                         print("[YControl] Backup fehlgeschlagen: " + str(ex), file=sys.stderr)
                         c.publish(topic_resp, json.dumps({"action": "backup", "jobId": job_id, "status": "error", "error": str(ex)}), qos=1)
+                    finally:
+                        publish_maintenance("idle")
                 threading.Thread(target=do_backup, args=(c, job_id, pull_port, pull_token, paths), daemon=True).start()
         elif action == "restore":
             # Cloud will einen Restore: wir öffnen einen HTTP-Listener, nehmen
@@ -827,6 +847,7 @@ def run_agent():
             else:
                 def do_restore(c, job_id, port, token, extract_to, compose_file):
                     try:
+                        publish_maintenance("restore", "Wiederherstellung läuft – Visu wird kurz neu gestartet...", job_id)
                         c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "listening", "port": port}), qos=1)
                         print("[YControl] Restore-Listener :" + str(port) + " -> " + extract_to + " (compose: " + compose_file + ")")
                         srv = serve_restore_once(port, token, extract_to, compose_file, c, job_id)
@@ -836,9 +857,17 @@ def run_agent():
                             raise Exception(str(srv))
                     except Exception as ex:
                         print("[YControl] Restore fehlgeschlagen: " + str(ex), file=sys.stderr)
-                        try: subprocess.run(_compose_cmd(compose_file, "up", "-d"), capture_output=True, timeout=300)
+                        try: subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, timeout=300)
                         except Exception: pass
                         c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "error", "error": str(ex)}), qos=1)
+                    finally:
+                        # Erst nach kleiner Verzögerung auf 'idle', damit die Visu nach
+                        # dem compose-start wieder am lokalen MQTT hängt und das finale
+                        # idle auch wirklich empfängt (sie verwirft retained Messages
+                        # die vor dem (Re-)Connect kamen nicht, das ist also bloss
+                        # Gürtel & Hosenträger gegen unglückliche Timings).
+                        time.sleep(3)
+                        publish_maintenance("idle")
                 threading.Thread(target=do_restore, args=(c, job_id, pull_port, pull_token, extract_to, compose_file), daemon=True).start()
         elif action == "vpn_install":
             # WireGuard-Config wird direkt im MQTT-Befehl mitgeliefert (kein HTTP nötig)
