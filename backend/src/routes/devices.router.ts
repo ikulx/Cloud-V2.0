@@ -67,7 +67,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC27"  # Maintenance-Topic für Visu-Overlay (Backup/Restore)
+AGENT_VERSION = "1.0.0-RC28"  # Restore kooperativ: Visu-Ack → kein compose stop nötig
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -82,6 +82,7 @@ LOCAL_ALARM_TOPIC        = "ycontrol/agent/alarm"
 LOCAL_ALARM_SUPPRESS_TOP = "ycontrol/agent/alarm-suppression"
 LOCAL_CLOUD_STATUS_TOP   = "ycontrol/agent/cloud-status"
 LOCAL_MAINTENANCE_TOP    = "ycontrol/agent/maintenance"
+LOCAL_MAINTENANCE_ACK_TOP = "ycontrol/agent/maintenance/ack"
 CONFIG_PATH   = "/etc/ycontrol/config.json"
 AGENT_PATH    = "/usr/local/bin/ycontrol-agent.py"
 SERVICE_PATH  = "/etc/systemd/system/ycontrol-agent.service"
@@ -167,11 +168,15 @@ def _compose_cmd(compose_file, *args):
     base = ["docker", "compose"] if shutil.which("docker") else ["docker-compose"]
     return base + ["-f", compose_file] + list(args)
 
-def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_id):
-    """Bindet :port, wartet auf einen POST /restore?token=…, stoppt das
-    Compose-Projekt (docker compose -f compose_file stop) damit die Visu
-    nicht in die Daten schreibt während wir entpacken, entpackt den Body
-    nach extract_to und startet die Container wieder (start)."""
+def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_id, skip_compose_stop=False):
+    """Bindet :port, wartet auf einen POST /restore?token=…, entpackt den Body
+    nach extract_to. Standard-Pfad: Compose-Stack via compose stop anhalten,
+    entpacken, wieder starten. Mit skip_compose_stop=True (wenn die Visu per
+    Ack signalisiert hat, dass sie bereit ist) entpacken wir ohne Stop – tar
+    nutzt dann --unlink-first --overwrite, damit offene File-Handles der
+    Visu auf Geister-Inodes zeigen statt korrupte Bytes zu sehen. Die Visu
+    beendet sich nach dem idle-Publish selbst per exit(0), Restart-Policy
+    bringt sie mit frischen DB-Handles wieder hoch."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", port))
@@ -192,15 +197,21 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
             return "Token ungültig"
         chunked = headers.get("transfer-encoding", "").lower() == "chunked"
         content_length = int(headers.get("content-length", "0") or 0) if not chunked else None
-        # Container stoppen, BEVOR wir entpacken – sonst schreibt die Visu
-        # weiter in die SQLite, während wir sie überschreiben. compose stop ist
-        # sanfter als compose down (Container bleiben, nur Prozesse weg).
-        print("[YControl] Restore: stoppe Compose-Stack...")
-        stop_res = subprocess.run(_compose_cmd(compose_file, "stop"), capture_output=True, text=True, timeout=180)
-        if stop_res.returncode != 0:
-            return "compose stop fehlgeschlagen: " + (stop_res.stderr or stop_res.stdout)[:300]
+        if skip_compose_stop:
+            print("[YControl] Restore: kooperativer Modus – Visu hat Ack gegeben, kein compose-stop nötig.")
+        else:
+            # Fallback-Pfad: keine Visu-Ack bekommen, Container sicherheitshalber anhalten.
+            print("[YControl] Restore: stoppe Compose-Stack (kein Visu-Ack)...")
+            stop_res = subprocess.run(_compose_cmd(compose_file, "stop"), capture_output=True, text=True, timeout=180)
+            if stop_res.returncode != 0:
+                return "compose stop fehlgeschlagen: " + (stop_res.stderr or stop_res.stdout)[:300]
         os.makedirs(extract_to, exist_ok=True)
-        proc = subprocess.Popen(["tar", "-xzf", "-", "-C", extract_to], stdin=subprocess.PIPE)
+        # --unlink-first + --overwrite: entfernt Ziel-Dateien vor dem Schreiben,
+        # damit Prozesse die noch einen offenen Filedescriptor halten auf Geister-
+        # Inodes zeigen statt die Datei mitten im Schreibvorgang zu "sehen".
+        # Im Fallback-Pfad (compose stop) ist das harmlos, im Koop-Pfad essentiell.
+        tar_args = ["tar", "--unlink-first", "--overwrite", "-xzf", "-", "-C", extract_to]
+        proc = subprocess.Popen(tar_args, stdin=subprocess.PIPE)
 
         def feed(b):
             if b: proc.stdin.write(b)
@@ -235,16 +246,18 @@ def serve_restore_once(port, token, extract_to, compose_file, mqtt_client, job_i
             proc.stdin.close()
             proc.wait()
         if proc.returncode != 0:
-            # Container trotzdem wieder hochziehen, damit Visu nicht offline bleibt.
-            subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, timeout=300)
+            if not skip_compose_stop:
+                # Container wieder hochziehen (wir hatten sie gestoppt).
+                subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, timeout=300)
             conn.sendall(b"HTTP/1.1 500 Internal Server Error\\r\\nContent-Length: 0\\r\\n\\r\\n")
             return "tar exit=" + str(proc.returncode)
-        # Container wieder starten (Container existieren noch von vorhin, da wir
-        # nur stop statt down gemacht haben).
-        print("[YControl] Restore: starte Compose-Stack wieder...")
-        start_res = subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, text=True, timeout=300)
-        if start_res.returncode != 0:
-            return "compose start fehlgeschlagen: " + (start_res.stderr or start_res.stdout)[:300]
+        if not skip_compose_stop:
+            print("[YControl] Restore: starte Compose-Stack wieder...")
+            start_res = subprocess.run(_compose_cmd(compose_file, "start"), capture_output=True, text=True, timeout=300)
+            if start_res.returncode != 0:
+                return "compose start fehlgeschlagen: " + (start_res.stderr or start_res.stdout)[:300]
+        # Im kooperativen Modus bleibt der Container durchlaufend – die Visu
+        # beendet sich von selbst, wenn wir gleich state=idle publishen.
         conn.sendall(b"HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\n\\r\\nok")
         return "ok"
     finally:
@@ -601,6 +614,17 @@ def run_agent():
     #     damit die Visu anzeigen kann, ob der Agent mit der Cloud verbunden ist.
     local_client     = [None]
     local_connected  = [False]
+    # Ack-Event für Restore-Cooperation: die Visu publisht auf
+    # LOCAL_MAINTENANCE_ACK_TOP sobald sie die Restore-Ankündigung verstanden
+    # hat. Kommt das Ack innerhalb von 3s, können wir den compose-Stop
+    # überspringen und tar mit --unlink-first direkt loslassen.
+    maintenance_ack_event = threading.Event()
+    maintenance_ack_job   = [None]
+
+    def wait_for_visu_ack(job_id, timeout_s=3.0):
+        maintenance_ack_event.clear()
+        maintenance_ack_job[0] = job_id
+        return maintenance_ack_event.wait(timeout_s)
 
     def publish_cloud_status(online):
         lc = local_client[0]
@@ -636,6 +660,7 @@ def run_agent():
             try:
                 c.subscribe(LOCAL_ALARM_TOPIC, qos=1)
                 c.subscribe(LOCAL_ALARM_SUPPRESS_TOP, qos=1)
+                c.subscribe(LOCAL_MAINTENANCE_ACK_TOP, qos=1)
             except Exception as ex:
                 print("[YControl] Lokales Subscribe fehlgeschlagen: " + str(ex), file=sys.stderr)
             # Aktuellen Cloud-Verbindungszustand beim (Re-)Connect sofort spiegeln,
@@ -657,6 +682,22 @@ def run_agent():
 
     def on_local_message(c, userdata, msg):
         cc = client[0]
+        # ── Maintenance-Ack von der Visu (sie hat Restore-Ankündigung verstanden
+        #    und ist bereit, dass wir ohne compose-stop überschreiben).
+        if msg.topic == LOCAL_MAINTENANCE_ACK_TOP:
+            try:
+                ack = json.loads(msg.payload.decode("utf-8"))
+            except Exception:
+                ack = {}
+            if isinstance(ack, dict) and ack.get("state") == "ready":
+                expected = maintenance_ack_job[0]
+                ack_job  = ack.get("jobId")
+                # jobId matcht (oder keine jobId gesetzt): Ack akzeptieren
+                if not expected or not ack_job or expected == ack_job:
+                    print("[YControl] Visu-Ack für Restore erhalten (jobId=" + str(ack_job) + ")")
+                    maintenance_ack_event.set()
+            return
+
         # ── Alarm-Unterdrückung (retained, damit Cloud nach Reconnect den
         #    aktuellen Stand kennt). Payload "1"/"0" oder {"suppressed":...}.
         if msg.topic == LOCAL_ALARM_SUPPRESS_TOP:
@@ -848,9 +889,14 @@ def run_agent():
                 def do_restore(c, job_id, port, token, extract_to, compose_file):
                     try:
                         publish_maintenance("restore", "Wiederherstellung läuft – Visu wird kurz neu gestartet...", job_id)
+                        # Kurz (3s) auf Visu-Ack warten. Kommt er rechtzeitig, dürfen
+                        # wir ohne docker-compose-stop weitermachen; sonst fallen wir
+                        # auf den sicheren Pfad (stop → entpacken → start) zurück.
+                        got_ack = wait_for_visu_ack(job_id, 3.0)
+                        print("[YControl] Restore: Visu-Ack " + ("erhalten – kooperativer Modus" if got_ack else "nicht erhalten – Fallback auf compose stop"))
                         c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "listening", "port": port}), qos=1)
                         print("[YControl] Restore-Listener :" + str(port) + " -> " + extract_to + " (compose: " + compose_file + ")")
-                        srv = serve_restore_once(port, token, extract_to, compose_file, c, job_id)
+                        srv = serve_restore_once(port, token, extract_to, compose_file, c, job_id, skip_compose_stop=got_ack)
                         if srv == "ok":
                             c.publish(topic_resp, json.dumps({"action": "restore", "jobId": job_id, "status": "ok"}), qos=1)
                         else:
