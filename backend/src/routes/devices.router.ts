@@ -68,7 +68,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC34"  # Update: py_compile-Check + .bak-Backup (kein Dead-Agent mehr)
+AGENT_VERSION = "1.0.0-RC35"  # Fix: JS-Template-Escape für \\n/\\s in _swap_compose_image
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -187,34 +187,29 @@ def _swap_compose_image(compose_file, service, new_image):
     in_target = False
     old_image = None
     for i, raw in enumerate(lines):
-        stripped = raw.lstrip(" ")
-        if stripped == raw.rstrip("\n") + ("\n" if raw.endswith("\n") else ""):
-            # keine Einrückung → top-level (meist 'services:' oder 'version:')
-            pass
         indent = len(raw) - len(raw.lstrip(" "))
         content = raw.strip()
 
         if not in_target:
-            # Suche Zeile "  <service>:"
-            if content == service + ":" or content.startswith(service + ":"):
-                # Wirklich der Service-Key? → Nächste nicht-leere Zeile sollte
-                # mit mehr Einrückung kommen. Heuristik: Service-Keys liegen
-                # im YAML genau unter 'services:' (Einrückung = 2). Wir
-                # akzeptieren hier jede Einrückung, prüfen aber dass wir
-                # nicht versehentlich einen Mapping-Key im image-Namen matchen.
-                if content.endswith(":") and ":" not in content[:-1]:
-                    in_target = True
-                    target_indent = indent
+            # Suche Zeile "  <service>:". Muss auf ':' enden und darf vor dem
+            # finalen ':' keinen weiteren Doppelpunkt haben (sonst matchen wir
+            # z.B. 'image: x:y'-Zeilen).
+            if content == service + ":" or (content.startswith(service + ":") and content.endswith(":") and ":" not in content[:-1]):
+                in_target = True
+                target_indent = indent
         else:
             # Block verlassen? Neue Top-Level-Zeile oder Zeile mit gleicher
             # Einrückung wie der Service-Key = nächster Service.
             if content and indent <= target_indent and not raw.startswith(" " * (target_indent + 1)):
                 break
-            # image-Zeile innerhalb des Service-Blocks?
-            m = re.match(r"^(\s+)image:\s*(\S+)\s*$", raw)
+            # image-Zeile innerhalb des Service-Blocks? NB: JS-Template-Strings
+            # verschlucken JEDEN unbekannten Escape (\\n → Newline, \\s → s), deshalb
+            # müssen Backslashes hier doppelt geschrieben sein – das JS-Output
+            # enthält dann ein literales \\s / \\S / \\n, das Python korrekt parst.
+            m = re.match(r"^(\\s+)image:\\s*(\\S+)\\s*$", raw)
             if m:
                 old_image = m.group(2)
-                lines[i] = m.group(1) + "image: " + new_image + "\n"
+                lines[i] = m.group(1) + "image: " + new_image + "\\n"
                 break
 
     if old_image is None:

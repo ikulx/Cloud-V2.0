@@ -84,7 +84,11 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\('D:/tmp/agent-extracted.py', encoding='utf-8'\\).read\\(\\)\\)\")",
       "Bash(python -m py_compile \"D:/tmp/agent-extracted.py\")",
       "Bash(python -c ' *)",
-      "Bash(python -m py_compile D:/tmp/agent-rc34.py)"
+      "Bash(python -m py_compile D:/tmp/agent-rc34.py)",
+      "Bash(grep -n '\"\\\\\\\\\\\\\\\\n\"\\\\|\"\\\\\\\\n\"\\\\|rstrip\\(\"\\\\\\\\|endswith\\(\"\\\\\\\\' \"D:/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0/backend/src/routes/devices.router.ts\")",
+      "Bash(python -m py_compile D:/tmp/agent-rc35b.py)",
+      "Bash(python -m py_compile D:/tmp/agent-real.py)",
+      "Bash(python -m py_compile D:/tmp/agent-real2.py)"
     ]
   }
 }
