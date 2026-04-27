@@ -630,21 +630,30 @@ def run_setup_mode():
 
     def on_setup_conn(c, userdata, flags, rc):
         if rc == 0:
+            print("[YControl] SETUP: Lokaler MQTT-Broker verbunden – Visu kann SN setzen.")
             try:
                 c.subscribe(LOCAL_SET_YC_SN_TOP, qos=1)
                 # Leere SN retained publishen → Visu zeigt Setup-Screen.
                 c.publish(LOCAL_YC_SN_TOP, json.dumps({"value": ""}), retain=True, qos=1)
             except Exception as ex:
                 print("[YControl] SETUP-Subscribe fehlgeschlagen: " + str(ex), file=sys.stderr)
+        else:
+            print("[YControl] SETUP: Lokaler MQTT-Connect rc=" + str(rc) + " (auth-Fehler? Broker nicht bereit?)", file=sys.stderr)
+
+    def on_setup_disc(c, userdata, rc):
+        if rc != 0:
+            print("[YControl] SETUP: Lokaler MQTT getrennt (rc=" + str(rc) + "), reconnect läuft...", file=sys.stderr)
 
     try:
         lc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="ycontrol-setup", protocol=mqtt.MQTTv311)
     except AttributeError:
         lc = mqtt.Client(client_id="ycontrol-setup", protocol=mqtt.MQTTv311)
     lc.on_connect = on_setup_conn
+    lc.on_disconnect = on_setup_disc
     lc.on_message = on_setup_msg
     lc.connect_async(LOCAL_MQTT_HOST, LOCAL_MQTT_PORT, keepalive=30)
     lc.loop_start()
+    print("[YControl] SETUP: verbinde mit lokalem MQTT-Broker " + LOCAL_MQTT_HOST + ":" + str(LOCAL_MQTT_PORT) + "...")
 
     # Endlos warten – der set-yc-sn-Handler beendet den Prozess via
     # systemctl restart. Falls jemand die Datei extern anlegt (z.B. per SSH),
