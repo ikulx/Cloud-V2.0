@@ -7,6 +7,7 @@ import Link from '@mui/material/Link'
 import { ErzeugerSettingsTab } from '../components/settings/ErzeugerSettingsTab'
 import { InternalAlarmTemplatesSettings } from '../components/settings/InternalAlarmTemplatesSettings'
 import { BackupTargetsSettings } from '../components/settings/BackupTargetsSettings'
+import { TodoDigestCard } from '../components/settings/TodoDigestCard'
 import Card from '@mui/material/Card'
 import CardContent from '@mui/material/CardContent'
 import TextField from '@mui/material/TextField'
@@ -567,6 +568,9 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Todo-Digest – nur sichtbar im Mail-Tab, Admin-only (durch Tab-Filter) */}
+      {activeKey === 'mail' && <TodoDigestCard />}
 
       {activeKey === 'deepl' && (
         <Card sx={{ maxWidth: 720 }}>

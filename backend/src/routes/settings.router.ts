@@ -64,6 +64,11 @@ export const SETTING_KEYS = [
   'cloud.backup.enabled',
   'cloud.backup.intervalHours',
   'cloud.backup.retentionDays',
+  // Todo-Benachrichtigungen: Tagesdigest-Stunde (0-23, lokale Server-TZ)
+  'todos.digestHour',
+  // Interner Marker: Zeitpunkt des letzten Digest-Versands (verhindert doppelte
+  // Digests innerhalb desselben Tages). Wird vom Scheduler beschrieben.
+  'todos.lastDigestRunAt',
 ] as const
 
 export type SettingKey = typeof SETTING_KEYS[number]
@@ -117,6 +122,10 @@ export const DEFAULT_SETTINGS: Record<SettingKey, string> = {
   'cloud.backup.enabled': 'true',
   'cloud.backup.intervalHours': '24',
   'cloud.backup.retentionDays': '14',
+  // Todo-Digest-Stunde: jeden Tag um 08:00 lokaler Server-Zeit gehen die
+  // Reminder-Mails als ein gebündeltes Mail pro Empfänger raus.
+  'todos.digestHour': '8',
+  'todos.lastDigestRunAt': '',
 }
 
 export async function getSetting(key: SettingKey): Promise<string> {

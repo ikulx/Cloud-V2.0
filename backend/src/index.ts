@@ -179,7 +179,7 @@ async function main() {
     startCloudBackupScheduler()
     console.log('✓ Cloud-Backup-Scheduler gestartet (60-min-Poll)')
     startTodoReminderScheduler()
-    console.log('✓ Todo-Reminder-Scheduler gestartet (30-min-Poll)')
+    console.log('✓ Todo-Digest-Scheduler gestartet (30-min-Poll, 1× pro Tag um digestHour)')
     startAlarmDeliveryWorker()
     console.log('✓ Alarm-Delivery-Worker gestartet (30-s-Poll)')
     ensureSystemTemplateRecipientsForAllAnlagen().catch((err) => {
