@@ -69,7 +69,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC38"  # Update: Staging-Datei neben AGENT_PATH (tmpfs-Cross-Device-Bug)
+AGENT_VERSION = "1.0.0-RC39"  # YControl-SN-Setup-Modus + Visu-Bridge via lokales MQTT
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -85,6 +85,12 @@ LOCAL_ALARM_SUPPRESS_TOP = "ycontrol/agent/alarm-suppression"
 LOCAL_CLOUD_STATUS_TOP   = "ycontrol/agent/cloud-status"
 LOCAL_MAINTENANCE_TOP    = "ycontrol/agent/maintenance"
 LOCAL_MAINTENANCE_ACK_TOP = "ycontrol/agent/maintenance/ack"
+# Aktuelle YControl-SN (retained, leer wenn /boot/firmware/ycontrolSN.txt
+# nicht existiert) → Visu zeigt damit ihren Setup-Screen.
+LOCAL_YC_SN_TOP          = "ycontrol/agent/yc-sn"
+# Visu publisht hier {"value":"…"} um eine neue YControl-SN zu setzen.
+LOCAL_SET_YC_SN_TOP      = "ycontrol/agent/set-yc-sn"
+YC_SN_FILE = "/boot/firmware/ycontrolSN.txt"
 CONFIG_PATH   = "/etc/ycontrol/config.json"
 AGENT_PATH    = "/usr/local/bin/ycontrol-agent.py"
 SERVICE_PATH  = "/etc/systemd/system/ycontrol-agent.service"
@@ -582,7 +588,83 @@ def periodic_reregister(cfg_path):
         except Exception as ex:
             print("[YControl] Re-Register Exception: " + str(ex), file=sys.stderr)
 
+def run_setup_mode():
+    """Wartemodus für neue Displays: keine YControl-SN in /boot/firmware/
+    ycontrolSN.txt → wir starten KEINEN Cloud-Connect, sondern öffnen nur
+    den lokalen MQTT-Client. Die Visu zeigt einen Setup-Screen, der User
+    tippt die SN ein, Visu publisht auf LOCAL_SET_YC_SN_TOP, der Handler
+    schreibt die Datei und macht systemctl restart – dieser Prozess endet
+    dann und der frische Agent läuft normal mit der SN durch."""
+    print("[YControl] SETUP-MODUS aktiv – warte auf YControl-SN via Visu (Topic " + LOCAL_SET_YC_SN_TOP + ")")
+    try:
+        import paho.mqtt.client as mqtt
+    except ImportError:
+        print("[YControl] paho-mqtt fehlt – kann SETUP-MODUS nicht starten", file=sys.stderr)
+        sys.exit(1)
+
+    def on_setup_msg(c, userdata, msg):
+        if msg.topic != LOCAL_SET_YC_SN_TOP:
+            return
+        try:
+            payload = json.loads(msg.payload.decode("utf-8"))
+        except Exception:
+            return
+        new_sn = (payload.get("value") if isinstance(payload, dict) else "") or ""
+        new_sn = new_sn.strip()
+        if not re.match(r"^[A-Za-z0-9_-]{4,50}$", new_sn):
+            print("[YControl] set-yc-sn: ungültiges Format '" + new_sn + "', ignoriert", file=sys.stderr)
+            return
+        try:
+            os.makedirs(os.path.dirname(YC_SN_FILE), exist_ok=True)
+            with open(YC_SN_FILE, "w", encoding="utf-8") as f:
+                f.write(new_sn + "\\n")
+            print("[YControl] SETUP: SN gespeichert: " + new_sn)
+            # Sofort retained publishen, damit die Visu die neue SN sieht und
+            # ihr Setup-Overlay schließt – auch falls der Restart kurz dauert.
+            try: c.publish(LOCAL_YC_SN_TOP, json.dumps({"value": new_sn}), retain=True, qos=1)
+            except Exception: pass
+            time.sleep(1)
+            subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
+        except Exception as ex:
+            print("[YControl] SETUP: Schreiben fehlgeschlagen: " + str(ex), file=sys.stderr)
+
+    def on_setup_conn(c, userdata, flags, rc):
+        if rc == 0:
+            try:
+                c.subscribe(LOCAL_SET_YC_SN_TOP, qos=1)
+                # Leere SN retained publishen → Visu zeigt Setup-Screen.
+                c.publish(LOCAL_YC_SN_TOP, json.dumps({"value": ""}), retain=True, qos=1)
+            except Exception as ex:
+                print("[YControl] SETUP-Subscribe fehlgeschlagen: " + str(ex), file=sys.stderr)
+
+    try:
+        lc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="ycontrol-setup", protocol=mqtt.MQTTv311)
+    except AttributeError:
+        lc = mqtt.Client(client_id="ycontrol-setup", protocol=mqtt.MQTTv311)
+    lc.on_connect = on_setup_conn
+    lc.on_message = on_setup_msg
+    lc.connect_async(LOCAL_MQTT_HOST, LOCAL_MQTT_PORT, keepalive=30)
+    lc.loop_start()
+
+    # Endlos warten – der set-yc-sn-Handler beendet den Prozess via
+    # systemctl restart. Falls jemand die Datei extern anlegt (z.B. per SSH),
+    # erkennen wir das beim nächsten Tick und starten ebenfalls neu.
+    while True:
+        time.sleep(15)
+        if get_ycontrol_sn():
+            print("[YControl] SETUP: yc-sn-Datei extern gesetzt, Restart...")
+            subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
+            time.sleep(5)
+            return
+
 def run_agent():
+    # Erste Hürde: ohne YControl-SN gehen wir in den Setup-Modus. Verhindert
+    # dass run_setup() (das dieselbe SN ermittelt) den Pi mit der Hardware-
+    # Seriennummer als Fallback bei der Cloud anmeldet.
+    if not get_ycontrol_sn():
+        run_setup_mode()
+        return
+
     if not os.path.exists(CONFIG_PATH):
         print("[YControl] Keine Konfiguration gefunden: " + CONFIG_PATH, file=sys.stderr)
         sys.exit(1)
@@ -735,6 +817,20 @@ def run_agent():
         except Exception as ex:
             print("[YControl] cloud-status publish fehlgeschlagen: " + str(ex), file=sys.stderr)
 
+    def publish_yc_sn():
+        """Publisht die aktuelle YControl-SN retained an die Visu, damit die
+        beim Boot weiß, ob ein Setup-Screen nötig ist. Leerer String = keine
+        SN konfiguriert (Datei /boot/firmware/ycontrolSN.txt fehlt/leer)."""
+        lc = local_client[0]
+        if lc is None:
+            return
+        try:
+            current_sn = get_ycontrol_sn() or ""
+            payload = {"value": current_sn}
+            lc.publish(LOCAL_YC_SN_TOP, json.dumps(payload), retain=True, qos=1)
+        except Exception as ex:
+            print("[YControl] yc-sn publish fehlgeschlagen: " + str(ex), file=sys.stderr)
+
     def publish_maintenance(state, message=None, job_id=None):
         """Publisht den Wartungs-Zustand an die Visu (lokaler Broker, retained).
         state: 'idle' | 'backup' | 'restore' | 'update'. Die Visu blendet bei
@@ -760,8 +856,12 @@ def run_agent():
                 c.subscribe(LOCAL_ALARM_TOPIC, qos=1)
                 c.subscribe(LOCAL_ALARM_SUPPRESS_TOP, qos=1)
                 c.subscribe(LOCAL_MAINTENANCE_ACK_TOP, qos=1)
+                c.subscribe(LOCAL_SET_YC_SN_TOP, qos=1)
             except Exception as ex:
                 print("[YControl] Lokales Subscribe fehlgeschlagen: " + str(ex), file=sys.stderr)
+            # Aktuelle YControl-SN retained an Visu schicken (leerer String =
+            # Visu zeigt Setup-Screen).
+            publish_yc_sn()
             # Aktuellen Cloud-Verbindungszustand beim (Re-)Connect sofort spiegeln,
             # damit die Visu nach lokalem Broker-Neustart korrekt updated wird.
             try:
@@ -781,6 +881,37 @@ def run_agent():
 
     def on_local_message(c, userdata, msg):
         cc = client[0]
+        # ── Visu hat eine YControl-SN eingegeben (First-Boot-Setup-Screen).
+        #    Wir schreiben sie nach /boot/firmware/ycontrolSN.txt und beenden
+        #    uns selbst – systemd startet uns sofort wieder, der Re-Register
+        #    läuft dann mit der neuen SN durch.
+        if msg.topic == LOCAL_SET_YC_SN_TOP:
+            try:
+                payload = json.loads(msg.payload.decode("utf-8"))
+            except Exception:
+                payload = {}
+            new_sn = (payload.get("value") if isinstance(payload, dict) else "") or ""
+            new_sn = new_sn.strip()
+            # Robust gegen Tippfehler: nur ASCII-Buchstaben/Ziffern/Bindestrich,
+            # 4-50 Zeichen. Verhindert dass jemand z.B. einen Zeilenumbruch in
+            # die Datei reinschreibt der den Agent beim Lesen scheitern lässt.
+            if not re.match(r"^[A-Za-z0-9_-]{4,50}$", new_sn):
+                print("[YControl] set-yc-sn: ungültiges Format '" + new_sn + "', ignoriert", file=sys.stderr)
+                return
+            try:
+                os.makedirs(os.path.dirname(YC_SN_FILE), exist_ok=True)
+                with open(YC_SN_FILE, "w", encoding="utf-8") as f:
+                    f.write(new_sn + "\\n")
+                print("[YControl] YControl-SN gesetzt: " + new_sn + " → " + YC_SN_FILE)
+                publish_yc_sn()
+                # Service neu starten, damit run_agent() die neue SN frisch
+                # einliest und sich bei der Cloud (re-)registriert.
+                time.sleep(1)
+                subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
+            except Exception as ex:
+                print("[YControl] set-yc-sn schreiben fehlgeschlagen: " + str(ex), file=sys.stderr)
+            return
+
         # ── Maintenance-Ack von der Visu (sie hat Restore-Ankündigung verstanden
         #    und ist bereit, dass wir ohne compose-stop überschreiben).
         if msg.topic == LOCAL_MAINTENANCE_ACK_TOP:
