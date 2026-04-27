@@ -611,7 +611,7 @@ def run_setup_mode():
             return
         new_sn = (payload.get("value") if isinstance(payload, dict) else "") or ""
         new_sn = new_sn.strip()
-        if not re.match(r"^[A-Za-z0-9_-]{4,50}$", new_sn):
+        if not re.match(r"^[A-Za-z0-9.-]{4,50}$", new_sn):
             print("[YControl] set-yc-sn: ungültiges Format '" + new_sn + "', ignoriert", file=sys.stderr)
             return
         try:
@@ -895,7 +895,7 @@ def run_agent():
             # Robust gegen Tippfehler: nur ASCII-Buchstaben/Ziffern/Bindestrich,
             # 4-50 Zeichen. Verhindert dass jemand z.B. einen Zeilenumbruch in
             # die Datei reinschreibt der den Agent beim Lesen scheitern lässt.
-            if not re.match(r"^[A-Za-z0-9_-]{4,50}$", new_sn):
+            if not re.match(r"^[A-Za-z0-9.-]{4,50}$", new_sn):
                 print("[YControl] set-yc-sn: ungültiges Format '" + new_sn + "', ignoriert", file=sys.stderr)
                 return
             try:
