@@ -98,7 +98,8 @@
       "Bash(python -m py_compile D:/tmp/agent-rc39c.py)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(grep -n \"SETUP_SCRIPT_TEMPLATE\\\\|const SETUP\\\\|^const.*=.*\\\\`\\\\|^const.*=.*\\\\\"\\\\\"\\\\\"\" \"D:/Entwicklung/Ycontrol-Cloud_2026/Cloud V2.0/backend/src/routes/devices.router.ts\")"
     ]
   }
 }

@@ -69,7 +69,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC42"  # ensure_compose_patches: ycontrol-net + /boot/firmware Mount + MQTT_BROKER_URL
+AGENT_VERSION = "1.0.0-RC43"  # SyntaxError-Fix: Python-Quote-Escape im compose-Patch
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -255,7 +255,7 @@ def ensure_compose_patches(compose_file):
             vol_end = _block_end(lines, vol_idx, vol_indent)
             block_text = "".join(lines[vol_idx:vol_end])
             if "/boot/firmware:/boot/firmware" not in block_text:
-                lines.insert(vol_end, item_indent_str + "- \"/boot/firmware:/boot/firmware\"\\n")
+                lines.insert(vol_end, item_indent_str + '- "/boot/firmware:/boot/firmware"\\n')
                 # rt_end neu berechnen
                 rt_start, rt_end, rt_indent = _service_block(lines, "ycontrol-rt-v3")
 
