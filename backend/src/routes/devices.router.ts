@@ -69,7 +69,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC43"  # SyntaxError-Fix: Python-Quote-Escape im compose-Patch
+AGENT_VERSION = "1.0.0-RC44"  # Setup-Modus: Datei-Poll von 15s auf 2s reduziert
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -809,8 +809,10 @@ def run_setup_mode():
             print("[YControl] SETUP: Lokaler MQTT-Broker verbunden – Visu kann SN setzen.")
             try:
                 c.subscribe(LOCAL_SET_YC_SN_TOP, qos=1)
-                # Leere SN retained publishen → Visu zeigt Setup-Screen.
-                c.publish(LOCAL_YC_SN_TOP, json.dumps({"value": ""}), retain=True, qos=1)
+                # Bewusst KEIN retained publish hier mehr. Die Visu liest die
+                # SN jetzt direkt aus /boot/firmware/ycontrolSN.txt (mount).
+                # Ein retained-Publish wuerde das nur torpedieren falls die
+                # Datei waehrend unseres Reconnects gerade geschrieben wurde.
             except Exception as ex:
                 print("[YControl] SETUP-Subscribe fehlgeschlagen: " + str(ex), file=sys.stderr)
         else:
@@ -832,12 +834,14 @@ def run_setup_mode():
     print("[YControl] SETUP: verbinde mit lokalem MQTT-Broker " + LOCAL_MQTT_HOST + ":" + str(LOCAL_MQTT_PORT) + "...")
 
     # Endlos warten – der set-yc-sn-Handler beendet den Prozess via
-    # systemctl restart. Falls jemand die Datei extern anlegt (z.B. per SSH),
-    # erkennen wir das beim nächsten Tick und starten ebenfalls neu.
+    # systemctl restart. Falls die Visu die SN-Datei direkt schreibt
+    # (file-mount), pollen wir kurz darauf ebenfalls neu und starten.
+    # Poll-Intervall bewusst kurz (2s) damit der User nach 'Speichern'
+    # nicht ewig auf den Cloud-Register-Roundtrip warten muss.
     while True:
-        time.sleep(15)
+        time.sleep(2)
         if get_ycontrol_sn():
-            print("[YControl] SETUP: yc-sn-Datei extern gesetzt, Restart...")
+            print("[YControl] SETUP: yc-sn-Datei gesetzt erkannt, Restart...")
             subprocess.Popen(["systemctl", "restart", "ycontrol-agent"])
             time.sleep(5)
             return
