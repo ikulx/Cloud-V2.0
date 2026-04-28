@@ -69,7 +69,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC39"  # YControl-SN-Setup-Modus + Visu-Bridge via lokales MQTT
+AGENT_VERSION = "1.0.0-RC40"  # Setup-Modus: keine Cloud-Registrierung ohne SN, Config-SN-Nachzug
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -577,9 +577,13 @@ def periodic_reregister(cfg_path):
         try:
             with open(cfg_path) as f:
                 cfg = json.load(f)
+            serial = cfg.get("serialNumber") or get_ycontrol_sn()
+            if not serial:
+                # Setup-Modus: noch keine SN bekannt – nicht registrieren.
+                continue
             server_url = cfg.get("serverUrl", SERVER_URL)
             url = server_url.rstrip("/") + "/api/devices/register"
-            payload = {"serialNumber": cfg["serialNumber"], "piSerial": get_pi_serial()}
+            payload = {"serialNumber": serial, "piSerial": get_pi_serial()}
             result, code = api_post(url, payload)
             if code == 409:
                 print("[YControl] Re-Register: KONFLIKT – YControl-SN bereits anderem Pi zugeordnet.", file=sys.stderr)
@@ -680,6 +684,19 @@ def run_agent():
 
     with open(CONFIG_PATH) as f:
         cfg = json.load(f)
+
+    # Falls die Config beim Erst-Install (Setup-Modus) ohne SN angelegt wurde
+    # und die SN erst später via Visu kam, übernehmen wir sie jetzt nach.
+    if not cfg.get("serialNumber"):
+        sn_from_file = get_ycontrol_sn()
+        if sn_from_file:
+            cfg["serialNumber"] = sn_from_file
+            try:
+                with open(CONFIG_PATH, "w") as f:
+                    json.dump(cfg, f, indent=2)
+                print("[YControl] config.json mit YControl-SN ergaenzt: " + sn_from_file)
+            except Exception as ex:
+                print("[YControl] Konnte SN nicht in config.json schreiben: " + str(ex), file=sys.stderr)
 
     # Periodische Re-Registrierung im Hintergrund (fuer Konflikt-Erkennung)
     threading.Thread(target=periodic_reregister, args=(CONFIG_PATH,), daemon=True).start()
@@ -1424,47 +1441,60 @@ def run_setup():
         print("[FEHLER] Bitte als root ausfuehren: sudo python3 ycontrol-setup.py")
         sys.exit(1)
 
-    serial    = get_serial()
+    yc_sn     = get_ycontrol_sn()
     pi_serial = get_pi_serial()
-    print("[YControl] YControl-SN: " + serial)
+    print("[YControl] YControl-SN: " + (yc_sn or "(noch nicht gesetzt – Setup-Modus via Visu)"))
     print("[YControl] Pi-Hardware: " + pi_serial)
 
-    # Schritt 1: Registrieren (ein Versuch – der Agent-Service uebernimmt den Rest)
+    # Schritt 1: Registrieren – aber NUR wenn eine YControl-SN existiert.
+    # Ohne SN macht eine Cloud-Registrierung keinen Sinn (der Pi würde sich
+    # mit der Pi-Hardware-Seriennummer als "Anlagen-ID" registrieren, was
+    # später nicht mehr sauber auf die echte SN zu mappen wäre). Stattdessen
+    # springt der Agent-Service in den Setup-Modus, die Visu zeigt das
+    # Eingabefeld, und nach dem Speichern startet der Agent neu und
+    # registriert sich erstmals mit der korrekten SN.
     device_secret = None
     device_id     = None
     reg_status    = "unknown"
 
-    print("[YControl] Pruefe Verbindung zu: " + SERVER_URL)
-    health_code = api_get(SERVER_URL + "/health")
-    if health_code == 200:
-        print("[YControl] Server erreichbar (HTTP 200)")
-        print("[YControl] Registriere Geraet...")
-        result, code = api_post(SERVER_URL + "/api/devices/register", {"serialNumber": serial, "piSerial": pi_serial})
-        if code == 409:
-            print("[YControl] KONFLIKT: Die YControl-Seriennummer '" + serial + "' ist bereits einem anderen Pi zugeordnet.", file=sys.stderr)
-            print("[YControl] Bitte Konflikt in der Cloud-UI aufloesen oder eine andere Seriennummer verwenden.", file=sys.stderr)
-            sys.exit(2)
-        if code in (200, 201):
-            reg_status    = result.get("status", "new")
-            device_secret = result.get("deviceSecret")
-            device_id     = result.get("deviceId")
-            print("[YControl] Registrierung erfolgreich (Status: " + reg_status + ")")
+    if yc_sn:
+        print("[YControl] Pruefe Verbindung zu: " + SERVER_URL)
+        health_code = api_get(SERVER_URL + "/health")
+        if health_code == 200:
+            print("[YControl] Server erreichbar (HTTP 200)")
+            print("[YControl] Registriere Geraet...")
+            result, code = api_post(SERVER_URL + "/api/devices/register", {"serialNumber": yc_sn, "piSerial": pi_serial})
+            if code == 409:
+                print("[YControl] KONFLIKT: Die YControl-Seriennummer '" + yc_sn + "' ist bereits einem anderen Pi zugeordnet.", file=sys.stderr)
+                print("[YControl] Bitte Konflikt in der Cloud-UI aufloesen oder eine andere Seriennummer verwenden.", file=sys.stderr)
+                sys.exit(2)
+            if code in (200, 201):
+                reg_status    = result.get("status", "new")
+                device_secret = result.get("deviceSecret")
+                device_id     = result.get("deviceId")
+                print("[YControl] Registrierung erfolgreich (Status: " + reg_status + ")")
+            else:
+                print("[YControl] Registrierung fehlgeschlagen (HTTP " + str(code) + ") – der Agent-Service wird es erneut versuchen.")
         else:
-            print("[YControl] Registrierung fehlgeschlagen (HTTP " + str(code) + ") – der Agent-Service wird es erneut versuchen.")
+            if health_code == 0:
+                print("[YControl] Server nicht erreichbar – der Agent-Service wird es spaeter versuchen.")
+            else:
+                print("[YControl] Server antwortet mit HTTP " + str(health_code) + " – der Agent-Service wird es spaeter versuchen.")
     else:
-        if health_code == 0:
-            print("[YControl] Server nicht erreichbar – der Agent-Service wird es spaeter versuchen.")
-        else:
-            print("[YControl] Server antwortet mit HTTP " + str(health_code) + " – der Agent-Service wird es spaeter versuchen.")
+        print("[YControl] Cloud-Registrierung uebersprungen – warte auf SN-Eingabe via Visu (Setup-Modus).")
 
-    # Schritt 2: Konfiguration speichern (auch ohne Secret – Agent holt es sich)
+    # Schritt 2: Konfiguration speichern. Nur die Verbindungs-Defaults +
+    # ggf. erhaltenes Secret. Wir schreiben KEINEN serialNumber-Eintrag wenn
+    # noch keine yc-sn da ist – der Agent merkt das beim Start und geht
+    # direkt in den Setup-Modus, ohne mit der Pi-Hardware-ID zu pingen.
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     config = {
-        "serialNumber": serial,
-        "serverUrl":    SERVER_URL,
-        "mqttHost":     MQTT_HOST,
-        "mqttPort":     MQTT_PORT,
+        "serverUrl": SERVER_URL,
+        "mqttHost":  MQTT_HOST,
+        "mqttPort":  MQTT_PORT,
     }
+    if yc_sn:
+        config["serialNumber"] = yc_sn
     if device_id:
         config["deviceId"] = device_id
     if device_secret:
