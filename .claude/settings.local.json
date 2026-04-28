@@ -96,7 +96,9 @@
       "Bash(python -m py_compile D:/tmp/agent-rc39.py)",
       "Bash(python -m py_compile D:/tmp/agent-rc39b.py)",
       "Bash(python -m py_compile D:/tmp/agent-rc39c.py)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }

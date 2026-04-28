@@ -69,7 +69,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC40"  # Setup-Modus: keine Cloud-Registrierung ohne SN, Config-SN-Nachzug
+AGENT_VERSION = "1.0.0-RC41"  # publish_yc_sn mehrfach re-publishen gegen Race Conditions
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -886,8 +886,14 @@ def run_agent():
             except Exception as ex:
                 print("[YControl] Lokales Subscribe fehlgeschlagen: " + str(ex), file=sys.stderr)
             # Aktuelle YControl-SN retained an Visu schicken (leerer String =
-            # Visu zeigt Setup-Screen).
+            # Visu zeigt Setup-Screen). Doppelt publishen mit kurzem Delay –
+            # falls die Visu beim allerersten Publish noch nicht subscribt war.
             publish_yc_sn()
+            try:
+                threading.Timer(2.0, publish_yc_sn).start()
+                threading.Timer(8.0, publish_yc_sn).start()
+            except Exception:
+                pass
             # Aktuellen Cloud-Verbindungszustand beim (Re-)Connect sofort spiegeln,
             # damit die Visu nach lokalem Broker-Neustart korrekt updated wird.
             try:
