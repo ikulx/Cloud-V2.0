@@ -69,7 +69,7 @@ def _ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
 socket.getaddrinfo = _ipv4_only
 
 # ─── Konstanten ──────────────────────────────────────────────────────────────
-AGENT_VERSION = "1.0.0-RC41"  # publish_yc_sn mehrfach re-publishen gegen Race Conditions
+AGENT_VERSION = "1.0.0-RC42"  # ensure_compose_patches: ycontrol-net + /boot/firmware Mount + MQTT_BROKER_URL
 SERVER_URL    = "<<SERVER_URL>>"
 MQTT_HOST     = "<<MQTT_HOST>>"
 MQTT_PORT     = <<MQTT_PORT>>
@@ -175,6 +175,178 @@ def _compose_cmd(compose_file, *args):
     """Wählt automatisch den richtigen Compose-Aufruf (V2 vs. V1)."""
     base = ["docker", "compose"] if shutil.which("docker") else ["docker-compose"]
     return base + ["-f", compose_file] + list(args)
+
+def _service_block(lines, service_name):
+    """Liefert (start_idx, end_idx_excl, indent) des Service-Blocks
+    im compose-File, oder (None, None, None). end_idx_excl ist die Zeile
+    NACH dem letzten Inhalt des Blocks."""
+    service_indent = None
+    start = None
+    for i, raw in enumerate(lines):
+        stripped = raw.lstrip(" ")
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(stripped)
+        content = raw.rstrip("\\n").rstrip()
+        if start is None:
+            if content.strip() == service_name + ":" and indent > 0:
+                start = i
+                service_indent = indent
+        else:
+            if content.strip() and indent <= service_indent:
+                return start, i, service_indent
+    if start is not None:
+        return start, len(lines), service_indent
+    return None, None, None
+
+def _find_subkey_in_block(lines, start, end, indent, key):
+    """Findet 'key:' innerhalb eines Service-Blocks (ein Level tiefer als
+    service_indent). Liefert (idx, sub_indent) oder (None, None)."""
+    expected_indent = indent + 2
+    for i in range(start + 1, end):
+        raw = lines[i]
+        stripped = raw.lstrip(" ")
+        if not stripped or stripped.startswith("#"):
+            continue
+        cur_indent = len(raw) - len(stripped)
+        if cur_indent == expected_indent and stripped.rstrip().rstrip("\\n").strip() == key + ":":
+            return i, cur_indent
+        if cur_indent == expected_indent and stripped.startswith(key + ":"):
+            return i, cur_indent
+    return None, None
+
+def _block_end(lines, key_idx, key_indent):
+    """Liefert end_idx_excl der List-/Map-Items unter einem Sub-Key."""
+    for j in range(key_idx + 1, len(lines)):
+        raw = lines[j]
+        stripped = raw.lstrip(" ")
+        if not stripped or stripped.startswith("#"):
+            continue
+        cur_indent = len(raw) - len(stripped)
+        if cur_indent <= key_indent:
+            return j
+    return len(lines)
+
+def ensure_compose_patches(compose_file):
+    """Stellt sicher, dass das compose-File die fuer den Setup-Flow noetigen
+    Eintraege enthaelt:
+      * ycontrol-rt-v3.volumes: /boot/firmware bind-mount
+      * ycontrol-rt-v3.environment: MQTT_BROKER_URL=mqtt://ycontrol-red:1883
+      * top-level networks: ycontrol-net (bridge)
+      * ycontrol-rt-v3 / ycontrol-red / ycontrol-log-db: networks: [ycontrol-net]
+    Idempotent – aendert die Datei nur wenn etwas fehlt. Erstellt ein
+    .bak-Backup beim ersten Schreiben."""
+    if not os.path.exists(compose_file):
+        print("[YControl] compose-Patch: Datei nicht gefunden: " + compose_file, file=sys.stderr)
+        return False
+    with open(compose_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    original = list(lines)
+
+    # 1) ycontrol-rt-v3 volumes & environment
+    rt_start, rt_end, rt_indent = _service_block(lines, "ycontrol-rt-v3")
+    if rt_start is not None:
+        sub_indent_str = " " * (rt_indent + 2)
+        item_indent_str = " " * (rt_indent + 4)
+
+        # volumes:
+        vol_idx, vol_indent = _find_subkey_in_block(lines, rt_start, rt_end, rt_indent, "volumes")
+        if vol_idx is not None:
+            vol_end = _block_end(lines, vol_idx, vol_indent)
+            block_text = "".join(lines[vol_idx:vol_end])
+            if "/boot/firmware:/boot/firmware" not in block_text:
+                lines.insert(vol_end, item_indent_str + "- \"/boot/firmware:/boot/firmware\"\\n")
+                # rt_end neu berechnen
+                rt_start, rt_end, rt_indent = _service_block(lines, "ycontrol-rt-v3")
+
+        # environment:
+        env_idx, env_indent = _find_subkey_in_block(lines, rt_start, rt_end, rt_indent, "environment")
+        if env_idx is not None:
+            env_end = _block_end(lines, env_idx, env_indent)
+            block_text = "".join(lines[env_idx:env_end])
+            if "MQTT_BROKER_URL" not in block_text:
+                # Map-Style erkennen (KEY: VALUE) vs Liste (- KEY=VALUE) anhand
+                # der ersten Item-Zeile.
+                first_item = ""
+                for k in range(env_idx + 1, env_end):
+                    s = lines[k].lstrip(" ")
+                    if s and not s.startswith("#"):
+                        first_item = s
+                        break
+                if first_item.startswith("- "):
+                    new_line = item_indent_str + "- MQTT_BROKER_URL=mqtt://ycontrol-red:1883\\n"
+                else:
+                    new_line = item_indent_str + "MQTT_BROKER_URL: mqtt://ycontrol-red:1883\\n"
+                lines.insert(env_end, new_line)
+        else:
+            # environment-Schluessel fehlt komplett → nach volumes-Block (oder
+            # am Service-Ende) einfuegen.
+            insert_at = rt_end if rt_end is not None else len(lines)
+            lines.insert(insert_at, sub_indent_str + "environment:\\n")
+            lines.insert(insert_at + 1, item_indent_str + "MQTT_BROKER_URL: mqtt://ycontrol-red:1883\\n")
+
+    # 2) Top-Level networks: + ycontrol-net
+    top_networks_idx = None
+    for i, raw in enumerate(lines):
+        if raw.startswith("networks:"):
+            top_networks_idx = i
+            break
+    if top_networks_idx is None:
+        # Am Ende anhaengen.
+        if lines and not lines[-1].endswith("\\n"):
+            lines[-1] = lines[-1] + "\\n"
+        lines.append("\\n")
+        lines.append("networks:\\n")
+        lines.append("  ycontrol-net:\\n")
+        lines.append("    driver: bridge\\n")
+    else:
+        # Existiert ycontrol-net bereits?
+        end_idx = len(lines)
+        for j in range(top_networks_idx + 1, len(lines)):
+            raw = lines[j]
+            if raw and not raw.startswith(" ") and not raw.startswith("#") and raw.strip():
+                end_idx = j
+                break
+        block_text = "".join(lines[top_networks_idx:end_idx])
+        if "ycontrol-net:" not in block_text:
+            insert = top_networks_idx + 1
+            lines.insert(insert, "  ycontrol-net:\\n")
+            lines.insert(insert + 1, "    driver: bridge\\n")
+
+    # 3) Jeder Service haengt an ycontrol-net
+    for svc in ["ycontrol-rt-v3", "ycontrol-red", "ycontrol-log-db"]:
+        s_start, s_end, s_indent = _service_block(lines, svc)
+        if s_start is None:
+            continue
+        sub_indent_str = " " * (s_indent + 2)
+        item_indent_str = " " * (s_indent + 4)
+        nw_idx, nw_indent = _find_subkey_in_block(lines, s_start, s_end, s_indent, "networks")
+        if nw_idx is None:
+            insert_at = s_end
+            lines.insert(insert_at, sub_indent_str + "networks:\\n")
+            lines.insert(insert_at + 1, item_indent_str + "- ycontrol-net\\n")
+        else:
+            nw_end = _block_end(lines, nw_idx, nw_indent)
+            block_text = "".join(lines[nw_idx:nw_end])
+            if "ycontrol-net" not in block_text:
+                lines.insert(nw_end, item_indent_str + "- ycontrol-net\\n")
+
+    if lines == original:
+        return False
+
+    try:
+        # Einmaliges Backup, damit wir nicht bei jedem Agent-Start neue .baks erzeugen.
+        bak = compose_file + ".bak-precompose-patch"
+        if not os.path.exists(bak):
+            shutil.copyfile(compose_file, bak)
+    except Exception:
+        pass
+    tmp = compose_file + ".new"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    os.replace(tmp, compose_file)
+    print("[YControl] compose-Patch angewendet: " + compose_file)
+    return True
 
 def _swap_compose_image(compose_file, service, new_image):
     """Ersetzt den 'image:'-Wert eines bestimmten Service im Compose-File
@@ -671,6 +843,20 @@ def run_setup_mode():
             return
 
 def run_agent():
+    # Compose-File auf den Stand bringen: ycontrol-net + /boot/firmware-Mount
+    # + MQTT_BROKER_URL. Idempotent, macht nichts wenn schon ok.
+    try:
+        compose_path = "/home/pi/docker/docker-compose.yml"
+        if ensure_compose_patches(compose_path):
+            print("[YControl] compose-Patch: rufe 'docker compose up -d' auf, damit der Visu-Container die neuen Mounts/Env bekommt...")
+            try:
+                subprocess.run(_compose_cmd(compose_path, "up", "-d"),
+                               capture_output=True, text=True, timeout=300)
+            except Exception as ex:
+                print("[YControl] compose up nach Patch fehlgeschlagen: " + str(ex), file=sys.stderr)
+    except Exception as ex:
+        print("[YControl] compose-Patch Fehler: " + str(ex), file=sys.stderr)
+
     # Erste Hürde: ohne YControl-SN gehen wir in den Setup-Modus. Verhindert
     # dass run_setup() (das dieselbe SN ermittelt) den Pi mit der Hardware-
     # Seriennummer als Fallback bei der Cloud anmeldet.
